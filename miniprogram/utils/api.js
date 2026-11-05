@@ -322,6 +322,9 @@ module.exports = {
   // 批量回填：一次提交多条，后端整批校验归属、整批写入（不做半截成功）
   revenueBatch: (payload) =>
     request({ url: '/api/me/revenue/batch', method: 'POST', data: payload, toast: true }),
+  // 月度对账单：返回 CSV 文本，前端复制到剪贴板（小程序打不开 csv 文件）
+  // 不传账期即当月——路径固定，体检脚本才能核对服务端是否存在这个接口
+  revenueExport: () => request({ url: '/api/me/revenue/export' }),
 
   // —— 九大提示词库（V4.4，只读展示） ——
   prompts: () => request({ url: '/api/prompts' }),

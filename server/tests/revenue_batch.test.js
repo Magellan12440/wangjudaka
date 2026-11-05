@@ -13,7 +13,7 @@ import { db } from '../src/store/db.js';
 import { distributionHub } from '../src/distribution/DistributionHub.js';
 import { ledger } from '../src/ledger/Ledger.js';
 import { config } from '../src/config/env.js';
-import { revenueDashboard, batchFillRevenue } from '../src/api/routes.js';
+import { revenueDashboard, batchFillRevenue, revenueExport } from '../src/api/routes.js';
 
 let seq = 0;
 const mkUser = () => {
@@ -189,4 +189,48 @@ test('额度预警：余额低于阈值给 low，用完给 empty，充足时不�
   q = revenueDashboard(u).quota;
   assert.equal(q.level, 'empty');
   assert.ok(q.note.includes('用完'));
+});
+
+test('对账单导出：CSV 有 BOM、有表头、字段带引号、合计行对得上', () => {
+  const u = mkUser().id;
+  const p = mkProject(u, '对账, 带逗号的剧名');
+  const d = mkDist(u, p.id, 'PLT-HONGGUO');
+  distributionHub.recordRevenue(d.id, { amount: 100.5, period: '2026-10', settlementStatus: '已结算' });
+  distributionHub.recordRevenue(d.id, { amount: 200, period: '2026-10', settlementStatus: '待结算' });
+
+  const r = revenueExport(u, { period: '2026-10' });
+  assert.equal(r.rows, 2);
+  assert.equal(r.total, 300.5);
+  assert.ok(r.csv.startsWith('\ufeff'), '必须带 BOM，否则 Excel 打开乱码');
+  assert.ok(r.csv.includes('"账期","项目","平台"'), '表头要用平台中文名口径');
+  assert.ok(r.csv.includes('"对账, 带逗号的剧名"'), '含逗号的字段要被引号包住');
+  assert.ok(r.csv.includes('"合计"'));
+  assert.ok(r.csv.includes('"300.50"'));
+});
+
+test('对账单导出：按账期过滤，空账期不编造数据', () => {
+  const u = mkUser().id;
+  const p = mkProject(u, '分月剧');
+  const d = mkDist(u, p.id, 'PLT-HONGGUO');
+  distributionHub.recordRevenue(d.id, { amount: 50, period: '2026-09' });
+
+  const sep = revenueExport(u, { period: '2026-09' });
+  const nov = revenueExport(u, { period: '2026-11' });
+  assert.equal(sep.rows, 1);
+  assert.equal(nov.rows, 0);
+  assert.equal(nov.total, 0);
+  assert.ok(nov.note.includes('没有回填记录'));
+});
+
+test('对账单导出：不传账期时默认当月（小程序只有「本月」入口）', () => {
+  const u = mkUser().id;
+  const p = mkProject(u, '当月剧');
+  const d = mkDist(u, p.id, 'PLT-HONGGUO');
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  distributionHub.recordRevenue(d.id, { amount: 66, period: thisMonth });
+
+  const r = revenueExport(u, {});
+  assert.equal(r.period, thisMonth);
+  assert.equal(r.rows, 1);
+  assert.equal(r.total, 66);
 });

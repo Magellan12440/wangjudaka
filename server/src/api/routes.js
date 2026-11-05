@@ -275,8 +275,67 @@ function batchFillRevenue(userId, { period = null, items = [] } = {}) {
   return { written, period: periodOrDefault, items: clean };
 }
 
+/**
+ * 月度对账单（V4.5）：把 earnings 明细导成 CSV。
+ *
+ * 不直接吐 text/csv 流：小程序侧要拿到文件得 downloadFile + openDocument，
+ * csv 在微信里打不开；这里返回 { csv, filename, rows }，前端复制到剪贴板，
+ * 用户粘进 Excel/WPS 就能对账，路径最短。
+ */
+function revenueExport(userId, { period = null } = {}) {
+  const projects = db.find(PROJECTS, (p) => p.user_id === userId);
+  const nameById = new Map(projects.map((p) => [p.id, p.title]));
+  const ids = new Set(projects.map((p) => p.id));
+  // 缺省即当月：小程序只提供「本月对账单」一个入口，路径里不带参数便于前后端对齐校验
+  const p = /^\d{4}-\d{2}$/.test(String(period ?? ''))
+    ? String(period)
+    : new Date().toISOString().slice(0, 7);
+
+  let rows = ids.size ? db.find('earnings', (e) => ids.has(e.project_id)) : [];
+  if (p) rows = rows.filter((e) => String(e.period ?? '').slice(0, 7) === p);
+
+  const dist = new Map();
+  for (const pid of ids) for (const d of distributionHub.list(pid)) if (d) dist.set(d.id, d);
+
+  // 平台名、项目名必须是给人看的，导出里不能出现内部 code
+  const HEAD = ['账期', '项目', '平台', '集数', '金额(元)', '结算状态', '发票状态', '回填时间'];
+  const q = (c) => `"${String(c).replace(/"/g, '""')}"`;
+  const lines = [HEAD.map(q).join(',')];
+  let sum = 0;
+  for (const e of rows.sort((a, b) => String(a.period).localeCompare(String(b.period)))) {
+    const d = dist.get(e.distribution_id);
+    const code = d?.platform_code ?? d?.platform ?? e.platform ?? '';
+    const cells = [
+      String(e.period ?? '').slice(0, 7),
+      nameById.get(e.project_id) ?? '',
+      seeds.platform(code)?.name ?? code,
+      d?.episode ?? e.episode ?? '',
+      Number(e.gross_amount_cny ?? 0).toFixed(2),
+      e.settlement_status ?? '',
+      e.invoice_status ?? '',
+      String(e.created_at ?? '').slice(0, 19).replace('T', ' '),
+    ];
+    sum += Number(e.gross_amount_cny ?? 0) || 0;
+    // CSV 转义：字段里可能有逗号/引号，统一加引号并双写引号
+    lines.push(cells.map(q).join(','));
+  }
+  lines.push(['合计', '', '', '', sum.toFixed(2), '', '', ''].map(q).join(','));
+
+  const label = p ?? '全部';
+  return {
+    filename: `收益对账单_${label}.csv`,
+    period: p,
+    rows: rows.length,
+    total: +sum.toFixed(2),
+    csv: `\ufeff${lines.join('\r\n')}`, // BOM：Excel 直接双击打开不乱码
+    note: rows.length
+      ? '金额为你自己回填的口径；与平台结算单对账时以平台为准'
+      : '这个账期没有回填记录。先在收益看板「待回填」里填金额，再导出。',
+  };
+}
+
 /** 路由表：[method, pathPattern, handler] */
-export { revenueDashboard, batchFillRevenue };
+export { revenueDashboard, batchFillRevenue, revenueExport };
 
 export const routes = [
   // —— 基础 ——
@@ -1378,6 +1437,12 @@ export const routes = [
   ['POST', '/api/me/revenue/batch', async ({ req, body }) => {
     const userId = scopedUserId(req, {});
     return batchFillRevenue(userId, { period: body.period ?? null, items: body.items ?? [] });
+  }],
+
+  // 月度对账单 CSV（V4.5）：用户对账的第一个刚需
+  ['GET', '/api/me/revenue/export', async ({ req, query }) => {
+    const userId = scopedUserId(req, query);
+    return revenueExport(userId, { period: query.period ?? null });
   }],
 
   ['GET', '/api/wechat/status', async () => wechatClient.status()],
