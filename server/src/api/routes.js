@@ -38,6 +38,7 @@ import tryServeMedia from './media.js';
 import { parseMultipart, readRawBody } from './multipart.js';
 import materialService from '../assets/MaterialService.js';
 import authService from '../auth/AuthService.js';
+import { resolveScope, resolveOwnership } from '../auth/scope.js';
 import contentSecurity from '../security/ContentSecurity.js';
 import virtualPay from '../pay/VirtualPay.js';
 import wechatClient from '../wechat/WechatClient.js';
@@ -62,6 +63,27 @@ const PROJECTS = 'projects';
  * 所有创作类接口都从这里取项目，顺带完成归属校验 ——
  * 只要带登录态，就不能拿别人的项目 id 写东西。
  */
+/** 运维通道：带正确的 X-Admin-Token 时可按 ?userId= 代查（仅内部工作台使用） */
+function isOperator(req) {
+  const expect = config.admin?.token;
+  if (!expect) return false;
+  const got = String(req?.headers?.['x-admin-token'] ?? '');
+  return got.length > 0 && got === expect;
+}
+
+/** 取「当前用户 id」：口径统一在 auth/scope.js，这里只负责翻译成 HTTP 错误 */
+function scopedUserId(req, query = {}) {
+  const user = authService.optionalUser(req);
+  const r = resolveScope({
+    actorId: user?.id ?? null,
+    operator: isOperator(req),
+    production: config.server.env === 'production',
+    queryUserId: query.userId ?? null,
+  });
+  if (r.mode === 'denied') throw new AppError('AUTH_REQUIRED', '请先登录');
+  return r.userId;
+}
+
 function projectOf(req, projectId, { required = true } = {}) {
   if (!projectId) {
     if (!required) return null;
@@ -70,9 +92,14 @@ function projectOf(req, projectId, { required = true } = {}) {
   const p = db.findOne(PROJECTS, (x) => x.id === projectId);
   if (!p) throw new AppError('NOT_FOUND', '项目不存在');
   const actor = authService.optionalUser(req);
-  if (actor && p.user_id !== actor.id) {
-    throw new AppError('OBJECT_FORBIDDEN', '不能操作其他用户的项目');
-  }
+  const own = resolveOwnership({
+    actorId: actor?.id ?? null,
+    operator: isOperator(req),
+    production: config.server.env === 'production',
+    ownerId: p.user_id,
+  });
+  if (own === 'auth_required') throw new AppError('AUTH_REQUIRED', '请先登录');
+  if (own === 'forbidden') throw new AppError('OBJECT_FORBIDDEN', '不能操作其他用户的项目');
   return p;
 }
 
@@ -146,11 +173,12 @@ export const routes = [
   }],
 
   // —— 账户与点数 ——
-  ['GET', '/api/account/balance', async ({ query }) => {
-    const acc = ledger.ensureAccount(query.userId);
+  ['GET', '/api/account/balance', async ({ query, req }) => {
+    const uid = scopedUserId(req, query);
+    const acc = ledger.ensureAccount(uid);
     return { user_id: acc.user_id, balance_points: acc.balance_points, total_spent: acc.total_spent };
   }],
-  ['GET', '/api/account/entries', async ({ query }) => ledger.entries(query.userId, { limit: +(query.limit ?? 50) })],
+  ['GET', '/api/account/entries', async ({ query, req }) => ledger.entries(scopedUserId(req, query), { limit: +(query.limit ?? 50) })],
   ['POST', '/api/account/recharge', async ({ body }) => {
     // 生产环境（虚拟支付已配置）：此运维通道关闭，充值只认 /api/pay/virtual/notify 验签回调
     if (wechatClient.payConfigured) {
@@ -163,13 +191,11 @@ export const routes = [
       orderId: body.orderId ?? null,
     });
   }],
-  ['GET', '/api/account/reconcile', async ({ query }) => ledger.reconcile(query.userId)],
+  ['GET', '/api/account/reconcile', async ({ query, req }) => ledger.reconcile(scopedUserId(req, query))],
 
   // —— 首页聚合（V4.0）：一次请求拿到项目列表 + 统计，避免小程序首屏多次往返 ——
   ['GET', '/api/home', async ({ query, req }) => {
-    const user = authService.optionalUser(req);
-    const userId = user?.id ?? query.userId;
-    if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录');
+    const userId = scopedUserId(req, query);
     // 历史项目补序号（幂等），保证列表里的 #编号 稳定且不重复
     projectIndex.ensure(userId);
     const all = db.find(PROJECTS, (p) => p.user_id === userId && (query.includeArchived === '1' || p.archived !== true))
@@ -306,9 +332,7 @@ export const routes = [
   }],
   // 按编号找项目：项目多了以后「第 7 部」比标题更好用（只在本用户内查）
   ['GET', '/api/projects/lookup', async ({ query, req }) => {
-    const user = authService.optionalUser(req);
-    const userId = user?.id ?? query.userId;
-    if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录');
+    const userId = scopedUserId(req, query);
     projectIndex.ensure(userId);
     const p = projectIndex.findByNo(userId, query.no);
     if (!p) throw new AppError('NOT_FOUND', '没有这个编号的项目');
@@ -487,14 +511,16 @@ export const routes = [
       materials_used: (planRec?.materials_used ?? []).length,
     };
   }],
-  ['GET', '/api/projects', async ({ query }) => db.find(PROJECTS, (p) => p.user_id === query.userId
-    && (query.includeArchived === '1' || p.archived !== true))],
+  ['GET', '/api/projects', async ({ query, req }) => {
+    const uid = scopedUserId(req, query);
+    projectIndex.ensure(uid);
+    return db.find(PROJECTS, (p) => p.user_id === uid
+      && (query.includeArchived === '1' || p.archived !== true));
+  }],
 
   // —— 系列 / 续集（V4.1）：一季一个项目，资产归属当季，可跨季继承设定 ——
   ['GET', '/api/series', async ({ query, req }) => {
-    const user = authService.optionalUser(req);
-    const userId = user?.id ?? query.userId;
-    if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录');
+    const userId = scopedUserId(req, query);
     return seriesService.listSeries(userId);
   }],
   ['GET', '/api/projects/:id/series', async ({ params }) => seriesService.seriesOf(params.id)],
@@ -524,9 +550,7 @@ export const routes = [
 
   // —— 邀请裂变（V4.1）：专属码 / 我的邀请面板 / 绑定 ——
   ['GET', '/api/invite/me', async ({ query, req }) => {
-    const user = authService.optionalUser(req);
-    const userId = user?.id ?? query.userId;
-    if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录');
+    const userId = scopedUserId(req, query);
     return inviteService.dashboard(userId);
   }],
   ['POST', '/api/invite/bind', async ({ body, req }) => {
@@ -812,9 +836,7 @@ export const routes = [
   ['POST', '/api/produce/:jobId/resume', async ({ params }) => productionService.resume(params.jobId)],
   // 我的资产：所有项目的成片（系列剧逐集成片后统一汇总，便于一键分发）
   ['GET', '/api/me/films', async ({ query, req }) => {
-    const user = authService.optionalUser(req);
-    const userId = user?.id ?? query.userId;
-    if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录');
+    const userId = scopedUserId(req, query);
     return { items: productionService.myFilms(userId, { limit: +(query.limit ?? 100) }) };
   }],
 
@@ -1187,9 +1209,7 @@ export const routes = [
     return adminService.redeem({ userId, code: body.code });
   }],
   ['GET', '/api/redeem/mine', async ({ query, req }) => {
-    const user = authService.optionalUser(req);
-    const userId = user?.id ?? query.userId;
-    if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录');
+    const userId = scopedUserId(req, query);
     return { items: adminService.myRedeems(userId, { limit: +(query.limit ?? 50) }) };
   }],
 

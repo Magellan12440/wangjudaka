@@ -25,6 +25,7 @@ import { zipBuffer, crc32 } from '../src/util/zip.js';
 import authService from '../src/auth/AuthService.js';
 import editService from '../src/pipeline/EditService.js';
 import adminService from '../src/admin/AdminService.js';
+import { resolveScope, resolveOwnership } from '../src/auth/scope.js';
 import seeds from '../src/seeds/loader.js';
 
 let seq = 0;
@@ -218,4 +219,32 @@ test('分销资料包：材料齐备时 ready=true，缺件时不假装可提审
   if (!r.ready) {
     assert.ok(r.missing.length > 0, '未齐时必须列出缺什么');
   }
+});
+
+// —— 作用域收敛：生产环境不允许用 ?userId= 越权 ——
+test('作用域：生产环境无登录一律拒绝，不能靠 ?userId= 读别人数据', () => {
+  const denied = resolveScope({ actorId: null, operator: false, production: true, queryUserId: 'user_victim' });
+  assert.equal(denied.mode, 'denied');
+  assert.equal(denied.userId, null);
+  assert.equal(denied.reason, 'auth_required');
+});
+
+test('作用域：登录后以 token 为准，query 里的别人 userId 被忽略', () => {
+  const r = resolveScope({ actorId: 'user_me', production: true, queryUserId: 'user_victim' });
+  assert.equal(r.mode, 'self');
+  assert.equal(r.userId, 'user_me');
+});
+
+test('作用域：运维令牌可代查，开发环境保留 userId 回退', () => {
+  assert.equal(resolveScope({ operator: true, production: true, queryUserId: 'user_x' }).userId, 'user_x');
+  assert.equal(resolveScope({ production: false, queryUserId: 'user_x' }).mode, 'dev_fallback');
+  assert.equal(resolveScope({ production: false }).mode, 'denied');
+});
+
+test('归属：他人项目在生产环境返回 forbidden，运维放行', () => {
+  assert.equal(resolveOwnership({ actorId: 'a', ownerId: 'b', production: true }), 'forbidden');
+  assert.equal(resolveOwnership({ actorId: 'a', ownerId: 'a', production: true }), 'ok');
+  assert.equal(resolveOwnership({ ownerId: 'b', production: true }), 'auth_required');
+  assert.equal(resolveOwnership({ operator: true, ownerId: 'b', production: true }), 'ok');
+  assert.equal(resolveOwnership({ ownerId: 'b', production: false }), 'ok');
 });
