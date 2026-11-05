@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.4.1: 生产环境禁止下发短信测试码(防账号接管) +  九大提示词库强制注入生成链路 + 手机号/密码账号体系 + 收益看板 + 设计系统v3 + 剧名即建项目 + 项目索引隔离 + 剧壳片头片尾 + 逐集/全自动托管 + 一键备齐审核材料 + 实际消耗x2计费 + 每环节前五模型 + 管理台充值活动"
+MSG = "v4.5.0: 收益看板改以earnings账为准(修结算状态恒为0/平台归unknown) + 多平台批量回填一次提交 + 待回填清单 + 额度预警(低于阈值提醒充值) + 批量回填整批校验归属 + 10条收益回归测试"
 
 
 def api(method, path, payload=None, retries=3):
