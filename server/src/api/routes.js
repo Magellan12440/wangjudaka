@@ -334,6 +334,18 @@ function revenueExport(userId, { period = null } = {}) {
   };
 }
 
+/**
+ * 素材改编的准入校验（V4.6）。
+ * 用户明确选了「改编我的素材」，就不能在他还没传素材时凭空编一个故事塞给他——
+ * 那不是改编，是偷换。抽成纯函数便于单测。
+ */
+export function assertAdaptReady(spec = {}, digest = null) {
+  if (spec.origin === 'material' && !(digest && digest.text)) {
+    throw new AppError('MATERIAL_REQUIRED', '这条路是「改编我的素材」：先上传小说正文或剧本文本，再生成剧本');
+  }
+  return true;
+}
+
 /** 路由表：[method, pathPattern, handler] */
 export { revenueDashboard, batchFillRevenue, revenueExport };
 
@@ -556,6 +568,16 @@ export const routes = [
         video_type: body.videoType ?? 'dynamic',
         language: body.language ?? 'zh',
         prompt: body.prompt ?? null,
+        /**
+         * 创作来源（V4.6）：
+         *   idea     —— AI 出创意（默认，现有路径）
+         *   material —— 用户自带素材改编：系统必须沿用素材里的人物关系/世界观/关键情节
+         * 只是标记，但 plan 生成时会用它做硬校验（没有素材正文就不许生成）。
+         */
+        origin: body.origin === 'material' ? 'material' : 'idea',
+        /** 改编强度：faithful 忠于原著 / remix 按竖屏短剧重排（仅 origin=material 时有意义） */
+        adapt_mode: body.adaptMode === 'faithful' ? 'faithful'
+          : (body.adaptMode === 'remix' ? 'remix' : null),
         models: body.models ?? {},
         edit_profile: body.editProfile ?? 'ED-STD',
         ...(body.continuityFrom ? { continuity_from: body.continuityFrom } : {}),
@@ -821,6 +843,7 @@ export const routes = [
     const spec = p.spec ?? {};
     const prompt = spec.prompt || p.title || '未命名漫剧';
     const digest = materialService.digest(p.id);
+    assertAdaptReady(spec, digest);
     if (digest.text) {
       await contentSecurity.assertText({
         content: digest.text.slice(0, 2400),

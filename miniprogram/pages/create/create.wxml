@@ -25,12 +25,26 @@
       </view>
     </view>
 
-    <!-- STEP 1：只要一个剧名 -->
+    <!-- STEP 1：先决定故事从哪来，再填剧名 -->
     <block wx:if="{{step === 1}}">
-      <view class="h2 mt24">给你的剧起个名字</view>
-      <view class="sub mt8">这是全剧的总开关。有了剧名就能开项目，素材、剧本、模型都可以进去再改。</view>
+      <view class="h2 mt24">这个故事从哪来</view>
+      <view class="sub mt8">两条路都能拍。手上有现成的就选改编——系统会沿用你的人物和世界观，不另起炉灶。</view>
 
-      <view class="card mt24 rise d1">
+      <view class="origin-row mt16">
+        <view
+          wx:for="{{origins}}"
+          wx:key="key"
+          class="origin-card {{origin === item.key ? 'on' : ''}}"
+          data-key="{{item.key}}"
+          bindtap="pickOrigin"
+        >
+          <view class="origin-icon">{{item.icon}}</view>
+          <view class="origin-label">{{item.label}}</view>
+          <view class="origin-sub">{{item.sub}}</view>
+        </view>
+      </view>
+
+      <view class="card mt16 rise d1">
         <view class="field-label"><text>剧名</text><text class="opt">必填 · 最多 30 字</text></view>
         <input
           class="input {{typing ? 'input-focus' : ''}}"
@@ -45,30 +59,95 @@
           cursor-spacing="140"
         />
 
-        <view class="field-label mt24"><text>一句话创意</text><text class="opt">选填 · 之后可改</text></view>
-        <view class="prompt-wrap">
-          <textarea
-            class="textarea prompt-area"
-            placeholder="不说也行。上传小说正文或参考图后，系统会按素材来写。"
-            placeholder-class="input-ph"
-            value="{{prompt}}"
-            maxlength="300"
-            bindinput="onInput"
-            bindfocus="onFocus"
-            bindblur="onBlur"
-            cursor-spacing="160"
-            show-confirm-bar="{{false}}"
-          />
-          <view class="counter {{prompt.length > 260 ? 'warn' : ''}}">{{prompt.length}}/300</view>
-        </view>
-
-        <view class="field-label mt16"><text>没灵感？点一个开头</text><text class="opt">可直接改</text></view>
-        <view class="idea-grid">
-          <view wx:for="{{ideas}}" wx:key="*this" class="idea-card tap" hover-class="tap-on" data-text="{{item}}" bindtap="pickIdea">
-            <text class="idea-no">0{{index + 1}}</text>
-            <text class="idea-text">{{item}}</text>
+        <!-- 改编路线：正文才是真正的创作输入 -->
+        <block wx:if="{{origin === 'material'}}">
+          <view class="field-label mt24">
+            <text>你的正文</text>
+            <text class="opt">{{scriptChars}} 字 · 至少 {{minAdaptChars}}</text>
           </view>
-        </view>
+          <view class="prompt-wrap">
+            <textarea
+              class="textarea prompt-area adapt-area"
+              placeholder="把你小说/剧本的正文贴进来。系统会沿用里面的人物关系、世界观和关键情节来拆分剧集，而不是重新编一个。"
+              placeholder-class="input-ph"
+              value="{{scriptText}}"
+              maxlength="20000"
+              bindinput="onScriptText"
+              bindfocus="onFocus"
+              bindblur="onBlur"
+              cursor-spacing="160"
+              show-confirm-bar="{{false}}"
+            />
+            <view class="counter {{scriptChars && scriptChars < minAdaptChars ? 'warn' : ''}}">{{scriptChars}}/20000</view>
+          </view>
+          <view class="adapt-tools">
+            <view class="ghost-mini tap" hover-class="tap-on" bindtap="pickScriptFile">从聊天选 TXT</view>
+            <text class="tiny" wx:if="{{scriptName}}">{{scriptName}}</text>
+            <text class="tiny" wx:else>DOCX 建组后可在素材页选，自动取正文</text>
+          </view>
+
+          <view class="field-label mt24"><text>改到什么程度</text><text class="opt">决定 AI 的改写权限</text></view>
+          <view class="type-list">
+            <view
+              wx:for="{{adaptModes}}"
+              wx:key="key"
+              class="type-card {{adaptMode === item.key ? 'on' : ''}}"
+              data-key="{{item.key}}"
+              bindtap="pickAdaptMode"
+            >
+              <view class="type-radio {{adaptMode === item.key ? 'on' : ''}}"></view>
+              <view class="flex1">
+                <view class="type-name">{{item.label}}</view>
+                <view class="type-sub">{{item.sub}}</view>
+              </view>
+            </view>
+          </view>
+
+          <view class="field-label mt24"><text>这次改编的要点</text><text class="opt">选填 · 之后可改</text></view>
+          <view class="prompt-wrap">
+            <textarea
+              class="textarea"
+              style="height:140rpx"
+              placeholder="例如：只拍前三章；男主性格再狠一点；把双男主改成一人分饰"
+              placeholder-class="input-ph"
+              value="{{prompt}}"
+              maxlength="300"
+              bindinput="onInput"
+              bindfocus="onFocus"
+              bindblur="onBlur"
+              cursor-spacing="160"
+              show-confirm-bar="{{false}}"
+            />
+          </view>
+        </block>
+
+        <!-- AI 出创意：原来的路径，一个字没动 -->
+        <block wx:else>
+          <view class="field-label mt24"><text>一句话创意</text><text class="opt">选填 · 之后可改</text></view>
+          <view class="prompt-wrap">
+            <textarea
+              class="textarea prompt-area"
+              placeholder="不说也行。上传小说正文或参考图后，系统会按素材来写。"
+              placeholder-class="input-ph"
+              value="{{prompt}}"
+              maxlength="300"
+              bindinput="onInput"
+              bindfocus="onFocus"
+              bindblur="onBlur"
+              cursor-spacing="160"
+              show-confirm-bar="{{false}}"
+            />
+            <view class="counter {{prompt.length > 260 ? 'warn' : ''}}">{{prompt.length}}/300</view>
+          </view>
+
+          <view class="field-label mt16"><text>没灵感？点一个开头</text><text class="opt">可直接改</text></view>
+          <view class="idea-grid">
+            <view wx:for="{{ideas}}" wx:key="*this" class="idea-card tap" hover-class="tap-on" data-text="{{item}}" bindtap="pickIdea">
+              <text class="idea-no">0{{index + 1}}</text>
+              <text class="idea-text">{{item}}</text>
+            </view>
+          </view>
+        </block>
       </view>
 
       <view class="notice">
@@ -76,8 +155,8 @@
         <view class="flex1">剧名与创意会经过内容安全机审。请勿输入违法、暴力、色情或侵犯他人权益的内容。</view>
       </view>
 
-      <view class="btn btn-block mt32 {{canCreate ? 'tap' : 'btn-disabled'}}" hover-class="{{canCreate ? 'tap-on' : ''}}" bindtap="next">下一步：选设定</view>
-      <view class="footer-note">这一步不产生任何点数消耗</view>
+      <view class="btn btn-block mt32 {{canCreate ? 'tap' : 'btn-disabled'}}" hover-class="{{canCreate ? 'tap-on' : ''}}" bindtap="next">{{origin === 'material' ? '下一步：选风格与配比' : '下一步：选设定'}}</view>
+      <view class="footer-note">{{origin === 'material' ? '正文只用于本剧创作，不公开、不外传' : '这一步不产生任何点数消耗'}}</view>
     </block>
 
     <!-- STEP 2：设定 + 模型 + 剧壳 -->
@@ -99,7 +178,7 @@
               bindtap="pick"
             >{{item.name}}</view>
           </block>
-          <view wx:if="{{styles.length > 8}}" class="chip" data-field="styleCode" data-value="{{styleCode}}" bindtap="toggleAllStyles">{{showAllStyles ? '收起' : '全部 ' + styles.length}}</view>
+          <view wx:if="{{styles.length > 8}}" class="chip" data-field="styleCode" data-value="{{styleCode}}" bindtap="toggleAllStyles">{{showAllStyles ? '收起' : '全部 ' + styles.length + ' 种（含古风/仙侠/修真）'}}</view>
         </view>
         <view wx:if="{{stylesError}}" class="hint mt8">{{stylesError}}</view>
       </view>

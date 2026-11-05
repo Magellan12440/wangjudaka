@@ -12,8 +12,41 @@ const TABS = [
   { key: 'deliver', label: '成片' },
 ];
 
-const KIND_TEXT = { text: '文本', image: '图片', video: '视频', audio: '音频' };
-const KIND_ICON = { text: '文', image: '图', video: '影', audio: '声' };
+/**
+ * 改编流水线的阶段判定（V4.6）。
+ * 全部基于**真实产物**（素材条数 / 有没有大纲 / 资产数 / 出图数 / 成片数），
+ * 不做假进度：没有就是没有，用户点进去自己能看到。
+ */
+function buildAdaptFlow(s = {}) {
+  const steps = [
+    { key: 'material', label: '上传素材', tab: 'material', done: Number(s.materials || 0) > 0 },
+    { key: 'script', label: '生成剧本', tab: 'script', done: Boolean(s.hasPlan) },
+    { key: 'episode', label: '剧集划分', tab: 'script', done: Number(s.episodes || 0) > 1 },
+    { key: 'assets', label: '角色场景', tab: 'assets', done: Number(s.assets || 0) > 0 },
+    { key: 'shots', label: '分镜图', tab: 'gens', done: Number(s.shotImages || 0) > 0 },
+    { key: 'film', label: '剪辑成片', tab: 'deliver', done: Number(s.films || 0) > 0 },
+    { key: 'dist', label: '分发上架', tab: 'deliver', done: Number(s.delivered || 0) > 0 },
+  ];
+  const firstUndone = steps.findIndex((x) => !x.done);
+  if (firstUndone >= 0) steps[firstUndone].current = true;
+  const NEXT_TEXT = {
+    material: '先把小说/剧本正文贴进来——这是改编的原料',
+    script: '点「按我的素材生成剧本」，产出大纲与剧集',
+    episode: '确认集数与单集时长，再生成分镜',
+    assets: '生成角色/道具/场景资产，把造型锁死',
+    shots: '出分镜图，再转成视频',
+    film: '剪辑成片，合成字幕与配音',
+    dist: '备齐材料，上传到分发平台',
+  };
+  return {
+    total: steps.length,
+    done: steps.filter((x) => x.done).length,
+    steps,
+    next: firstUndone >= 0 ? NEXT_TEXT[steps[firstUndone].key] : '全部走完了，去分发页回填收益',
+  };
+}
+
+const KIND_TEXT = { text: '文本', image: '图片', video: '视频', audio: '音频' };const KIND_ICON = { text: '文', image: '图', video: '影', audio: '声' };
 
 const BGM_MODE_TEXT = {
   provided: '用户上传',
@@ -373,6 +406,10 @@ Page({
         aspect: spec.aspect || '9:16',
         videoType: spec.video_type || 'dynamic',
         prompt: spec.prompt || '',
+        // 创作来源（V4.6）：改编路线的文案与提示跟 AI 出创意不一样
+        origin: spec.origin === 'material' ? 'material' : 'idea',
+        adaptMode: spec.adapt_mode || null,
+        adaptModeText: spec.adapt_mode === 'faithful' ? '忠于原著' : '按短剧重排',
         createdAt: p.created_at,
         timeText: fmt.timeAgo(p.created_at),
         seasonNo: Number(p.season_no) || 1,
@@ -426,6 +463,18 @@ Page({
       deliveryDone: deliveryItems.filter((x) => x.ok).length,
       epList: Array.from({ length: Math.max(1, Number(episodes) || 1) }, (_, i) => i + 1),
       produceEp: this.data.produceEp && this.data.produceEp <= episodes ? this.data.produceEp : 1,
+      // 改编流水线（V4.6）：素材 → 剧本 → 资产 → 镜头 → 分发，用户随时知道自己在第几步
+      adaptFlow: buildAdaptFlow({
+        origin: spec.origin === 'material' ? 'material' : 'idea',
+        materials: (d.stats && d.stats.total) || (this.data.materialStats && this.data.materialStats.total) || 0,
+        hasPlan: Boolean(plan),
+        episodes: plan && plan.episodes ? plan.episodes : 0,
+        assets: assets.total,
+        shots: (d.shots || []).length,
+        shotImages: (d.shots || []).filter((s) => s.has_image || s.image_url).length,
+        films: (films || []).length,
+        delivered: deliveryItems.filter((x) => x.ok).length,
+      }),
     });
   },
 

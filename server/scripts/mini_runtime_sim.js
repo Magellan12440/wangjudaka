@@ -407,6 +407,65 @@ async function main() {
     ok('新一季属于同一系列', seasonRes.data.series && seasonRes.data.seasons.length === 2, String((seasonRes.data.seasons || []).length));
     ok('续集资产已继承', (seasonRes.data.shared_assets || []).length >= 1);
 
+    // —— 9.5 素材改编路线（V4.6）：贴正文 → 建项目 → 素材自动入库 → 按素材生成剧本 ——
+    const adaptPage = loadPage('pages/create/create.js');
+    adaptPage.onLoad();
+    adaptPage.onShow();
+    await sleep(500);
+    ok('创作页默认是 AI 出创意路线', adaptPage.data.origin === 'idea', adaptPage.data.origin);
+
+    adaptPage.pickOrigin({ currentTarget: { dataset: { key: 'material' } } });
+    adaptPage.onTitle({ detail: { value: '修真改编测试剧' } });
+    ok('改编路线：只有剧名不能建项目', adaptPage.data.canCreate === false);
+
+    adaptPage.onScriptText({ detail: { value: '第一章 少年出山。'.repeat(5) } });
+    ok('改编路线：正文不足 200 字仍不能建项目', adaptPage.data.canCreate === false,
+      String(adaptPage.data.scriptChars));
+
+    const longText = '第一章 少年出山\n青云宗外门弟子林昭，因灵根不纯被逐出山门。'
+      + '三年后他在后山寒潭中捞起一枚黑铁小剑，剑鸣如龙。'
+      + '宗门大比当日，他一剑破开护山大阵，众长老哗然。'
+      + '这段素材的核心是：被驱逐者的隐忍与回击，终点不是复仇而是证明。'.repeat(6);
+    adaptPage.onScriptText({ detail: { value: longText } });
+    ok('改编路线：正文够字数后可建项目', adaptPage.data.canCreate === true, String(adaptPage.data.scriptChars));
+    ok('改编路线：改编强度默认按短剧重排', adaptPage.data.adaptMode === 'remix', adaptPage.data.adaptMode);
+
+    navs.length = 0;
+    adaptPage.create();
+    await sleep(3500);
+    const adaptNav = navs.find((n) => n.includes('/pages/project/project'));
+    ok('改编路线创建后进入剧组', Boolean(adaptNav), adaptNav || '未跳转');
+    ok('改编路线落在素材 tab', Boolean(adaptNav && adaptNav.includes('tab=material')), adaptNav || '');
+
+    const adaptProjectId = adaptNav ? decodeURIComponent(adaptNav.split('id=')[1].split('&')[0]) : '';
+    if (adaptProjectId) {
+      const projRes = await fetch(`${BASE}/api/projects/${adaptProjectId}`, {
+        headers: { Authorization: `Bearer ${appInstance.globalData.token}` },
+      }).then((r) => r.json()).catch(() => null);
+      const proj = projRes && projRes.data;
+      ok('项目记录了素材改编来源', Boolean(proj && proj.spec && proj.spec.origin === 'material'),
+        JSON.stringify(proj && proj.spec && { o: proj.spec.origin, m: proj.spec.adapt_mode }));
+      ok('改编强度写进了项目规格', Boolean(proj && proj.spec && proj.spec.adapt_mode === 'remix'),
+        String(proj && proj.spec && proj.spec.adapt_mode));
+
+      // 正文必须真的落成素材，否则「改编」是空的
+      const matRes = await fetch(`${BASE}/api/projects/${adaptProjectId}/materials`, {
+        headers: { Authorization: `Bearer ${appInstance.globalData.token}` },
+      }).then((r) => r.json()).catch(() => null);
+      const matStats = matRes && matRes.data && matRes.data.stats;
+      ok('正文已自动存为素材', Boolean(matStats && matStats.total >= 1), JSON.stringify(matStats && matStats.total));
+
+      // 按素材生成剧本：这条路的终点是「真能出剧本」，不是只有 UI
+      const planRes = await fetch(`${BASE}/api/projects/${adaptProjectId}/plan`, {
+        method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${appInstance.globalData.token}` },
+        body: JSON.stringify({}),
+      }).then((r) => r.json()).catch(() => null);
+      const planData = planRes && planRes.data;
+      ok('按素材生成剧本能跑通', Boolean(planRes && planRes.ok && planData && planData.shots > 0),
+        JSON.stringify({ ok: planRes && planRes.ok, code: planRes && planRes.code, shots: planData && planData.shots }));
+      ok('剧本生成记录里带上了素材', Boolean(planData && planData.materials_used >= 1), String(planData && planData.materials_used));
+    }
+
     // —— 10. 第二部剧：只填剧名就开 + 索引隔离 + 托管生产 + 资料包如实缺件 ——
     const create2 = loadPage('pages/create/create.js');
     create2.onLoad();
