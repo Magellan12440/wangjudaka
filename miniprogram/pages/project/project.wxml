@@ -528,6 +528,12 @@
           <view wx:if="{{editError}}" class="hint mt8">{{editError}}</view>
 
           <block wx:if="{{edit}}">
+            <view wx:if="{{edit.noStoryboard}}" class="blocker mt12">
+              <text class="pill pill-gold">待分镜</text>
+              <text class="blocker-text">这部剧还没生成分镜，先回「流程」页把剧本和总谱跑出来，再回来剪片。</text>
+            </view>
+
+            <block wx:if="{{!edit.noStoryboard}}">
             <view class="kv mt8"><text class="kv-k">成片规格</text><text class="kv-v">{{edit.aspect}} · {{edit.resolution}} @ {{edit.fps}}fps</text></view>
             <view class="kv"><text class="kv-k">总时长 / 镜头</text><text class="kv-v">{{edit.totalSec}}s / {{edit.shotCount}} 镜</text></view>
             <view class="kv"><text class="kv-k">片段覆盖率</text><text class="kv-v">{{edit.coverage}}%{{edit.missing.length ? ' · 缺 ' + edit.missing.length + ' 镜' : ''}}</text></view>
@@ -544,11 +550,15 @@
               <text class="pill pill-red">{{item.code}}</text>
               <text class="blocker-text">{{item.shot ? item.shot + '：' : ''}}{{item.issue}}</text>
             </view>
+            </block>
 
+            <view wx:if="{{edit.noStoryboard}}" class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="goFlow">去生成剧本与分镜</view>
+            <block wx:else>
             <view class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="reloadEdit">{{editLoading ? '生成中…' : '生成剪辑单'}}</view>
             <view class="btn btn-block btn-ghost mt12 tap" hover-class="tap-on" bindtap="renderFilm">
               {{editBusy === 'render' ? '剪辑中…' : edit.ok ? '渲染成片并烧字幕' : '补齐片段后可渲染'}}
             </view>
+            </block>
           </block>
 
           <view wx:if="{{film}}" class="film-box mt16">
