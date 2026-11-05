@@ -1,0 +1,18 @@
+node_modules
+**/node_modules
+server/data
+server/data_test
+miniprogram
+docs
+*.md
+*.key
+private.*.key
+*.log
+.git
+.workbuddy
+# 凭据绝不进构建上下文：真实 Key 只放在云托管控制台的环境变量里
+**/.env
+**/.env.local
+# 发布包与本地产物
+dist
+*.tar.gz

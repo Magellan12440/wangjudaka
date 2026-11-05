@@ -1,0 +1,452 @@
+/**
+ * 小程序页面「运行时」自测（无微信开发者工具也能跑）。
+ *
+ * 做法：在 Node 里伪造 App / Page / wx / getApp 运行环境，直接 require 页面 js，
+ * 按真实生命周期（onLoad → onShow）把每个页面跑一遍，再对 page.data 断言。
+ *
+ * 与 check_miniprogram.js 的分工：
+ *   - check_miniprogram.js  = 静态体检（语法 / 结构 / 路径对齐）
+ *   - 本脚本                = 运行时体检（真实调接口、真实走 setData）
+ *
+ * 运行：npm run mini:sim
+ */
+import { spawn } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_ROOT = path.resolve(__dirname, '..');
+const MINI_ROOT = path.resolve(SERVER_ROOT, '../miniprogram');
+const PORT = Number(process.env.SIM_PORT || 8796);
+const BASE = `http://127.0.0.1:${PORT}`;
+
+let passed = 0;
+const failures = [];
+const toasts = [];
+const modals = [];
+const navs = [];
+
+function ok(name, cond, detail = '') {
+  if (cond) { passed += 1; console.log(`  ✅ ${name}`); }
+  else { failures.push(`${name}${detail ? ' → ' + detail : ''}`); console.log(`  ❌ ${name}${detail ? ' → ' + detail : ''}`); }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// —— 伪造 wx 运行时 ——
+const storage = new Map();
+
+function setByPath(obj, key, value) {
+  if (!key.includes('.')) { obj[key] = value; return; }
+  const parts = key.split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    if (cur[parts[i]] === undefined || cur[parts[i]] === null) cur[parts[i]] = {};
+    cur = cur[parts[i]];
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+const wx = {
+  request(opts) {
+    // 对齐小程序行为：GET 的 data 会被序列化进 query string
+    let url = opts.url;
+    const method = (opts.method || 'GET').toUpperCase();
+    let body;
+    if (method === 'GET') {
+      const qs = Object.entries(opts.data || {})
+        .filter(([, v]) => v !== undefined && v !== null && v !== '')
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+        .join('&');
+      if (qs) url += (url.includes('?') ? '&' : '?') + qs;
+    } else if (opts.data) {
+      body = JSON.stringify(opts.data);
+    }
+    fetch(url, { method, headers: opts.header || {}, body })
+      .then(async (r) => {
+        const text = await r.text();
+        let data = text;
+        try { data = JSON.parse(text); } catch { /* keep text */ }
+        opts.success && opts.success({ statusCode: r.status, data });
+      })
+      .catch((e) => opts.fail && opts.fail({ errMsg: String(e.message) }));
+  },
+  login({ success }) { success && success({ code: 'sim-code-fixed' }); },
+  getStorageSync: (k) => (storage.has(k) ? storage.get(k) : ''),
+  setStorageSync: (k, v) => storage.set(k, v),
+  removeStorageSync: (k) => storage.delete(k),
+  showToast: (o) => { toasts.push(o.title); },
+  showModal: (o) => {
+    modals.push({ title: o.title || '', content: o.content || '' });
+    o.success && o.success({ confirm: true, cancel: false, content: o.content || '' });
+  },
+  showActionSheet: (o) => { o.success && o.success({ tapIndex: 0 }); },
+  setClipboardData: (o) => { o.success && o.success({}); },
+  pageScrollTo: () => {},
+  stopPullDownRefresh: () => {},
+  switchTab: (o) => { navs.push(`switchTab:${o.url}`); o.success && o.success({}); },
+  navigateTo: (o) => { navs.push(`navigateTo:${o.url}`); o.success && o.success({}); },
+  redirectTo: (o) => { navs.push(`redirectTo:${o.url}`); o.success && o.success({}); },
+  setNavigationBarTitle: () => {},
+  getWindowInfo: () => ({ statusBarHeight: 44, windowWidth: 375, windowHeight: 667 }),
+  getMenuButtonBoundingClientRect: () => ({ top: 48, height: 32, left: 280, right: 368 }),
+  getPrivacySetting: (o) => { o.success && o.success({ needAuthorization: false }); },
+  openPrivacyContract: () => {},
+  previewImage: () => {},
+  requestVirtualPayment: (o) => { o.fail && o.fail({ errMsg: 'requestVirtualPayment:cancel' }); },
+};
+
+// —— 伪造 App 实例 ——
+let appInstance = null;
+function makeApp() {
+  const app = {
+    globalData: {
+      baseUrl: BASE, token: '', userId: '', balance: 0, loginMode: '', user: null,
+      statusBarHeight: 44, navBarHeight: 88, draftPrompt: '', selectedProjectId: '',
+    },
+    readyPromise: null,
+    ready() { return this.readyPromise || Promise.resolve(this.globalData); },
+    applyUser(d) {
+      if (!d || !d.user) return this.globalData;
+      this.globalData.user = d.user;
+      this.globalData.userId = d.user.id;
+      this.globalData.balance = d.user.balance_points || 0;
+      this.globalData.loginMode = d.mode || '';
+      return this.globalData;
+    },
+    refreshBalance() { return Promise.resolve(this.globalData.balance); },
+    relogin() { return this.login(); },
+    login() {
+      this.readyPromise = fetch(`${BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: 'sim-code-fixed' }),
+      })
+        .then((r) => r.json())
+        .then((body) => {
+          const d = body.data || {};
+          if (d.token) { this.globalData.token = d.token; storage.set('token', d.token); }
+          return this.applyUser(d);
+        });
+      return this.readyPromise;
+    },
+  };
+  return app;
+}
+
+function installGlobals() {
+  global.wx = wx;
+  global.getApp = () => appInstance;
+  global.App = (cfg) => { appInstance = Object.assign(cfg, cfg); };
+  global.getCurrentPages = () => [];
+}
+
+// —— 页面加载器 ——
+function loadPage(relPath) {
+  const req = createRequire(path.join(MINI_ROOT, relPath.replace(/\.js$/, '.js')));
+  let captured = null;
+  global.Page = (cfg) => { captured = cfg; };
+  const full = path.join(MINI_ROOT, relPath);
+  delete req.cache[req.resolve(full)];
+  req(full);
+  if (!captured) throw new Error(`页面未注册: ${relPath}`);
+  const page = Object.assign({}, captured);
+  page.data = JSON.parse(JSON.stringify(captured.data || {}));
+  page.setData = (patch, cb) => {
+    for (const [k, v] of Object.entries(patch || {})) setByPath(page.data, k, v);
+    if (typeof cb === 'function') cb();
+  };
+  return page;
+}
+
+async function waitHealth() {
+  for (let i = 0; i < 80; i += 1) {
+    try { const r = await fetch(`${BASE}/health`); if (r.ok) return true; } catch { /* not ready */ }
+    await sleep(150);
+  }
+  return false;
+}
+
+async function main() {
+  const child = spawn(process.execPath, ['src/index.js'], {
+    cwd: SERVER_ROOT,
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      DATA_DIR: path.join(os.tmpdir(), `wangjudaka-sim-${process.pid}-${Date.now()}`),
+      RELAY_MOCK: 'true',
+      NODE_ENV: 'test',
+      ADMIN_TOKEN: 'sim-admin-token',
+      WX_APPID: '', WX_SECRET: '', WX_PAY_OFFER_ID: '', WX_PAY_APP_KEY: '', RELAY_API_KEY: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log = '';
+  child.stdout.on('data', (d) => { log += d.toString(); });
+  child.stderr.on('data', (d) => { log += d.toString(); });
+
+  try {
+    if (!(await waitHealth())) throw new Error(`服务未启动\n${log}`);
+
+    installGlobals();
+    // 先按真实启动顺序跑 App.onLaunch：登录 → globalData 就绪
+    const appCfg = makeApp();
+    appInstance = appCfg;
+    await appCfg.login();
+    ok('启动登录拿到用户', Boolean(appInstance.globalData.userId), appInstance.globalData.userId);
+
+    // —— 1. 首页 ——
+    const index = loadPage('pages/index/index.js');
+    index.onLoad();
+    index.onShow();
+    await sleep(600);
+    ok('首页出骨架后拿到数据', index.data.loading === false && !index.data.error, index.data.error);
+    ok('首页统计已聚合', (index.data.stats.projects || 0) >= 0 && typeof index.data.stats.shots === 'number');
+    ok('首页隐私弹层默认关闭', index.data.privacyNeeded === false);
+
+    // 首页输入 → 跳创作
+    index.onInput({ detail: { value: '外卖员觉醒读心术，却发现老板才是幕后黑手' } });
+    index.startCreate();
+    ok('首页把创意带给创作页', appInstance.globalData.draftPrompt.length > 6);
+    ok('首页跳转到创作 tab', navs.some((n) => n.includes('/pages/create/create')));
+
+    // —— 2. 创作页 ——
+    const create = loadPage('pages/create/create.js');
+    create.onLoad();
+    create.onShow();
+    await sleep(600);
+    ok('创作页风格库加载 32 套', (create.data.styles || []).length === 32, String((create.data.styles || []).length));
+    ok('创作页带到首页创意', create.data.prompt.length > 6);
+    ok('创作页导演原型可用', (create.data.directors || []).length >= 1);
+
+    create.refreshQuote();
+    await sleep(500);
+    ok('报价返回预估点数', create.data.quote && create.data.quote.est_credits > 0, JSON.stringify(create.data.quote && create.data.quote.est_credits));
+    ok('报价文案已预计算', Boolean(create.data.quote && create.data.quote.time_text && create.data.quote.cny_text));
+
+    // 静态漫剧应比动态便宜（切参数后重新报价）
+    const dynamicCredits = create.data.quote.est_credits;
+    create.setData({ step: 2 }); // 只有第 2 步起改参数才会自动重算报价
+    create.pick({ currentTarget: { dataset: { field: 'videoType', value: 'static' } } });
+    await sleep(500);
+    ok('静态漫剧报价更低', create.data.quote.est_credits < dynamicCredits,
+      `${create.data.quote.est_credits} < ${dynamicCredits}`);
+
+    // —— 3. 真实建项目（走页面 create()，验证串起来的主链路）——
+    create.pick({ currentTarget: { dataset: { field: 'videoType', value: 'dynamic' } } });
+    await sleep(400);
+    // 本段验证「手动模式」的旧链路：创建后停在素材 tab，不自动生成
+    create.setData({ autoMode: false });
+    create.create();
+    await sleep(2400);
+    const projNav = navs.find((n) => n.includes('/pages/project/project'));
+    ok('创作完成后进入剧组', Boolean(projNav), projNav || '未跳转');
+    ok('首次进入带 setup 引导标记', String(projNav).includes('setup=1'), projNav || '');
+    ok('手动模式不带编排任务', !String(projNav).includes('oneshot='), projNav || '');
+    const projectId = projNav ? decodeURIComponent(projNav.split('id=')[1].split('&')[0]) : '';
+
+    // 充值：管理员发兑换码 → 用户兑换（顺带验证兑换写链路，镜头生成要花点数）
+    const codeRes = await fetch(`${BASE}/api/admin/redeem-codes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-token': 'sim-admin-token' },
+      body: JSON.stringify({ points: 500, count: 1 }),
+    }).then((r) => r.json()).catch(() => null);
+    const redeemCode = codeRes && codeRes.data && (codeRes.data.codes || [])[0];
+    ok('管理员可生成兑换码', Boolean(redeemCode), JSON.stringify(codeRes).slice(0, 100));
+    if (redeemCode) {
+      const rd = await fetch(`${BASE}/api/redeem`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userId: appInstance.globalData.userId, code: redeemCode }),
+      }).then((r) => r.json());
+      ok('兑换码可充值点数', Boolean(rd && rd.data && rd.data.balance >= 500), JSON.stringify(rd && rd.data && rd.data.balance));
+      appInstance.globalData.balance = (rd && rd.data && rd.data.balance) || 0;
+    }
+
+    // —— 4. 剧组：素材 → 剧本 → 逐镜出图 ——
+    const project = loadPage('pages/project/project.js');
+    project.onLoad({ id: projectId, fresh: '1', setup: '1' });
+    project.onShow();
+    await sleep(1000);
+    ok('剧组页加载成功', project.data.loading === false && !project.data.error, project.data.error);
+    ok('新项目默认停在素材 tab', project.data.tab === 'material', project.data.tab);
+    ok('新项目素材为空', (project.data.materials || []).length === 0, String((project.data.materials || []).length));
+    ok('12 节点泳道已建立', (project.data.nodes || []).length === 12, String((project.data.nodes || []).length));
+    const doneBefore = (project.data.nodes || []).filter((n) => n.status === 'done').length;
+    ok('未生成剧本时创作节点未点亮', doneBefore < 6, `done=${doneBefore}`);
+
+    // 上传小说正文作为剧本创作素材
+    project.openTextSheet();
+    project.onTextName({ detail: { value: '测试小说素材' } });
+    project.onTextBody({
+      detail: {
+        value: '第一场 夜 外 城中村天台\n李默握着一张被雨水泡皱的欠条，风把纸角掀起来，露出“叁拾万”三个字。\n'
+          + '他身后是整片出租屋的灯，像一盘没熄的炭。\n\n'
+          + '第二场 日 内 面馆\n老板娘把一碗面推过来，汤面浮着两片薄如纸的牛肉。\n'
+          + '“你爸那笔账，不该你来还。”她说。\n',
+      },
+    });
+    project.saveText();
+    await sleep(900);
+    ok('素材文本已入库', (project.data.materials || []).length >= 1, String((project.data.materials || []).length));
+    ok('素材统计已更新', (project.data.materialStats || {}).total >= 1, JSON.stringify(project.data.materialStats));
+
+    // 用素材生成剧本与分镜
+    project.generateScript();
+    await sleep(2600);
+    ok('生成后自动切到剧本 tab', project.data.tab === 'script', project.data.tab);
+    ok('剧本分集已就绪', (project.data.epOptions || []).length >= 1, String((project.data.epOptions || []).length));
+    ok('场次已渲染', (project.data.currentScenes || []).length >= 1, String((project.data.currentScenes || []).length));
+    ok('场次光影文案已预计算', (project.data.currentScenes || []).every((s) => typeof s.lockedText === 'string'));
+    ok('分镜卡已就绪', (project.data.shots || []).length > 0);
+    const doneAfter = (project.data.nodes || []).filter((n) => n.status === 'done').length;
+    ok('剧本生成后创作节点点亮', doneAfter >= 6, `done=${doneAfter}`);
+    ok('媒体节点未假装完成', (project.data.nodes || []).filter((n) => ['N08', 'N09', 'N10'].includes(n.id)).every((n) => n.status === 'pending'));
+    ok('剧组页进度百分比正确', project.data.progress.percent === Math.round((doneAfter / 12) * 100), String(project.data.progress.percent));
+    ok('交付清单 6 项', (project.data.deliveryItems || []).length === 6);
+    ok('角色资产已落库', (project.data.assets || {}).total >= 3, String(project.data.assets && project.data.assets.total));
+
+    // 视频必须先有关键帧（服务端闸门）
+    const shotNo = ((project.data.shots || [])[1] || {}).no;
+    modals.length = 0;
+    project.genShot({ currentTarget: { dataset: { no: shotNo, kind: 'video' } } });
+    await sleep(1200);
+    ok('无关键帧时视频被拦下', modals.some((m) => /关键帧/.test(m.content)), JSON.stringify(modals.slice(-1)));
+
+    // 按镜出关键帧
+    project.genShot({ currentTarget: { dataset: { no: shotNo, kind: 'image' } } });
+    await sleep(2600);
+    ok('逐镜出图成功', ((project.data.gens || {}).total || 0) >= 1, JSON.stringify(project.data.gens && project.data.gens.total));
+
+    project.switchTab({ currentTarget: { dataset: { tab: 'flow' } } });
+    ok('剧组页切 tab', project.data.tab === 'flow', project.data.tab);
+    project.toggleShots();
+    ok('分镜展开/收起可用', typeof project.data.shotLimit === 'number');
+
+    // —— 5. 分发中控 ——
+    const dist = loadPage('pages/distribute/distribute.js');
+    dist.onLoad();
+    await sleep(900);
+    ok('分发页加载项目列表', (dist.data.projects || []).length >= 1, String((dist.data.projects || []).length));
+    ok('分发页 8 个平台', (dist.data.platforms || []).length === 8, String((dist.data.platforms || []).length));
+    ok('分发页平台短名已算好', (dist.data.platforms || []).every((p) => p.short && p.cls), '');
+    ok('分发页收益政策可拉取', (dist.data.policies || []).length > 0);
+    dist.calculate();
+    await sleep(600);
+    ok('分发页收益测算出数', Boolean(dist.data.calc && dist.data.calc.net), JSON.stringify(dist.data.calc && dist.data.calc.net));
+
+    // 建一条分发任务 + 回填数据（验证写链路）
+    dist.setData({ projectId, sheetPlatform: dist.data.platforms[0] });
+    dist.createTask({ currentTarget: { dataset: { code: dist.data.platforms[0].code } } });
+    await sleep(800);
+    ok('分发任务创建成功', (dist.data.tasks || []).length >= 1, String((dist.data.tasks || []).length));
+    if ((dist.data.tasks || []).length) {
+      const t = dist.data.tasks[0];
+      dist.setData({ statsTask: t, statsForm: { views: '120000', likes: '8000', completion: '55' } });
+      dist.submitStats();
+      await sleep(700);
+      const after = (dist.data.tasks || []).find((x) => x.id === t.id);
+      ok('分发数据回填生效', Boolean(after && after.viewsText && after.viewsText !== '—'), after && after.viewsText);
+    }
+
+    // —— 6. 我的 ——
+    const mine = loadPage('pages/mine/mine.js');
+    mine.onShow();
+    await sleep(900);
+    ok('我的页用户信息就绪', Boolean(mine.data.userId) && mine.data.loading === false);
+    ok('我的页点数档位可拉取', (mine.data.packages || []).length > 0);
+    ok('我的页充值文案已生成', /¥/.test(mine.data.payText || ''), mine.data.payText);
+    ok('我的页余额为数字', typeof mine.data.balance === 'number');
+    mine.openRecharge();
+    ok('我的页充值弹层可打开', mine.data.sheet === 'recharge' || mine.data.sheet === '', mine.data.sheet);
+    mine.closeSheet();
+    mine.openRedeem();
+    ok('我的页兑换弹层可打开', mine.data.sheet === 'redeem');
+    mine.closeSheet();
+
+    // —— 7. 邀请页（裂变）——
+    const invite = loadPage('pages/invite/invite.js');
+    invite.onLoad();
+    await sleep(700);
+    ok('邀请页拿到专属邀请码', /^[A-Z2-9]{6}$/.test(invite.data.code), invite.data.code);
+    ok('邀请页显示奖励额度', invite.data.reward > 0, String(invite.data.reward));
+    ok('邀请页有规则说明', (invite.data.rules || []).length >= 3);
+    ok('邀请页统计结构完整', typeof invite.data.stats.pending === 'number' && typeof invite.data.stats.rewarded === 'number');
+    const share = invite.onShareAppMessage();
+    ok('分享链接带邀请码', String(share.path).includes(`inviteCode=${invite.data.code}`), share.path);
+
+    // —— 8. 我的页邀请入口 ——
+    mine.openInvite();
+    ok('我的页可进入邀请页', navs.some((n) => n.includes('/pages/invite/invite')));
+
+    // —— 9. 续集：以第一季为参考开第二季 ——
+    project.setData({ seriesInfo: { seasons: [{ id: projectId }], shared_assets: [{ name: '甲' }], series: null } });
+    project.doCreateSeason(2);
+    await sleep(2600);
+    ok('续集创建后跳到新一季', navs.some((n) => n.startsWith('redirectTo:/pages/project/project?id=')), navs.slice(-2).join(' | '));
+    const seasonNav = navs.filter((n) => n.startsWith('redirectTo:/pages/project/project?id=')).pop();
+    const seasonId = seasonNav ? seasonNav.split('id=')[1].split('&')[0] : '';
+    const seasonRes = await fetch(`${BASE}/api/projects/${seasonId}/series`).then((r) => r.json());
+    ok('新一季属于同一系列', seasonRes.data.series && seasonRes.data.seasons.length === 2, String((seasonRes.data.seasons || []).length));
+    ok('续集资产已继承', (seasonRes.data.shared_assets || []).length >= 1);
+
+    // —— 10. 一句话成剧：自动模式建项目 → 编排任务 → 剧组页进度卡 ——
+    const create2 = loadPage('pages/create/create.js');
+    create2.onLoad();
+    create2.onShow();
+    await sleep(500);
+    create2.setData({ step: 3, prompt: '外卖员觉醒读心术，一句话直出一集', autoMode: true });
+    navs.length = 0;
+    create2.create();
+    await sleep(3000);
+    const autoNav = navs.find((n) => n.includes('/pages/project/project'));
+    ok('一句话直出带编排任务号', Boolean(autoNav && autoNav.includes('oneshot=')), autoNav || '未跳转');
+    const autoProjectId = autoNav ? autoNav.split('id=')[1].split('&')[0] : '';
+    const autoRunId = autoNav && autoNav.includes('oneshot=') ? autoNav.split('oneshot=')[1] : '';
+    const runRes = autoRunId ? await fetch(`${BASE}/api/oneshot/${autoRunId}`).then((r) => r.json()) : { data: null };
+    const run = runRes.data || {};
+    ok('编排任务已建且首步已跑', Boolean(run.id) && Array.isArray(run.steps) && run.steps.length === 3, JSON.stringify(run.status));
+    ok('首步产出剧本与分镜', (run.steps || []).some((s) => s.key === 'plan' && s.summary && s.summary.shots > 0),
+      JSON.stringify((run.steps || [])[0] && (run.steps || [])[0].summary));
+
+    const autoProject = loadPage('pages/project/project.js');
+    autoProject.onLoad({ id: autoProjectId, fresh: '1', setup: '1', oneshot: autoRunId });
+    autoProject.onShow();
+    await sleep(2200);
+    autoProject.stopOneshot();
+    ok('剧组页拿到编排进度', Boolean(autoProject.data.os) && (autoProject.data.os.steps || []).length === 3,
+      JSON.stringify(autoProject.data.os && autoProject.data.os.status));
+    ok('编排进度卡优先停在流程 tab', autoProject.data.tab === 'flow', autoProject.data.tab);
+
+    // 交付 tab：剪辑单
+    autoProject.switchTab({ currentTarget: { dataset: { tab: 'deliver' } } });
+    await sleep(1200);
+    if (autoProject.data.edit) {
+      ok('交付 tab 拿到剪辑单', autoProject.data.edit.shotCount > 0, `shots=${autoProject.data.edit.shotCount}`);
+      ok('剪辑单含字幕与声音', autoProject.data.edit.subtitleCount > 0 && autoProject.data.edit.sfxCount >= 0,
+        `srt=${autoProject.data.edit.subtitleCount} sfx=${autoProject.data.edit.sfxCount}`);
+      ok('剪辑单标明缺片段', autoProject.data.edit.coverage <= 100, String(autoProject.data.edit.coverage));
+    } else {
+      ok('交付 tab 拿到剪辑单', false, autoProject.data.editError || '无剪辑单');
+    }
+
+    // —— 11. 协议页 ——
+    const legal = loadPage('pages/legal/legal.js');
+    legal.onLoad({ type: 'privacy' });
+    ok('协议页可切到隐私政策', legal.data.doc.title === '隐私政策', legal.data.doc.title);
+    legal.switchDoc({ currentTarget: { dataset: { type: 'ai' } } });
+    ok('协议页可切到 AI 说明', legal.data.doc.title.includes('AI'));
+
+    console.log(`\n=== 小程序页面运行时自测：${passed} 通过 / ${failures.length} 失败 ===`);
+    if (failures.length) process.exitCode = 1;
+  } finally {
+    child.kill();
+  }
+}
+
+main().catch((e) => {
+  console.error('自测执行异常:', e && e.stack ? e.stack : e);
+  process.exitCode = 1;
+});

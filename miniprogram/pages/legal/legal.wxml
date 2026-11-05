@@ -1,0 +1,58 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-c"></view>
+  </view>
+
+  <!-- 吸顶分段 -->
+  <view class="legal-top">
+    <view class="seg legal-seg">
+      <view class="seg-ind" style="{{indStyle}}"></view>
+      <view
+        wx:for="{{tabs}}"
+        wx:key="key"
+        class="seg-item {{tabIndex === index ? 'on' : ''}}"
+        hover-class="tap-on"
+        data-type="{{item.key}}"
+        bindtap="switchDoc"
+      >{{item.label}}</view>
+    </view>
+  </view>
+
+  <view class="layer legal-layer">
+    <view class="doc-head">
+      <view class="eyebrow">LEGAL</view>
+      <view class="h1 mt16">{{doc.title}}</view>
+      <view class="doc-meta">
+        <text class="pill pill-gray pill-no-dot">更新于 {{doc.updated}}</text>
+        <text class="tiny">共 {{doc.sections.length}} 章</text>
+      </view>
+    </view>
+
+    <view class="intro-card">
+      <view class="intro-mark">“</view>
+      <view class="intro-text">{{doc.intro}}</view>
+    </view>
+
+    <view class="sec" wx:for="{{doc.sections}}" wx:for-item="sec" wx:for-index="si" wx:key="h">
+      <view class="sec-head">
+        <text class="sec-no num">{{si + 1}}</text>
+        <text class="sec-title">{{sec.h}}</text>
+      </view>
+      <view class="sec-para" wx:for="{{sec.p}}" wx:for-item="para" wx:key="*this">{{para}}</view>
+    </view>
+
+    <view class="contact-card">
+      <view class="between">
+        <view class="flex1">
+          <view class="h3">还有疑问？</view>
+          <view class="tiny mt8">我们会在 15 个工作日内答复</view>
+        </view>
+        <view class="btn btn-sm btn-plain" bindtap="copySupport">复制邮箱</view>
+      </view>
+      <view class="contact-mail mono">{{supportEmail}}</view>
+    </view>
+
+    <view class="footer-note">网剧大咖 · 本页内容自 {{doc.updated}} 起生效</view>
+    <view class="safe-bottom"></view>
+  </view>
+</view>

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>无限画布 · 网剧大咖</title>
+  <link rel="stylesheet" href="common.css">
+  <link rel="stylesheet" href="canvas.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">无限画布 <small>PC 端 / Blueprint DAG</small></div>
+    <a class="btn sm" href="index.html">← 首页</a>
+    <div class="spacer"></div>
+    <label class="small muted" for="projectSel">项目</label>
+    <select id="projectSel" style="min-width:160px"></select>
+    <button class="btn sm" id="btnNewProject" title="创建一个用于联调的演示项目">+ 演示项目</button>
+    <label class="small muted" for="tplSel">模板</label>
+    <select id="tplSel" style="min-width:140px"></select>
+    <button class="btn sm primary" id="btnNewRun">创建运行</button>
+    <label class="small muted" for="runSel">运行</label>
+    <select id="runSel" style="min-width:150px"></select>
+    <button class="btn sm" id="btnRefresh">刷新</button>
+    <button class="btn sm" id="btnFit">适应视图</button>
+    <button class="btn sm primary" id="btnSave">保存布局</button>
+    <button class="btn sm danger" id="btnReset">重置布局</button>
+    <span id="dirty" class="small hidden"><span class="dirty-dot"></span>未保存</span>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <h3>运行概览</h3>
+      <div class="card">
+        <div class="stat-grid">
+          <div class="stat"><b id="stTotal">0</b><span>节点总数</span></div>
+          <div class="stat"><b id="stDone">0</b><span>已完成</span></div>
+          <div class="stat"><b id="stProgress">0%</b><span>进度</span></div>
+          <div class="stat"><b id="stCredits">0</b><span>累计点数</span></div>
+        </div>
+      </div>
+
+      <h3>项目关联</h3>
+      <div class="card">
+        <dl class="kv">
+          <dt>模板</dt><dd id="infoTpl">—</dd>
+          <dt>运行状态</dt><dd id="infoStatus">—</dd>
+          <dt>总谱</dt><dd id="infoPlan">未生成</dd>
+          <dt>质检 KPI</dt><dd id="infoQc">—</dd>
+          <dt>布局来源</dt><dd id="infoLayout">—</dd>
+        </dl>
+      </div>
+
+      <h3>操作说明</h3>
+      <div class="card hint">
+        拖动节点改坐标；滚轮缩放；空白处拖动平移；点击节点在右侧推进状态。<br><br>
+        节点定义（状态 / 闸门 / 模型 / 消耗）来自 DAG，画布只保存坐标与视口，无法篡改流程事实。
+      </div>
+
+      <div class="notice warn">小程序纵向泳道与本页面共用同一份 <span class="mono">/api/canvas/:runId/graph</span> 输出。</div>
+    </aside>
+
+    <main class="stage">
+      <div class="viewport" id="viewport">
+        <div class="world" id="world">
+          <svg id="edges" aria-hidden="true">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#b6c1d4"></path>
+              </marker>
+            </defs>
+            <g id="edgeLayer"></g>
+          </svg>
+          <div id="nodesLayer"></div>
+        </div>
+        <div class="empty-hint" id="emptyHint">
+          <b>还没有运行</b>
+          先在右上角创建演示项目，再选模板点「创建运行」；或用已有项目切换。
+        </div>
+      </div>
+      <div class="zoombar">
+        <button class="btn sm" id="btnZoomOut">−</button>
+        <span id="zoomText">100%</span>
+        <button class="btn sm" id="btnZoomIn">+</button>
+        <button class="btn sm" id="btnZoomReset">1:1</button>
+      </div>
+    </main>
+
+    <aside class="inspector">
+      <h3>节点详情</h3>
+      <div class="card" id="nodePanel">
+        <p class="hint">点击画布中的节点查看与推进状态。</p>
+      </div>
+      <h3>依赖边</h3>
+      <div class="card hint" id="edgeInfo">—</div>
+      <h3>闸门</h3>
+      <div class="card hint" id="gateInfo">—</div>
+    </aside>
+  </div>
+
+  <script src="common.js"></script>
+  <script src="canvas.js"></script>
+</body>
+</html>

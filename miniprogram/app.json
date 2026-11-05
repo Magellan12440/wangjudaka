@@ -1,0 +1,56 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/create/create",
+    "pages/distribute/distribute",
+    "pages/mine/mine",
+    "pages/project/project",
+    "pages/invite/invite",
+    "pages/legal/legal"
+  ],
+  "window": {
+    "backgroundTextStyle": "dark",
+    "navigationBarBackgroundColor": "#080A0F",
+    "navigationBarTitleText": "网剧大咖",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#080A0F",
+    "backgroundColorTop": "#080A0F",
+    "backgroundColorBottom": "#080A0F"
+  },
+  "tabBar": {
+    "color": "#8D97A9",
+    "selectedColor": "#F2C14E",
+    "backgroundColor": "#0B0E14",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "assets/tab/home.png",
+        "selectedIconPath": "assets/tab/home-on.png"
+      },
+      {
+        "pagePath": "pages/create/create",
+        "text": "创作",
+        "iconPath": "assets/tab/create.png",
+        "selectedIconPath": "assets/tab/create-on.png"
+      },
+      {
+        "pagePath": "pages/distribute/distribute",
+        "text": "分发",
+        "iconPath": "assets/tab/distribute.png",
+        "selectedIconPath": "assets/tab/distribute-on.png"
+      },
+      {
+        "pagePath": "pages/mine/mine",
+        "text": "我的",
+        "iconPath": "assets/tab/mine.png",
+        "selectedIconPath": "assets/tab/mine-on.png"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents",
+  "__usePrivacyCheck__": true
+}

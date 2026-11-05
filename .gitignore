@@ -1,0 +1,23 @@
+# 依赖
+node_modules/
+
+# 凭据与环境
+server/.env.local
+.env
+*.key
+private.*.key
+
+# 运行时数据与产物
+server/data/
+server/data_test/
+miniprogram/dist/
+*.log
+.DS_Store
+
+# 打包产物
+dist/
+*.tar.gz
+
+# 工作台数据
+.workbuddy/
+server/data_test_*/

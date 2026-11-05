@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>网剧大咖 · 管理员后台</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    .wrap { max-width: 1180px; margin: 26px auto; padding: 0 20px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 960px) { .grid-2 { grid-template-columns: 1fr; } }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+    .pkg-off { opacity: .55; }
+    .code-cell { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+    #gate { max-width: 460px; margin: 90px auto; }
+    #app { display: none; }
+    .codes-out { max-height: 260px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 10px 12px; }
+    .codes-out div { line-height: 1.9; }
+    .stat-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    @media (max-width: 960px) { .stat-grid-4 { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">网剧大咖 <small>管理员后台 · V3.6</small></div>
+    <div class="spacer"></div>
+    <a href="index.html">返回工作台</a>
+    <span class="tag warn">管理端接口均需 X-Admin-Token</span>
+  </header>
+
+  <!-- 令牌门禁：令牌只存 sessionStorage，关页即清 -->
+  <div class="card" id="gate">
+    <h3>管理员登录</h3>
+    <p class="hint">输入服务端 <span class="mono">ADMIN_TOKEN</span>（在 server/.env.local 中配置）。令牌仅保存在当前标签页会话，不会上传或持久化到本地磁盘。</p>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="tokenInput" placeholder="ADMIN_TOKEN" style="flex:1" autocomplete="off">
+      <button class="btn primary" id="btnLogin">进入</button>
+    </div>
+    <div class="notice err" id="gateErr" style="display:none;margin-top:10px"></div>
+  </div>
+
+  <div class="wrap" id="app">
+    <!-- 概览 -->
+    <div class="card">
+      <h3>经营概览 <button class="btn sm" id="btnRefresh" style="float:right">刷新</button></h3>
+      <div class="stat-grid-4" id="ovStats"></div>
+    </div>
+
+    <div class="grid-2" style="margin-top:16px">
+      <!-- 充值档次 -->
+      <div class="card">
+        <h3>充值档次（小程序「我的」页实时生效）</h3>
+        <div class="form-grid">
+          <div><label class="fld">名称</label><input type="text" id="pkgName" placeholder="如：创作包"></div>
+          <div><label class="fld">点数</label><input type="number" id="pkgPoints" placeholder="500" min="1"></div>
+          <div><label class="fld">赠送点数（福利）</label><input type="number" id="pkgBonus" placeholder="30" min="0" value="0"></div>
+          <div><label class="fld">售价（元）</label><input type="number" id="pkgPrice" placeholder="500" min="0.01" step="0.01"></div>
+          <div><label class="fld">排序（小在前）</label><input type="number" id="pkgSort" placeholder="0" value="0"></div>
+          <div><button class="btn primary" id="btnPkgCreate">新建档次</button></div>
+        </div>
+        <div style="overflow:auto;margin-top:12px">
+          <table>
+            <thead><tr><th>名称</th><th>点数</th><th>赠送</th><th>售价</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="pkgRows"></tbody>
+          </table>
+        </div>
+        <p class="hint">下架后小程序不再展示，但不影响已购用户余额。修改立即生效，无需发版。</p>
+      </div>
+
+      <!-- 兑换码生成 -->
+      <div class="card">
+        <h3>生成兑换码</h3>
+        <div class="form-grid">
+          <div><label class="fld">面额（点数）</label><input type="number" id="rcPoints" placeholder="200" min="1"></div>
+          <div><label class="fld">赠送点数</label><input type="number" id="rcBonus" placeholder="0" min="0" value="0"></div>
+          <div><label class="fld">数量</label><input type="number" id="rcCount" placeholder="10" min="1" max="500" value="10"></div>
+          <div><label class="fld">前缀</label><input type="text" id="rcPrefix" placeholder="LW" value="LW" maxlength="8"></div>
+          <div><label class="fld">有效期（天）</label><input type="number" id="rcDays" placeholder="90" min="1" value="90"></div>
+          <div><label class="fld">每码可用次数</label><input type="number" id="rcMaxUses" placeholder="1" min="1" value="1"></div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <input type="text" id="rcNote" placeholder="备注（仅管理端可见，如：内测福利）" style="flex:1" maxlength="100">
+          <button class="btn primary" id="btnGen">生成</button>
+        </div>
+        <div id="genResult" style="display:none;margin-top:12px">
+          <div class="row" style="margin-bottom:8px">
+            <span class="badge ok" id="genMeta"></span>
+            <button class="btn sm" id="btnCopyCodes">复制全部</button>
+            <button class="btn sm" id="btnDlCodes">下载清单</button>
+          </div>
+          <div class="codes-out mono" id="genCodes"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 兑换码列表 -->
+    <div class="card" style="margin-top:16px">
+      <h3>兑换码管理</h3>
+      <div class="row" style="margin-bottom:10px">
+        <select id="fltStatus">
+          <option value="">全部状态</option>
+          <option value="active">有效</option>
+          <option value="revoked">已作废</option>
+        </select>
+        <button class="btn sm" id="btnFlt">查询</button>
+        <span class="hint" id="codeStats"></span>
+      </div>
+      <div style="overflow:auto">
+        <table>
+          <thead><tr><th>兑换码</th><th>面额</th><th>已用/上限</th><th>有效期至</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>
+          <tbody id="codeRows"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn sm" id="btnPrev">上一页</button>
+        <span class="hint" id="pageInfo"></span>
+        <button class="btn sm" id="btnNext">下一页</button>
+      </div>
+    </div>
+    <!-- 邀请裂变 -->
+    <div class="card" style="margin-top:16px">
+      <h3>邀请裂变（1 点 = 1 元算力额度）</h3>
+      <div class="stat-grid-4" id="invStats"></div>
+      <div class="form-grid" style="margin-top:14px">
+        <div><label class="fld">奖励点数 / 每邀请</label><input type="number" id="invReward" min="0.01" step="0.01"></div>
+        <div><label class="fld">每人每日奖励笔数上限</label><input type="number" id="invDaily" min="1" step="1"></div>
+        <div><label class="fld">同 IP 每日绑定上限</label><input type="number" id="invIp" min="1" step="1"></div>
+        <div><label class="fld">新用户可绑定窗口（小时）</label><input type="number" id="invWindow" min="1" step="1"></div>
+        <div><label class="fld">发放条件</label>
+          <select id="invMilestone">
+            <option value="1">好友完成首部作品才发（推荐）</option>
+            <option value="0">注册即发（易被批量注册薅）</option>
+          </select>
+        </div>
+        <div><button class="btn primary" id="btnInvSave">保存规则</button></div>
+      </div>
+      <p class="hint">规则保存后立即生效。已发出的奖励不受影响；判定为无效的记录可随时撤销（已发奖励会从余额扣回）。</p>
+
+      <div class="row" style="margin:14px 0 10px">
+        <select id="fltInvStatus">
+          <option value="">全部状态</option>
+          <option value="pending">待完成作品</option>
+          <option value="qualified">已达标待发放</option>
+          <option value="rewarded">已发放</option>
+          <option value="rejected">已判定无效</option>
+        </select>
+        <button class="btn sm" id="btnInvFlt">查询</button>
+        <span class="hint" id="invReasons"></span>
+      </div>
+      <div style="overflow:auto">
+        <table>
+          <thead><tr><th>邀请人</th><th>被邀请人</th><th>邀请码</th><th>状态</th><th>奖励</th><th>时间</th><th>操作</th></tr></thead>
+          <tbody id="invRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="common.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

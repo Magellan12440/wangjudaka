@@ -1,0 +1,259 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-a"></view>
+    <view class="aurora-b"></view>
+    <view class="aurora-c"></view>
+  </view>
+
+  <!-- 自定义导航（避开右上角胶囊） -->
+  <view class="nav {{navSolid ? 'nav-solid' : ''}}" style="padding-top:{{navStatus}}px">
+    <view class="nav-inner">
+      <view class="brand">
+        <view class="brand-mark">咖</view>
+        <view>
+          <view class="brand-name">网剧大咖</view>
+          <view class="brand-sub">AI 短剧制作台</view>
+        </view>
+      </view>
+      <view class="nav-right">
+        <view class="balance-pill tap" hover-class="tap-on" bindtap="goMine">◈ {{balance}} 点</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="hero layer">
+    <view class="hero-kicker">ONESHOT STUDIO · 项目制创作</view>
+    <view class="hero-title">
+      <view>一句灵感，</view>
+      <view class="accent">开机一部网剧</view>
+    </view>
+    <view class="hero-desc">先建组，再开拍。小说、参考图、参考视频都放进项目，</view>
+    <view class="hero-desc" style="margin-top:2rpx">剧本、分镜、关键帧与成片在同一条流水线上跑完。</view>
+
+    <view class="card stat-strip rise d2">
+      <view class="stat">
+        <view class="stat-value num">{{statProjects}}</view>
+        <view class="stat-label">作品</view>
+      </view>
+      <view class="stat-divider"></view>
+      <view class="stat">
+        <view class="stat-value num">{{statEpisodes}}</view>
+        <view class="stat-label">规划集数</view>
+      </view>
+      <view class="stat-divider"></view>
+      <view class="stat">
+        <view class="stat-value num">{{statShots}}</view>
+        <view class="stat-label">分镜</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="pad layer">
+    <!-- 开新剧 -->
+    <view class="card hero-create rise d3">
+      <view class="between">
+        <view class="row">
+          <view class="step-badge">01</view>
+          <view class="h2" style="margin-left:14rpx">开一新剧</view>
+        </view>
+        <view class="pill pill-gold pill-no-dot">先建项目</view>
+      </view>
+      <view class="sub mt8">项目是创作的容器：素材、剧本、分镜、成片都归属于它。</view>
+
+      <view class="prompt-wrap mt24">
+        <textarea
+          class="textarea prompt-area {{typing ? 'input-focus' : ''}}"
+          placeholder="一句话写下核心冲突，例如：被家族抛弃的少年十年后归来复仇，却发现当年救他的是仇人的女儿"
+          placeholder-class="input-ph"
+          value="{{prompt}}"
+          maxlength="300"
+          bindinput="onInput"
+          bindfocus="onFocus"
+          bindblur="onBlur"
+          cursor-spacing="160"
+          show-confirm-bar="{{false}}"
+        />
+        <view class="counter {{prompt.length > 260 ? 'warn' : ''}}">{{prompt.length}}/300</view>
+      </view>
+
+      <scroll-view class="idea-scroll mt16" scroll-x enable-flex show-scrollbar="{{false}}">
+        <view
+          wx:for="{{inspirations}}"
+          wx:key="*this"
+          class="idea-chip tap"
+          hover-class="tap-on"
+          data-text="{{item}}"
+          bindtap="pickIdea"
+        >
+          <text class="idea-spark">✦</text>{{item}}
+        </view>
+      </scroll-view>
+
+      <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="startCreate">新建项目</view>
+      <view class="create-note">下一步只选风格与时长，不产生任何消耗</view>
+    </view>
+
+    <!-- 进行中 -->
+    <block wx:if="{{projects.length}}">
+      <view class="section">
+        <view class="row">
+          <text class="section-title">我的剧组</text>
+          <text class="section-sub">{{projects.length}} 部</text>
+        </view>
+        <text class="section-more tap" hover-class="tap-on" bindtap="goCreate">新建 +</text>
+      </view>
+
+      <scroll-view class="proj-scroll" scroll-x enable-flex show-scrollbar="{{false}}">
+        <view
+          wx:for="{{projects}}"
+          wx:key="id"
+          class="proj-card tap"
+          hover-class="tap-on"
+          data-id="{{item.id}}"
+          bindtap="openProject"
+        >
+          <view class="cover cover-{{item.cover}} proj-cover">
+            <text class="cover-char">{{item.char}}</text>
+            <text class="ai-badge">AI 生成</text>
+            <view class="proj-badge" wx:if="{{item.seasonTag}}">{{item.seasonTag}}</view>
+          </view>
+          <view class="proj-title ellipsis">{{item.title}}</view>
+          <view class="proj-meta ellipsis">{{item.styleName}} · {{item.episodes}} 集</view>
+          <view class="proj-foot">
+            <view class="mini-progress">
+              <view class="mini-progress-bar" style="width:{{item.progress}}%"></view>
+            </view>
+            <text class="proj-percent num">{{item.progress}}%</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="section">
+        <view class="row">
+          <text class="section-title">全部剧集</text>
+          <text class="section-sub">按创建时间</text>
+        </view>
+      </view>
+
+      <view
+        wx:for="{{projects}}"
+        wx:key="id"
+        class="card proj-row tap rise d{{index > 8 ? 9 : index + 1}}"
+        hover-class="tap-on"
+        data-id="{{item.id}}"
+        bindtap="openProject"
+      >
+        <view class="cover cover-{{item.cover}} proj-row-cover">
+          <text class="proj-row-char">{{item.char}}</text>
+        </view>
+        <view class="flex1" style="margin-left:22rpx">
+          <view class="between">
+            <text class="proj-row-title ellipsis">{{item.title}}</text>
+            <text class="pill {{item.statusCls}}">{{item.statusText}}</text>
+          </view>
+          <view class="tiny mt8 ellipsis">{{item.meta}}</view>
+          <view class="row mt16">
+            <view class="flex1">
+              <view class="progress">
+                <view class="progress-bar" style="width:{{item.progress}}%"></view>
+              </view>
+            </view>
+            <text class="proj-percent num" style="margin-left:16rpx">{{item.progress}}%</text>
+          </view>
+          <view class="between mt16">
+            <text class="tiny">{{item.timeText}}</text>
+            <text class="tiny" wx:if="{{item.shots}}">{{item.shots}} 镜</text>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <view class="card empty rise d4">
+        <view class="empty-icon float">剧</view>
+        <view class="empty-title">还没有剧组</view>
+        <view class="empty-sub">写下一句话，先建项目；</view>
+        <view class="empty-sub" style="margin-top:0">再上传小说或参考图，生成剧本与分镜。</view>
+        <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="goCreate">建第一个项目</view>
+      </view>
+    </block>
+
+    <!-- 流水线说明 -->
+    <view class="section">
+      <text class="section-title">一部剧的四个现场</text>
+    </view>
+    <view class="flow-strip">
+      <view class="flow-item">
+        <view class="flow-no">01</view>
+        <view class="flow-title">建项目</view>
+        <view class="flow-sub">定风格与体量</view>
+      </view>
+      <view class="flow-line"></view>
+      <view class="flow-item">
+        <view class="flow-no">02</view>
+        <view class="flow-title">上传素材</view>
+        <view class="flow-sub">小说 / 图 / 视频</view>
+      </view>
+      <view class="flow-line"></view>
+      <view class="flow-item">
+        <view class="flow-no">03</view>
+        <view class="flow-title">写剧本</view>
+        <view class="flow-sub">总谱 + 分镜</view>
+      </view>
+      <view class="flow-line"></view>
+      <view class="flow-item">
+        <view class="flow-no">04</view>
+        <view class="flow-title">逐镜出片</view>
+        <view class="flow-sub">关键帧 → 视频</view>
+      </view>
+    </view>
+
+    <view class="quick-row mt24">
+      <view class="quick tap" hover-class="tap-on" bindtap="goMine">
+        <view class="quick-icon">◈</view>
+        <view class="quick-text">点数中心</view>
+      </view>
+      <view class="quick tap" hover-class="tap-on" bindtap="goInvite">
+        <view class="quick-icon">◎</view>
+        <view class="quick-text">邀请返利</view>
+      </view>
+      <view class="quick tap" hover-class="tap-on" bindtap="goDistribute">
+        <view class="quick-icon">↗</view>
+        <view class="quick-text">分发中控</view>
+      </view>
+    </view>
+
+    <view class="footer-note">
+      <view>本平台内容由 AI 生成，已添加显式与隐式标识</view>
+      <view style="margin-top:6rpx">
+        <text class="link" data-type="terms" bindtap="openLegal">用户协议</text>
+        <text class="dot-sep">·</text>
+        <text class="link" data-type="privacy" bindtap="openLegal">隐私政策</text>
+        <text class="dot-sep">·</text>
+        <text class="link" data-type="ai" bindtap="openLegal">AI 生成说明</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 隐私授权（首次启动） -->
+  <view wx:if="{{privacyNeeded}}" class="sheet-mask">
+    <view class="sheet">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">隐私保护指引</text>
+      </view>
+      <view class="sub">
+        为了完成登录、作品保存与点数结算，我们需要收集你的微信标识与创作内容。我们不会读取通讯录、相册等无关信息。
+      </view>
+      <view class="privacy-links">
+        <text class="link" bindtap="openPrivacyContract">查看完整《隐私保护指引》</text>
+      </view>
+      <button
+        class="btn btn-block mt24"
+        open-type="agreePrivacyAuthorization"
+        bindagreeprivacyauthorization="agreePrivacy"
+      >同意并继续</button>
+      <view class="privacy-later" bindtap="rejectPrivacy">暂不同意</view>
+    </view>
+  </view>
+</view>

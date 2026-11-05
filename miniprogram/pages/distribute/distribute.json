@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "分发中控",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#080A0F",
+  "usingComponents": {}
+}

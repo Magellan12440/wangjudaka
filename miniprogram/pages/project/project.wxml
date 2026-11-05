@@ -1,0 +1,686 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-a"></view>
+    <view class="aurora-b"></view>
+  </view>
+
+  <block wx:if="{{loading}}">
+    <view class="layer" style="padding:24rpx 32rpx">
+      <view class="skeleton sk-block" style="height:300rpx"></view>
+      <view class="skeleton sk-block"></view>
+      <view class="skeleton sk-line" style="width:60%"></view>
+      <view class="skeleton sk-line" style="width:80%"></view>
+    </view>
+  </block>
+
+  <block wx:elif="{{error}}">
+    <view class="layer" style="padding:24rpx 32rpx">
+      <view class="card">
+        <view class="error-box">
+          <view class="error-text">{{error}}</view>
+          <view class="btn btn-sm btn-ghost mt16 tap" hover-class="tap-on" bindtap="reload">重新加载</view>
+        </view>
+      </view>
+    </view>
+  </block>
+
+  <block wx:else>
+    <!-- 项目头 -->
+    <view class="p-hero">
+      <view class="p-hero-bg cover-{{project.cover}}"></view>
+      <view class="p-hero-fade"></view>
+      <view class="p-hero-inner layer">
+        <view class="between">
+          <view class="p-season" wx:if="{{project.seasonTag}}">{{project.seasonTag}}</view>
+          <view class="p-season" wx:else>连载项目</view>
+          <view class="pill {{project.statusCls}}">{{project.statusText}}</view>
+        </view>
+        <view class="p-title">{{project.title}}</view>
+        <view class="p-meta">{{project.styleName}} · {{project.episodes}} 集 · {{project.minutes}} 分钟</view>
+        <view class="p-meta">{{project.aspect}} · {{project.quality}} · {{project.timeText}}</view>
+
+        <view class="p-progress-row">
+          <view class="ring" style="{{ringStyle}}">
+            <view class="ring-inner">
+              <view class="ring-value num">{{progress.percent}}<text class="ring-pct">%</text></view>
+              <view class="ring-label">进度</view>
+            </view>
+          </view>
+          <view class="flex1" style="margin-left:24rpx">
+            <view class="between">
+              <text class="tiny">流水线 {{progress.done}} / {{progress.total}}</text>
+              <text class="tiny">已耗 {{gens.credits}} 点</text>
+            </view>
+            <view class="progress mt16">
+              <view class="progress-bar" style="width:{{progress.percent}}%"></view>
+            </view>
+            <view class="p-next" wx:if="{{progress.next}}">
+              <text class="p-next-dot"></text>
+              <text>下一步 · {{progress.next.name}}</text>
+            </view>
+            <view class="p-next" wx:else>
+              <text class="p-next-dot done"></text>
+              <text>节点已全部点亮</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="p-stats">
+          <view class="p-stat">
+            <view class="p-stat-value num">{{project.episodes}}</view>
+            <view class="p-stat-label">集数</view>
+          </view>
+          <view class="p-stat">
+            <view class="p-stat-value num">{{plan ? plan.shots : 0}}</view>
+            <view class="p-stat-label">分镜</view>
+          </view>
+          <view class="p-stat">
+            <view class="p-stat-value num">{{assets.total}}</view>
+            <view class="p-stat-label">资产</view>
+          </view>
+          <view class="p-stat">
+            <view class="p-stat-value num">{{materialStats.total}}</view>
+            <view class="p-stat-label">素材</view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="layer" style="padding:0 28rpx">
+      <!-- 系列 / 续集 -->
+      <view class="series-bar">
+        <view class="series-main">
+          <view class="series-title">{{seriesInfo.seasons.length > 1 ? '本系列 ' + seriesInfo.seasons.length + ' 季' : '单季项目'}}</view>
+          <view class="series-sub">{{seriesInfo.shared_assets.length}} 个可复用角色设定 · 继承设定不继承画面</view>
+        </view>
+        <view class="btn btn-sm tap {{busy === 'season' ? 'btn-disabled' : ''}}" hover-class="tap-on" bindtap="createSeason">
+          {{busy === 'season' ? '创建中…' : '拍下一季'}}
+        </view>
+      </view>
+
+      <!-- 7 个 tab -->
+      <view class="seg">
+        <view class="seg-ind" style="{{segTabsStyle}}"></view>
+        <view
+          wx:for="{{tabs}}"
+          wx:key="key"
+          class="seg-item {{tab === item.key ? 'on' : ''}}"
+          data-tab="{{item.key}}"
+          bindtap="switchTab"
+        >{{item.label}}</view>
+      </view>
+
+      <!-- ===== 素材 ===== -->
+      <block wx:if="{{tab === 'material'}}">
+        <view class="card">
+          <view class="between">
+            <view>
+              <view class="title">素材库</view>
+              <view class="tiny mt8">{{materialStats.by_kind.text}} 文本 · {{materialStats.by_kind.image}} 图 · {{materialStats.by_kind.video}} 视频 · {{materialStats.text_chars}} 字</view>
+            </view>
+            <view class="pill pill-violet pill-no-dot">创作输入</view>
+          </view>
+
+          <view class="upload-grid mt24">
+            <view class="upload-tile tap" hover-class="tap-on" bindtap="openTextSheet">
+              <view class="upload-icon">文</view>
+              <view class="upload-name">粘贴小说</view>
+              <view class="upload-sub">直接贴正文</view>
+            </view>
+            <view class="upload-tile tap" hover-class="tap-on" bindtap="pickImages">
+              <view class="upload-icon">图</view>
+              <view class="upload-name">参考图</view>
+              <view class="upload-sub">最多 9 张</view>
+            </view>
+            <view class="upload-tile tap" hover-class="tap-on" bindtap="pickVideos">
+              <view class="upload-icon">影</view>
+              <view class="upload-name">参考视频</view>
+              <view class="upload-sub">≤ 24MB</view>
+            </view>
+            <view class="upload-tile tap" hover-class="tap-on" bindtap="pickFiles">
+              <view class="upload-icon">档</view>
+              <view class="upload-name">TXT / DOCX</view>
+              <view class="upload-sub">自动取正文</view>
+            </view>
+          </view>
+
+          <view class="note-input-wrap mt16">
+            <input
+              class="input note-input"
+              placeholder="给下一批素材加一句说明（选填），例如：女主参考这个造型"
+              placeholder-class="input-ph"
+              value="{{materialNote}}"
+              bindinput="onNote"
+              maxlength="80"
+            />
+          </view>
+
+          <view wx:if="{{uploading}}" class="uploading">
+            <view class="uploading-dot"></view>
+            <text>正在上传 {{uploadText}}，请保持前台…</text>
+          </view>
+        </view>
+
+        <view wx:if="{{materials.length === 0}}" class="card empty">
+          <view class="empty-icon float">素</view>
+          <view class="empty-title">还没有素材</view>
+          <view class="empty-sub">上传小说正文、角色参考图或参考视频，</view>
+          <view class="empty-sub" style="margin-top:0">生成剧本时会优先沿用你的人物与世界观。</view>
+        </view>
+
+        <view wx:else class="card">
+          <view
+            wx:for="{{materials}}"
+            wx:key="id"
+            class="m-item"
+          >
+            <view class="m-thumb {{item.kind}}" data-index="{{index}}" bindtap="previewMaterial">
+              <image wx:if="{{item.isImage && item.thumb}}" class="m-img" src="{{item.thumb}}" mode="aspectFill" lazy-load />
+              <text wx:else class="m-char">{{item.icon}}</text>
+            </view>
+            <view class="flex1" style="margin-left:20rpx" data-index="{{index}}" bindtap="previewMaterial">
+              <view class="m-name ellipsis">{{item.name}}</view>
+              <view class="m-sub">{{item.kindText}} · {{item.sizeText}} · {{item.timeText}}</view>
+              <view wx:if="{{item.note}}" class="m-note ellipsis">备注：{{item.note}}</view>
+              <view wx:elif="{{item.preview}}" class="m-note ellipsis">{{item.preview}}</view>
+            </view>
+            <view class="m-del tap" hover-class="tap-on" data-index="{{index}}" catchtap="removeMaterial">删除</view>
+          </view>
+        </view>
+
+        <view class="notice">
+          <view class="dot"></view>
+          <view class="flex1">文本会节选后直接进入剧本大纲；图片与视频作为视觉参考存档，并把你写的说明一并交给 AI。单个项目最多 24 个素材。</view>
+        </view>
+
+        <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="generateScript">
+          {{busy === 'plan' ? '正在生成剧本…' : (plan ? '用当前素材重新生成剧本' : '用这些素材生成剧本')}}
+        </view>
+        <view class="hint" style="text-align:center;margin-top:14rpx">生成剧本会产出大纲、人物、分镜与角色资产</view>
+        <view class="gap32"></view>
+      </block>
+
+      <!-- ===== 剧本 ===== -->
+      <block wx:if="{{tab === 'script'}}">
+        <block wx:if="{{scriptLoading}}">
+          <view class="card"><view class="skeleton sk-line" style="width:50%"></view><view class="skeleton sk-line"></view><view class="skeleton sk-line" style="width:80%"></view></view>
+        </block>
+
+        <block wx:elif="{{scriptError}}">
+          <view class="card">
+            <view class="error-box">
+              <view class="error-text">{{scriptError}}</view>
+              <view class="btn btn-sm btn-ghost mt16 tap" hover-class="tap-on" bindtap="loadScript">重试</view>
+            </view>
+          </view>
+        </block>
+
+        <block wx:elif="{{!scriptData}}">
+          <view class="card empty">
+            <view class="empty-icon">本</view>
+            <view class="empty-title">还没有剧本</view>
+            <view class="empty-sub">先在「素材」里上传小说或参考图，</view>
+            <view class="empty-sub" style="margin-top:0">再一键生成大纲、人物、分镜与角色资产。</view>
+            <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="generateScript">
+              {{busy === 'plan' ? '生成中…' : '生成剧本'}}
+            </view>
+          </view>
+        </block>
+
+        <block wx:else>
+          <view class="card script-head">
+            <view class="between">
+              <view class="pill pill-gold pill-no-dot">剧本 v{{plan ? plan.version : 1}}</view>
+              <view class="tiny">{{scriptData.plan_id}}</view>
+            </view>
+            <view class="script-title">{{scriptData.outline.title}}</view>
+            <view class="script-logline">{{scriptData.outline.logline}}</view>
+            <view class="char-row">
+              <view class="char-chip" wx:for="{{scriptData.outline.characters}}" wx:key="code">
+                <text class="char-code">{{item.code}}</text>
+                <text class="char-name">{{item.name}}</text>
+              </view>
+            </view>
+            <view class="hairline"></view>
+            <view class="between">
+              <text class="tiny">{{scriptData.episodes.length}} 集 · {{scriptData.materials_used.length}} 个素材参与</text>
+              <text class="tiny">分镜 {{plan ? plan.shots : 0}} 镜</text>
+            </view>
+          </view>
+
+          <scroll-view class="ep-scroll" scroll-x enable-flex show-scrollbar="{{false}}">
+            <view
+              wx:for="{{epOptions}}"
+              wx:key="no"
+              class="ep-chip tap {{epIndex === index ? 'on' : ''}}"
+              hover-class="tap-on"
+              data-index="{{index}}"
+              bindtap="pickEpisode"
+            >
+              <text class="ep-no">E{{item.no < 10 ? '0' + item.no : item.no}}</text>
+              <text class="ep-scenes">{{item.scenes}} 场</text>
+            </view>
+          </scroll-view>
+
+          <view wx:for="{{currentScenes}}" wx:key="beat_no" class="scene">
+            <view class="scene-head">
+              <text class="scene-no">{{item.beat_no}}</text>
+              <text wx:if="{{item.locked}}" class="pill pill-gray pill-no-dot">{{item.locked.shot_card}}</text>
+            </view>
+            <view class="scene-action">{{item.action}}</view>
+            <view wx:for="{{item.dialogue}}" wx:for-item="d" wx:key="line" class="dialogue">
+              <text class="dlg-speaker">{{d.speaker}}</text>
+              <text class="dlg-line">「{{d.line}}」</text>
+            </view>
+            <view wx:if="{{item.lockedText}}" class="scene-lock">{{item.lockedText}}</view>
+          </view>
+
+          <view class="btn btn-block btn-ghost mt24 tap" hover-class="tap-on" bindtap="generateScript">
+            {{busy === 'plan' ? '重新生成中…' : '重新生成剧本（覆盖当前）'}}
+          </view>
+          <view class="gap32"></view>
+        </block>
+      </block>
+
+      <!-- ===== 流程 ===== -->
+      <block wx:if="{{tab === 'flow'}}">
+        <!-- 一句话成剧：剧本→分镜→逐镜→成片，单步推进可暂停可续跑 -->
+        <view wx:if="{{os}}" class="card card-gold">
+          <view class="between">
+            <text class="title">一句话成剧</text>
+            <text class="pill {{os.status === 'done' ? 'pill-green' : os.status === 'failed' ? 'pill-red' : 'pill-gold'}}">{{os.statusText}}</text>
+          </view>
+          <view class="progress mt16">
+            <view class="progress-bar" style="width:{{os.percent}}%"></view>
+          </view>
+          <view class="tiny mt8">已出 {{os.shotsDone}} / {{os.shotsTotal}} 镜 · {{os.percent}}%</view>
+
+          <view class="os-step" wx:for="{{os.steps}}" wx:key="key">
+            <view class="os-dot {{item.cls}}">{{item.dot}}</view>
+            <view class="flex1">
+              <view class="os-name">{{item.label}}</view>
+              <view class="tiny">{{item.note}}{{item.error ? ' · ' + item.error : ''}}</view>
+            </view>
+          </view>
+
+          <view wx:if="{{osError}}" class="hint mt8">{{osError}}</view>
+          <view wx:if="{{os.resumed}}" class="btn-row mt16">
+            <view class="btn btn-block tap" hover-class="tap-on" bindtap="resumeOneshot">{{os.status === 'paused' || os.status === 'failed' ? '继续（断点续跑）' : '推进中…'}}</view>
+            <view wx:if="{{os.status === 'running'}}" class="btn btn-block btn-ghost mt12 tap" hover-class="tap-on" bindtap="stopRun">先停一下</view>
+          </view>
+          <view wx:if="{{os.status === 'done'}}" class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="goDistribute">成片去分发</view>
+        </view>
+
+        <view class="card">
+          <view class="between">
+            <view class="title">12 节点流水线</view>
+            <text class="tiny">{{progress.done}} / {{progress.total}} 完成</text>
+          </view>
+          <view class="progress mt16">
+            <view class="progress-bar" style="width:{{progress.percent}}%"></view>
+          </view>
+          <view class="next-node" wx:if="{{progress.next}}">
+            <text class="next-label">下一节点</text>
+            <text class="next-name">{{progress.next.id}} {{progress.next.name}}</text>
+          </view>
+
+          <view wx:if="{{!run}}" class="empty">
+            <view class="empty-icon">⌁</view>
+            <view class="empty-title">还没有流水线</view>
+            <view class="empty-sub">建立后可以跟踪 12 个节点的真实产物与消耗</view>
+            <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="buildRun">{{busy === 'run' ? '建立中…' : '建立流水线'}}</view>
+          </view>
+
+          <view wx:else class="nodes">
+            <view class="node" wx:for="{{nodes}}" wx:key="id">
+              <view class="node-rail">
+                <view class="node-dot {{item.dot}}"></view>
+                <view class="node-line" wx:if="{{index < nodes.length - 1}}"></view>
+              </view>
+              <view class="node-body">
+                <view class="node-head">
+                  <text class="node-name">{{item.id}} {{item.name}}</text>
+                  <text class="pill {{item.cls}}">{{item.statusText}}</text>
+                </view>
+                <view class="node-meta">
+                  <text wx:if="{{item.gate}}">闸门节点</text>
+                  <text wx:if="{{item.gate && item.cost}}"> · </text>
+                  <text wx:if="{{item.cost}}">消耗 {{item.cost}} 点</text>
+                  <text wx:if="{{!item.gate && !item.cost}}">等待产物</text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view class="notice notice-dark">
+          <view class="dot"></view>
+          <view class="flex1">节点由真实产物驱动：剧本、分镜、资产、生成记录写入后自动点亮。媒体节点需要逐镜出片才会推进，不做手工“点完成”。</view>
+        </view>
+        <view class="btn btn-block btn-ghost mt16 tap" hover-class="tap-on" bindtap="reload">同步进度</view>
+        <view class="gap32"></view>
+      </block>
+
+      <!-- ===== 资产 ===== -->
+      <block wx:if="{{tab === 'assets'}}">
+        <view class="card">
+          <view class="between">
+            <text class="title">一致性资产库</text>
+            <text class="tiny">{{assets.ready}} / {{assets.total}} 已出图</text>
+          </view>
+          <view class="sub mt8">角色卡带连续性锁，改资产会升版本；已生成镜头固化旧版本快照，不会被污染。</view>
+        </view>
+
+        <view wx:if="{{assets.total === 0}}" class="card empty">
+          <view class="empty-icon">◇</view>
+          <view class="empty-title">还没有资产</view>
+          <view class="empty-sub">生成剧本时会自动写入角色卡与连续性锁</view>
+          <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="generateScript">{{busy === 'plan' ? '生成中…' : '生成剧本与资产'}}</view>
+        </view>
+
+        <view wx:else class="card">
+          <view class="list-item" wx:for="{{assets.items}}" wx:key="code">
+            <view class="list-avatar cover-{{index % 2 === 0 ? 'a' : 'd'}}">{{item.char}}</view>
+            <view class="list-main">
+              <view class="list-title">{{item.name}}</view>
+              <view class="list-sub">{{item.code}} · v{{item.version}} · {{item.locks}} 条锁</view>
+            </view>
+            <view class="list-right">
+              <text class="pill {{item.status === 'ready' ? 'pill-green' : 'pill-gray'}}">{{item.status === 'ready' ? '已出图' : '待出图'}}</text>
+            </view>
+          </view>
+        </view>
+        <view class="hint">资产出图在「镜头」里逐镜完成；角色图就绪后，后续镜头会自动引用作为参考。</view>
+        <view class="gap32"></view>
+      </block>
+
+      <!-- ===== 镜头 ===== -->
+      <block wx:if="{{tab === 'gens'}}">
+        <view class="card">
+          <view class="between">
+            <text class="title">逐镜出片</text>
+            <text class="tiny">{{gens.total}} 条 · {{gens.credits}} 点</text>
+          </view>
+          <view class="sub mt8">每条都在项目内按总谱执行：先关键帧，再基于关键帧出视频。镜别、光影、情绪由总谱锁定，不能在这里改写。</view>
+        </view>
+
+        <view wx:if="{{shotItems.length === 0}}" class="card empty">
+          <view class="empty-icon">▣</view>
+          <view class="empty-title">还没有分镜</view>
+          <view class="empty-sub">先生成剧本与分镜，才能按镜出图</view>
+          <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="generateScript">{{busy === 'plan' ? '生成中…' : '生成剧本'}}</view>
+        </view>
+
+        <view wx:else>
+          <view wx:for="{{shotItems}}" wx:key="no" class="shot-card">
+            <view class="shot-top">
+              <view class="row">
+                <text class="shot-no">{{item.no}}</text>
+                <text class="pill pill-gray pill-no-dot" style="margin-left:12rpx">{{item.shot_card}}</text>
+              </view>
+              <text class="tiny">{{item.duration}}s</text>
+            </view>
+            <view wx:if="{{item.dialogue}}" class="shot-line">「{{item.dialogue}}」</view>
+            <view class="shot-tags">
+              <text class="pill pill-violet pill-no-dot">{{item.emotion}}</text>
+              <text class="pill pill-gray pill-no-dot">{{item.transition}}</text>
+            </view>
+            <view wx:if="{{item.imageUrl}}" class="shot-thumb-wrap">
+              <image class="shot-thumb" src="{{item.imageUrl}}" mode="aspectFill" lazy-load />
+              <view class="shot-thumb-tag">关键帧</view>
+            </view>
+            <view class="shot-actions">
+              <view class="mini-btn tap" hover-class="tap-on" data-no="{{item.no}}" data-kind="image" bindtap="genShot">
+                {{item.imageUrl ? '重出关键帧' : '生成关键帧'}}
+              </view>
+              <view class="mini-btn ghost tap" hover-class="tap-on" data-no="{{item.no}}" data-kind="video" bindtap="genShot">
+                {{item.videoUrl ? '重出视频' : '生成视频'}}
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view class="card" wx:if="{{gens.total}}">
+          <view class="title">生成记录</view>
+          <view class="list-item" wx:for="{{gens.items}}" wx:key="id" data-id="{{item.id}}" bindtap="previewGen">
+            <view class="list-avatar {{item.isVideo ? 'cover-b' : 'cover-c'}}">{{item.kindChar}}</view>
+            <view class="list-main">
+              <view class="list-title">{{item.shot_no || item.kindText}} · {{item.model}}</view>
+              <view class="list-sub">{{item.kindText}} · {{item.timeText}} · {{item.credits}} 点</view>
+            </view>
+            <view class="list-right">
+              <text class="pill {{item.statusCls}}">{{item.statusText}}</text>
+            </view>
+          </view>
+        </view>
+        <view class="gap32"></view>
+      </block>
+
+      <!-- ===== 质检 ===== -->
+      <block wx:if="{{tab === 'qc'}}">
+        <view wx:if="{{!qc || qc.total === 0}}" class="card empty">
+          <view class="empty-icon">◍</view>
+          <view class="empty-title">尚未做一致性自检</view>
+          <view class="empty-sub">生成镜头后自动做 CLIP / 人脸比对；</view>
+          <view class="empty-sub" style="margin-top:0">未接入比对服务时标记“待人工复核”，绝不假装通过。</view>
+        </view>
+
+        <block wx:else>
+          <view class="card">
+            <view class="between">
+              <text class="title">一致性 KPI</text>
+              <text class="pill {{qc.kpi_met ? 'pill-green' : 'pill-red'}}">{{qc.kpi_met ? '达标' : '未达标'}}</text>
+            </view>
+            <view class="kv mt16"><text class="kv-k">平均分 / 目标</text><text class="kv-v">{{qc.avg === null ? '—' : qc.avg}} / ≥ {{qc.target}}</text></view>
+            <view class="kv"><text class="kv-k">已检镜头</text><text class="kv-v">{{qc.total}}</text></view>
+            <view class="kv"><text class="kv-k">通过 / 漂移 / 待复核</text><text class="kv-v">{{qc.passed}} / {{qc.drifted}} / {{qc.degraded}}</text></view>
+          </view>
+
+          <view wx:if="{{qc.drift.length}}" class="card">
+            <view class="title">漂移镜与建议</view>
+            <view class="plan-beat" wx:for="{{qc.drift}}" wx:key="shot">
+              <view class="between"><text class="strong">{{item.shot}}</text><text class="tiny">相似度 {{item.score}}</text></view>
+              <view class="hint">建议 {{item.advice || '同参重抽'}}</view>
+            </view>
+          </view>
+        </block>
+
+        <view wx:if="{{gate && gate.blockers.length}}" class="card">
+          <view class="title">交付阻断项</view>
+          <view class="blocker" wx:for="{{gate.blockers}}" wx:key="code">
+            <text class="pill pill-red">{{item.code}}</text>
+            <text class="blocker-text">{{item.issue}}</text>
+          </view>
+        </view>
+
+        <view class="notice notice-dark">
+          <view class="dot"></view>
+          <view class="flex1">交付闸门同时检查：一致性 KPI、7 页证据链、AI 标识未关闭。任一不过即阻断，这是刻意设计。</view>
+        </view>
+        <view class="gap32"></view>
+      </block>
+
+      <!-- ===== 交付 ===== -->
+      <block wx:if="{{tab === 'deliver'}}">
+        <!-- 本集成片：剪辑单 + 一键渲染 -->
+        <view class="card {{edit && edit.ok ? 'card-gold' : ''}}">
+          <view class="between">
+            <text class="title">本集成片</text>
+            <text class="pill {{editLoading ? 'pill-gold' : edit && edit.ok ? 'pill-green' : edit ? 'pill-red' : 'pill-gold'}}">{{editLoading ? '读取中' : edit && edit.ok ? '可剪辑' : edit ? '缺片段' : '未生成'}}</text>
+          </view>
+
+          <scroll-view class="ep-scroll mt12" scroll-x="true" enable-flex="true">
+            <view class="ep-chip tap {{editEpisode === '' ? 'on' : ''}}" hover-class="tap-on" data-ep="" bindtap="pickEditEpisode">
+              <text class="ep-no">全片</text>
+            </view>
+            <view
+              wx:for="{{epList}}"
+              wx:key="*this"
+              class="ep-chip tap {{editEpisode === item ? 'on' : ''}}"
+              hover-class="tap-on"
+              data-ep="{{item}}"
+              bindtap="pickEditEpisode"
+            >
+              <text class="ep-no">E{{item}}</text>
+            </view>
+          </scroll-view>
+
+          <view wx:if="{{editError}}" class="hint mt8">{{editError}}</view>
+
+          <block wx:if="{{edit}}">
+            <view class="kv mt8"><text class="kv-k">成片规格</text><text class="kv-v">{{edit.aspect}} · {{edit.resolution}} @ {{edit.fps}}fps</text></view>
+            <view class="kv"><text class="kv-k">总时长 / 镜头</text><text class="kv-v">{{edit.totalSec}}s / {{edit.shotCount}} 镜</text></view>
+            <view class="kv"><text class="kv-k">片段覆盖率</text><text class="kv-v">{{edit.coverage}}%{{edit.missing.length ? ' · 缺 ' + edit.missing.length + ' 镜' : ''}}</text></view>
+            <view class="kv"><text class="kv-k">字幕</text><text class="kv-v">{{edit.subtitleCount}} 条 · 单行 ≤ {{edit.maxChars}} 字</text></view>
+            <view class="kv"><text class="kv-k">声音</text><text class="kv-v">音效 {{edit.sfxCount}} · 环境 {{edit.ambienceCount}} 层</text></view>
+            <view class="kv"><text class="kv-k">配乐</text><text class="kv-v">{{edit.bgmMode}} · {{edit.mood}} / {{edit.bpm}}bpm</text></view>
+            <view wx:if="{{edit.bgmNote}}" class="tiny mt8">{{edit.bgmNote}}</view>
+
+            <view wx:if="{{edit.missing.length}}" class="blocker mt12">
+              <text class="pill pill-red">MISSING_CLIP</text>
+              <text class="blocker-text">还差 {{edit.missing.length}} 个片段：{{edit.missingText}}。回「镜头」页补出片后重试。</text>
+            </view>
+            <view wx:for="{{edit.fatal}}" wx:key="code" class="blocker mt8">
+              <text class="pill pill-red">{{item.code}}</text>
+              <text class="blocker-text">{{item.shot ? item.shot + '：' : ''}}{{item.issue}}</text>
+            </view>
+
+            <view class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="reloadEdit">{{editLoading ? '生成中…' : '生成剪辑单'}}</view>
+            <view class="btn btn-block btn-ghost mt12 tap" hover-class="tap-on" bindtap="renderFilm">
+              {{editBusy === 'render' ? '剪辑中…' : edit.ok ? '渲染成片并烧字幕' : '补齐片段后可渲染'}}
+            </view>
+          </block>
+
+          <view wx:if="{{film}}" class="film-box mt16">
+            <view class="between">
+              <text class="strong">成片文件</text>
+              <text class="pill pill-green">已渲染</text>
+            </view>
+            <view class="file-row tap" hover-class="tap-on" bindtap="previewFilm">
+              <text class="file-type">MP4</text>
+              <text class="file-url">{{film.video.url}}</text>
+            </view>
+            <view wx:if="{{film.srt}}" class="file-row tap" hover-class="tap-on" data-url="{{film.srt.url}}" bindtap="copyFilmFile">
+              <text class="file-type">SRT</text>
+              <text class="file-url">{{film.srt.url}}</text>
+            </view>
+            <view wx:if="{{film.sheet}}" class="file-row tap" hover-class="tap-on" data-url="{{film.sheet.url}}" bindtap="copyFilmFile">
+              <text class="file-type">切单</text>
+              <text class="file-url">{{film.sheet.url}}</text>
+            </view>
+            <view class="btn btn-block mt12 tap" hover-class="tap-on" bindtap="previewFilm">复制成片链接</view>
+          </view>
+
+          <view wx:if="{{filmCmd}}" class="cmd-box mt16">
+            <view class="between">
+              <text class="strong">待执行命令</text>
+              <text class="tiny">点击复制</text>
+            </view>
+            <view class="cmd-text tap" hover-class="tap-on" bindtap="copyFilmCmd">{{filmCmd}}</view>
+            <view class="hint mt8">剪辑单、字幕、配乐、音效已落盘，只差这条命令在本机（或云端镜像）跑一次。</view>
+          </view>
+        </view>
+
+        <!-- 逐镜可剪清单 -->
+        <view wx:if="{{edit && edit.segments.length}}" class="card">
+          <view class="between">
+            <text class="title">剪辑序列</text>
+            <text class="tiny">入点 → 出点 / 转场</text>
+          </view>
+          <block wx:for="{{edit.segments}}" wx:key="shot_no">
+            <view wx:if="{{index < edit.segLimit}}" class="cut-row">
+              <text class="cut-no">{{item.shot_no}}</text>
+              <view class="flex1">
+                <view class="cut-time">{{item.start}}s → {{item.end}}s · {{item.duration}}s · {{item.transition}}</view>
+                <view wx:if="{{item.line}}" class="cut-line">{{item.line}}</view>
+              </view>
+              <text class="pill {{item.clipOk ? 'pill-green' : 'pill-red'}}">{{item.still ? '静帧' : item.clipOk ? '视频' : '缺失'}}</text>
+            </view>
+          </block>
+          <view wx:if="{{edit.segments.length > edit.segLimit}}" class="btn btn-block btn-ghost mt12 tap" hover-class="tap-on" bindtap="moreSegments">展开更多（已显示 {{edit.segLimit}} / {{edit.segments.length}}）</view>
+        </view>
+
+        <!-- 交付物清单 -->
+        <view wx:if="{{edit && edit.deliverables.length}}" class="card">
+          <view class="title">交付物</view>
+          <view class="kv" wx:for="{{edit.deliverables}}" wx:key="name">
+            <text class="kv-k">{{item.name}}</text>
+            <text class="kv-v">{{item.size_hint || item.note || ''}}</text>
+          </view>
+          <view class="hint mt8">渲染时全部落盘并在 /media 生成直链，可直接上传平台。</view>
+        </view>
+
+        <view class="card">
+          <view class="between">
+            <text class="title">交付 Checklist</text>
+            <text class="pill pill-gold">{{deliveryDone}} / {{deliveryItems.length}}</text>
+          </view>
+          <view class="check-item" wx:for="{{deliveryItems}}" wx:key="label">
+            <view class="check-icon {{item.ok ? 'ok' : ''}}">{{item.ok ? '✓' : '·'}}</view>
+            <view class="flex1">
+              <view class="check-label">{{item.label}}</view>
+              <view class="tiny">{{item.note}}</view>
+            </view>
+          </view>
+        </view>
+
+        <view class="card {{gate && gate.ready ? 'card-gold' : ''}}">
+          <view class="between">
+            <text class="title">交付闸门</text>
+            <text class="pill {{gate && gate.ready ? 'pill-green' : 'pill-red'}}">{{gate && gate.ready ? '可交付' : '阻断中'}}</text>
+          </view>
+          <view class="sub mt8">
+            {{gate && gate.ready ? '一致性、证据链与 AI 标识均已通过，可打包分发。' : '还有未通过项，补齐后再打包，避免平台驳回。'}}
+          </view>
+          <view class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="buildPack">{{busy === 'pack' ? '生成中…' : '生成 AI 创作说明与证据包'}}</view>
+        </view>
+
+        <view class="card">
+          <view class="title">分发前必须知道</view>
+          <view class="hint mt8">1. 小程序不能内嵌红果 / 抖音等平台，上传、审核、签约、提现需在电脑端完成。</view>
+          <view class="hint">2. 封面比例：红果 3:4、抖音 2:3，双平台必须分别生成，不能一张图通投。</view>
+          <view class="hint">3. 片头 3 秒、封面角标、简介三处都要有 AI 标识，且不提供去标识功能。</view>
+          <view class="btn btn-block btn-ghost mt16 tap" hover-class="tap-on" bindtap="goDistribute">去分发中控</view>
+        </view>
+
+        <view class="footer-note">
+          本片由 AI 生成 · <text class="link" data-type="ai" bindtap="openLegal">查看标识说明</text>
+        </view>
+        <view class="gap32"></view>
+      </block>
+    </view>
+  </block>
+
+  <!-- 粘贴文本弹层 -->
+  <view wx:if="{{textSheet}}" class="sheet-mask" bindtap="closeTextSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">粘贴小说 / 文本</text>
+        <text class="sheet-close" bindtap="closeTextSheet">关闭</text>
+      </view>
+      <input
+        class="input"
+        placeholder="素材名称，例如：原著第 1-3 章"
+        placeholder-class="input-ph"
+        value="{{textName}}"
+        bindinput="onTextName"
+        maxlength="40"
+      />
+      <textarea
+        class="textarea mt16"
+        style="height:320rpx"
+        placeholder="把小说正文或人物小传贴在这里，至少 20 字"
+        placeholder-class="input-ph"
+        value="{{textBody}}"
+        bindinput="onTextBody"
+        maxlength="120000"
+        cursor-spacing="120"
+      />
+      <view class="tiny mt8">已输入 {{textBody.length}} 字 · 单条上限 12 万字</view>
+      <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="saveText">
+        {{savingText ? '保存中…' : '存为素材'}}
+      </view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,330 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-b"></view>
+    <view class="aurora-a"></view>
+  </view>
+
+  <view class="layer dist-layer">
+    <!-- 页头 -->
+    <view class="dist-head">
+      <view class="eyebrow">DISTRIBUTION</view>
+      <view class="h1 mt16">分发与<text class="accent-text">收益</text></view>
+      <view class="sub mt8">一部剧投 8 个平台，状态、数据、收益一站式跟到底。</view>
+    </view>
+
+    <block wx:if="{{loading}}">
+      <view class="skeleton sk-block" style="height:120rpx"></view>
+      <view class="skeleton sk-block"></view>
+      <view class="skeleton sk-line" style="width:70%"></view>
+    </block>
+
+    <block wx:elif="{{error}}">
+      <view class="card mt24">
+        <view class="error-box">
+          <view class="error-text">{{error}}</view>
+        </view>
+        <view class="btn btn-sm btn-ghost mt16" bindtap="retry">重新加载</view>
+      </view>
+    </block>
+
+    <block wx:elif="{{projects.length === 0}}">
+      <view class="card empty mt24">
+        <view class="empty-icon float">↗</view>
+        <view class="empty-title">还没有可分发的剧集</view>
+        <view class="empty-sub">先完成一部剧，再来这里跟踪 8 大平台的上传、审核与收益</view>
+        <view class="btn btn-sm mt24" bindtap="goCreate">去创作</view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <!-- 项目选择 -->
+      <scroll-view class="proj-scroll" scroll-x show-scrollbar="{{false}}" enable-flex>
+        <view
+          wx:for="{{projects}}"
+          wx:key="id"
+          class="proj-chip tap {{projectId === item.id ? 'on' : ''}}"
+          hover-class="tap-on"
+          data-id="{{item.id}}"
+          bindtap="selectProject"
+        >
+          <view class="pchip-cover cover-{{item.cover}}">{{item.char}}</view>
+          <view class="pchip-main">
+            <text class="pchip-title">{{item.title}}</text>
+            <text class="tiny">{{item.episodes}} 集 · {{item.statusText}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <!-- 数据看板 -->
+      <view class="board-card">
+        <view class="between">
+          <view class="eyebrow" style="color:#E0BD77">OVERVIEW</view>
+          <text class="tiny">{{projectTitle || '全部项目'}}</text>
+        </view>
+        <view class="board-grid">
+          <view class="bg-cell">
+            <view class="bg-value num">{{bTasks}}</view>
+            <view class="bg-label">分发任务</view>
+          </view>
+          <view class="bg-cell">
+            <view class="bg-value num">{{bOnline}}</view>
+            <view class="bg-label">已上线</view>
+          </view>
+          <view class="bg-cell">
+            <view class="bg-value num">{{viewsText}}</view>
+            <view class="bg-label">总播放</view>
+          </view>
+          <view class="bg-cell">
+            <view class="bg-value num gold">¥{{bRevenue}}</view>
+            <view class="bg-label">累计收益</view>
+          </view>
+        </view>
+        <view class="board-foot">
+          <text class="tiny">待结算 ¥{{summary ? summary.pending_settlement_cny : 0}}</text>
+          <text class="tiny link" bindtap="goProject">查看剧集详情 ›</text>
+        </view>
+      </view>
+
+      <!-- 平台入口 -->
+      <view class="section">
+        <view class="row">
+          <text class="section-title">平台入口</text>
+          <text class="section-sub">8 个平台</text>
+        </view>
+      </view>
+      <view class="pf-grid">
+        <view
+          wx:for="{{platforms}}"
+          wx:key="code"
+          class="pf-cell tap"
+          hover-class="tap-on"
+          data-code="{{item.code}}"
+          bindtap="openPlatform"
+        >
+          <view class="pf {{item.cls}}">{{item.short}}</view>
+          <text class="pf-name">{{item.label}}</text>
+        </view>
+      </view>
+      <view class="notice notice-dark mt16">
+        <view class="dot"></view>
+        <view class="flex1">小程序无法内嵌第三方平台（业务域名限制）。这里提供官方入口、材料清单与状态跟踪，上传/审核/签约/提现在电脑端完成。</view>
+      </view>
+
+      <!-- 分发任务 -->
+      <view class="section">
+        <view class="row">
+          <text class="section-title">分发任务</text>
+          <text class="section-sub" wx:if="{{tasks.length}}">{{tasks.length}} 个</text>
+        </view>
+        <text class="section-more" data-code="PLT-HONGGUO" bindtap="openPlatform">新建 +</text>
+      </view>
+
+      <view wx:if="{{tasks.length === 0}}" class="card empty">
+        <view class="empty-icon">▤</view>
+        <view class="empty-title">还没有分发任务</view>
+        <view class="empty-sub">点上方任一平台，创建任务后即可跟踪审核与收益</view>
+      </view>
+
+      <block wx:else>
+        <view
+          class="task-card rise"
+          wx:for="{{tasks}}"
+          wx:key="id"
+          style="animation-delay:{{index * 0.05}}s"
+        >
+          <view class="between">
+            <view class="row flex1">
+              <view class="pf pf-sm {{item.cls}}">{{item.short}}</view>
+              <view class="task-main">
+                <view class="task-name">{{item.platform_name}}</view>
+                <view class="tiny">{{item.episode}} · 更新于 {{item.timeText}}</view>
+              </view>
+            </view>
+            <text class="pill pill-gold">{{item.status}}</text>
+          </view>
+
+          <view class="task-data">
+            <view class="td">
+              <view class="td-v num">{{item.viewsText}}</view>
+              <view class="td-l">播放</view>
+            </view>
+            <view class="td">
+              <view class="td-v num">{{item.completionText}}</view>
+              <view class="td-l">完播率</view>
+            </view>
+            <view class="td">
+              <view class="td-v num gold">¥{{item.revenueText}}</view>
+              <view class="td-l">收益</view>
+            </view>
+          </view>
+
+          <!-- 四步闭环：分发上传 → 内容审核 → 合同签订 → 收益提取 -->
+          <view class="steps">
+            <view class="steps-head">
+              <text class="steps-title">分发闭环</text>
+              <text class="steps-count">{{item.stepDone}} / {{item.steps.length}}</text>
+            </view>
+            <view
+              class="step tap"
+              hover-class="tap-on"
+              wx:for="{{item.steps}}"
+              wx:for-item="st"
+              wx:key="key"
+              data-key="{{st.key}}"
+              data-id="{{item.id}}"
+              bindtap="stepAction"
+            >
+              <view class="step-dot {{st.cls}}">{{st.dot}}</view>
+              <view class="flex1">
+                <view class="step-line">
+                  <text class="step-name">{{st.no}}. {{st.label}}</text>
+                  <text class="step-state {{st.cls}}">{{st.stateText}}</text>
+                </view>
+                <view class="step-note">{{st.note}}{{st.hint ? ' · ' + st.hint : ''}}</view>
+              </view>
+              <text class="step-act">{{st.action}} ›</text>
+            </view>
+          </view>
+
+          <view class="task-actions">
+            <view class="btn btn-sm btn-plain" data-id="{{item.id}}" bindtap="updateStatus">更新状态</view>
+            <view class="btn btn-sm btn-plain" data-id="{{item.id}}" bindtap="openStats">回填数据</view>
+            <view class="btn btn-sm btn-plain" data-id="{{item.id}}" bindtap="recordRevenue">录入收益</view>
+          </view>
+        </view>
+      </block>
+
+      <!-- 收益测算 -->
+      <view class="section">
+        <view class="row">
+          <text class="section-title">收益测算</text>
+          <text class="section-sub">仅供参考</text>
+        </view>
+      </view>
+      <view class="card">
+        <view class="field">
+          <view class="field-label"><text>平台</text><text class="opt">按最新分成政策估算</text></view>
+          <picker mode="selector" range="{{policyNames}}" value="{{policyIndex}}" bindchange="onPolicyChange">
+            <view class="picker">{{policyNames[policyIndex] || '选择平台'}}<text class="picker-arrow">›</text></view>
+          </picker>
+        </view>
+
+        <view class="field">
+          <view class="field-label"><text>内容类型</text></view>
+          <view class="chips">
+            <view
+              wx:for="{{dramaTypes}}"
+              wx:key="key"
+              class="chip chip-sm {{typeIndex === index ? 'on' : ''}}"
+              data-index="{{index}}"
+              bindtap="pickType"
+            >{{item.label}}</view>
+          </view>
+        </view>
+
+        <view class="calc-row">
+          <view class="calc-field">
+            <view class="tiny mb8">播放量</view>
+            <input class="input calc-input" type="number" value="{{viewsInput}}" bindinput="onViewsInput" />
+          </view>
+          <view class="calc-field">
+            <view class="tiny mb8">完播率 %</view>
+            <input class="input calc-input" type="number" value="{{completionInput}}" bindinput="onCompletionInput" />
+          </view>
+        </view>
+
+        <view class="btn btn-block btn-ghost mt16" bindtap="calculate">{{calcLoading ? '测算中…' : '开始测算'}}</view>
+
+        <block wx:if="{{calc}}">
+          <view class="calc-result rise">
+            <view class="between">
+              <text class="tiny">{{calc.platform}} · 系数 {{calc.coef}}</text>
+              <text class="tiny">{{calc.coefLabel}}</text>
+            </view>
+            <view class="calc-main">
+              <text class="calc-label">预估毛收益</text>
+              <text class="calc-value num">¥{{calc.gross}}</text>
+            </view>
+            <view class="calc-sub">
+              <text>有效播放 {{calc.effective}}</text>
+              <text>净收益 ¥{{calc.net}}</text>
+            </view>
+            <view class="hint mt8">{{calc.disclaimer}}</view>
+          </view>
+        </block>
+      </view>
+
+      <!-- 合规包 -->
+      <view class="card">
+        <view class="between">
+          <text class="title">AI 创作说明与证据包</text>
+          <text class="pill pill-violet">提审必备</text>
+        </view>
+        <view class="sub mt8">红果等平台要求提交 7 页创作过程证据（全屏、带网址、带时间戳）。</view>
+        <view class="btn btn-block mt16" bindtap="buildPack">{{busy === 'pack' ? '生成中…' : '一键生成证据包'}}</view>
+        <view wx:if="{{packInfo}}" class="hint mt8">已生成 {{packInfo.pages}} 页，校验{{packInfo.ok ? '通过' : '未通过'}}。</view>
+      </view>
+
+      <view class="footer-note">收益数据由你手动回填，平台无开放 API；测算结果仅供参考，不构成平台承诺。</view>
+    </block>
+  </view>
+
+  <!-- 平台详情 -->
+  <view wx:if="{{sheetPlatform}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <view class="row">
+          <view class="pf {{sheetPlatform.cls}}">{{sheetPlatform.short}}</view>
+          <text class="sheet-title">{{sheetPlatform.name}}</text>
+        </view>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+
+      <view class="kv"><text class="kv-k">身份选择</text><text class="kv-v">{{sheetPlatform.identity_choice}}</text></view>
+      <view class="kv"><text class="kv-k">上传方式</text><text class="kv-v">{{sheetPlatform.upload_client}}</text></view>
+      <view class="kv"><text class="kv-k">审核周期</text><text class="kv-v">{{sheetPlatform.review_days}} 天</text></view>
+      <view class="kv"><text class="kv-k">结算</text><text class="kv-v">{{sheetPlatform.revenue}}</text></view>
+
+      <view wx:if="{{sheetPlatform.ai_declaration_required}}" class="notice mt16">
+        <view class="dot"></view>
+        <view class="flex1">{{sheetPlatform.ai_declaration_note}}</view>
+      </view>
+
+      <view class="tips" wx:if="{{sheetPlatform.tips.length}}">
+        <view class="hint" wx:for="{{sheetPlatform.tips}}" wx:key="*this">· {{item}}</view>
+      </view>
+
+      <view class="btn btn-block mt24" data-code="{{sheetPlatform.code}}" bindtap="createTask">在此平台创建分发任务</view>
+      <view class="btn btn-block btn-ghost mt16" bindtap="copyLink">复制创作者中心入口</view>
+      <view class="hint mt16">入口：{{sheetPlatform.creator_url}}</view>
+    </view>
+  </view>
+
+  <!-- 数据回填 -->
+  <view wx:if="{{statsTask}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">回填数据</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+      <view class="sub">{{statsTask.platform_name}} · 数据会追加为时序快照，不覆盖历史。</view>
+
+      <view class="field mt16">
+        <view class="field-label"><text>播放量</text></view>
+        <input class="input" type="number" value="{{statsForm.views}}" data-field="views" bindinput="onStatsInput" placeholder="例如 120000" placeholder-class="input-ph" />
+      </view>
+      <view class="field">
+        <view class="field-label"><text>点赞数</text></view>
+        <input class="input" type="number" value="{{statsForm.likes}}" data-field="likes" bindinput="onStatsInput" placeholder="例如 8600" placeholder-class="input-ph" />
+      </view>
+      <view class="field">
+        <view class="field-label"><text>完播率（%）</text></view>
+        <input class="input" type="number" value="{{statsForm.completion}}" data-field="completion" bindinput="onStatsInput" placeholder="例如 45" placeholder-class="input-ph" />
+      </view>
+
+      <view class="btn btn-block mt16" bindtap="submitStats">{{busy === 'stats' ? '提交中…' : '提交回填'}}</view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "剧集详情",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#080A0F",
+  "usingComponents": {}
+}

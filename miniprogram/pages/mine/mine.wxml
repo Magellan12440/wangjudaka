@@ -1,0 +1,220 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-a"></view>
+    <view class="aurora-c"></view>
+  </view>
+
+  <view class="layer">
+    <!-- 用户头部 -->
+    <view class="me-head">
+      <view class="me-avatar">
+        <image wx:if="{{avatar}}" class="me-avatar-img" src="{{avatar}}" mode="aspectFill" />
+        <text wx:else class="me-avatar-char">{{initial}}</text>
+      </view>
+      <view class="flex1" style="margin-left:22rpx">
+        <view class="me-name">{{nickname || '创作者'}}</view>
+        <view class="me-id">ID {{uidText}} · {{loginMode === 'live' ? '微信登录' : '体验模式'}}</view>
+      </view>
+      <view class="me-edit tap" hover-class="tap-on" bindtap="openAbout">设置</view>
+    </view>
+
+    <!-- 余额卡 -->
+    <view class="balance-card">
+      <view class="between">
+        <view class="eyebrow" style="color:#8A6A2A">MY CREDITS</view>
+        <view class="pill pill-gold pill-no-dot">1 点 = ¥{{cnyPerPoint}}</view>
+      </view>
+      <view class="balance-num">
+        <text class="num">{{balanceShow}}</text><text class="balance-unit">点</text>
+      </view>
+      <view class="tiny" style="color:#6B5A33">≈ ¥{{balanceShow}} · 按真实消耗结算，失败全额退回</view>
+      <view class="balance-actions">
+        <view class="b-action primary tap" hover-class="tap-on" bindtap="openRecharge">充值</view>
+        <view class="b-action tap" hover-class="tap-on" bindtap="openRedeem">兑换码</view>
+        <view class="b-action tap" hover-class="tap-on" bindtap="openInvite">邀请返利</view>
+      </view>
+    </view>
+
+    <!-- 档位 -->
+    <view class="section">
+      <view class="row">
+        <text class="section-title">充值档位</text>
+        <text class="section-sub">赠送自动计入</text>
+      </view>
+      <text class="section-more tap" hover-class="tap-on" bindtap="openRecharge">全部</text>
+    </view>
+
+    <scroll-view class="pkg-scroll" scroll-x enable-flex show-scrollbar="{{false}}">
+      <view
+        wx:for="{{packages}}"
+        wx:key="id"
+        class="pkg-card tap {{selectedId === item.id ? 'on' : ''}}"
+        hover-class="tap-on"
+        data-id="{{item.id}}"
+        bindtap="selectPackage"
+      >
+        <view class="pkg-tag" wx:if="{{item.tag}}">{{item.tag}}</view>
+        <view class="pkg-points num">{{item.total}}<text class="pkg-unit">点</text></view>
+        <view class="pkg-price">¥{{item.priceCny}}</view>
+        <view class="pkg-note" wx:if="{{item.bonus}}">含赠送 {{item.bonus}}</view>
+        <view class="pkg-note" wx:else>标准档</view>
+      </view>
+      <view wx:if="{{!packages.length}}" class="pkg-empty">档位加载中…</view>
+    </scroll-view>
+
+    <!-- 快捷 -->
+    <view class="tool-grid">
+      <view class="tool tap" hover-class="tap-on" bindtap="openInvite">
+        <view class="tool-icon">◎</view>
+        <view class="tool-name">邀请好友</view>
+        <view class="tool-sub">有效邀请返 1 点</view>
+      </view>
+      <view class="tool tap" hover-class="tap-on" bindtap="openRedeem">
+        <view class="tool-icon">◈</view>
+        <view class="tool-name">兑换算力</view>
+        <view class="tool-sub">输入兑换码</view>
+      </view>
+      <view class="tool tap" hover-class="tap-on" bindtap="openAbout">
+        <view class="tool-icon">i</view>
+        <view class="tool-name">关于与支持</view>
+        <view class="tool-sub">版本 {{version}}</view>
+      </view>
+    </view>
+
+    <!-- 账单 -->
+    <view class="section">
+      <view class="row">
+        <text class="section-title">点数账单</text>
+        <text class="section-sub">最近 30 条</text>
+      </view>
+    </view>
+
+    <view wx:if="{{!entries.length}}" class="card empty">
+      <view class="empty-icon">⌁</view>
+      <view class="empty-title">还没有流水</view>
+      <view class="empty-sub">充值、兑换、生成消耗都会记在这里</view>
+    </view>
+
+    <view wx:else class="card">
+      <view class="bill" wx:for="{{entries}}" wx:key="id">
+        <view class="bill-dot {{item.positive ? 'in' : 'out'}}"></view>
+        <view class="flex1">
+          <view class="bill-title">{{item.title}}</view>
+          <view class="bill-sub">{{item.sub}}</view>
+        </view>
+        <text class="bill-points {{item.positive ? 'in' : 'out'}}">{{item.pointsText}}</text>
+      </view>
+    </view>
+
+    <!-- 协议 -->
+    <view class="legal-row">
+      <text class="link" data-type="terms" bindtap="openLegal">用户协议</text>
+      <text class="legal-sep">·</text>
+      <text class="link" data-type="privacy" bindtap="openLegal">隐私政策</text>
+      <text class="legal-sep">·</text>
+      <text class="link" data-type="ai" bindtap="openLegal">AI 说明</text>
+    </view>
+    <view class="footer-note">
+      网剧大咖 v{{version}} · 内容由 AI 生成并添加标识
+    </view>
+  </view>
+
+  <!-- 充值弹层 -->
+  <view wx:if="{{sheet === 'recharge'}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">充值点数</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+      <view class="sheet-scroll">
+        <view
+          wx:for="{{packages}}"
+          wx:key="id"
+          class="pkg-row tap {{selectedId === item.id ? 'on' : ''}}"
+          hover-class="tap-on"
+          data-id="{{item.id}}"
+          bindtap="selectPackage"
+        >
+          <view class="flex1">
+            <view class="pkg-row-points">{{item.total}} 点<text wx:if="{{item.bonus}}" class="pkg-bonus">含赠 {{item.bonus}}</text></view>
+            <view class="tiny">到账后可用于剧本、关键帧与视频</view>
+          </view>
+          <view class="pkg-row-price">¥{{item.priceCny}}</view>
+        </view>
+        <view wx:if="{{!packages.length}}" class="empty-sub" style="text-align:center;padding:40rpx 0">档位加载中…</view>
+        <view wx:if="{{!showRecharge}}" class="notice mt16">
+          <view class="dot"></view>
+          <view class="flex1">微信虚拟支付尚未开通，当前可用兑换码获取点数。</view>
+        </view>
+        <view class="pay-note">支付由微信官方虚拟支付完成，平台不接触你的支付信息</view>
+      </view>
+      <view class="btn btn-block mt16 {{paying || !showRecharge ? 'btn-disabled' : ''}}" bindtap="pay">
+        {{paying ? '处理中…' : (showRecharge ? payText : '暂未开放')}}
+      </view>
+    </view>
+  </view>
+
+  <!-- 兑换弹层 -->
+  <view wx:if="{{sheet === 'redeem'}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">兑换算力</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+      <view class="input-wrap">
+        <input
+          class="input redeem-input"
+          placeholder="输入兑换码，例如 WJD-XXXX"
+          placeholder-class="input-ph"
+          value="{{redeemCode}}"
+          bindinput="onRedeemInput"
+          maxlength="32"
+        />
+      </view>
+      <view class="btn btn-block mt24 {{redeeming ? 'btn-disabled' : ''}}" bindtap="redeem">
+        {{redeeming ? '兑换中…' : '立即兑换'}}
+      </view>
+      <view class="tiny mt16" style="text-align:center">兑换码由运营发放，每个码每位用户限用一次</view>
+      <view wx:if="{{redeems.length}}" class="redeem-history">
+        <view class="hairline"></view>
+        <view class="tiny">最近兑换</view>
+        <view class="redeem-item" wx:for="{{redeems}}" wx:key="id">
+          <text class="mono">{{item.code}}</text>
+          <text class="gold">+{{item.points}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 关于弹层 -->
+  <view wx:if="{{sheet === 'about'}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">关于网剧大咖</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+      <view class="about-brand">
+        <view class="brand-mark" style="margin-right:0;width:88rpx;height:88rpx;font-size:40rpx">咖</view>
+        <view class="h2 mt16">网剧大咖</view>
+        <view class="tiny mt8">v{{version}} · AI 短剧制作台</view>
+      </view>
+      <view class="sub mt24">从一句话到一部剧：项目制管理素材、剧本、分镜与逐镜出片，全流程可追溯。</view>
+      <view class="about-row">
+        <text class="tiny">支持邮箱</text>
+        <text class="link" bindtap="copySupport">{{supportEmail}}</text>
+      </view>
+      <view class="about-row">
+        <text class="tiny">内容标识</text>
+        <text class="tiny">AI 生成 · 已添加显式与隐式标识</text>
+      </view>
+      <view class="about-row">
+        <text class="tiny">登录模式</text>
+        <text class="tiny">{{loginMode === 'live' ? '微信开放能力已接入' : '本地体验模式（未配置微信凭据）'}}</text>
+      </view>
+      <view class="btn btn-block btn-ghost mt24" bindtap="goHome">回到首页</view>
+    </view>
+  </view>
+</view>

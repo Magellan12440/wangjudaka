@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>上传助手 · 网剧大咖</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    .page { max-width: 1280px; margin: 22px auto; padding: 0 20px; }
+    .cols { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+    .field-val { white-space: pre-wrap; word-break: break-word; max-width: 520px; }
+    .checklist label { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+    .checklist label:last-child { border-bottom: none; }
+    .checklist input { margin-top: 4px; }
+    .warn-list { margin: 0; padding-left: 18px; }
+    .warn-list li { margin-bottom: 6px; }
+    textarea { width: 100%; min-height: 92px; font-family: ui-monospace, monospace; font-size: 12px; }
+    .banner { margin-bottom: 16px; }
+    @media (max-width: 960px) { .cols { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">上传助手 <small>PC / H5 · 只做预填与提醒</small></div>
+    <a class="btn sm" href="index.html">← 首页</a>
+    <a class="btn sm" href="canvas.html">无限画布</a>
+    <div class="spacer"></div>
+    <span class="tag warn">no_auto_submit = true</span>
+  </header>
+
+  <div class="page">
+    <div class="notice err banner">
+      <b>边界说明：</b>平台无开放上传 API，且版权方 / 制作方身份绑定后不可改。本助手只生成表单预填、素材清单与证据入口，
+      并在你本人完成上传后回写工作台状态；<b>审核、签约、提现均由你在平台完成，工作台绝不自动投稿</b>。
+    </div>
+
+    <div class="toolbar">
+      <label class="small muted" for="projectSel">项目</label>
+      <select id="projectSel" style="min-width:190px"></select>
+      <label class="small muted" for="distSel">分发任务</label>
+      <select id="distSel" style="min-width:230px"></select>
+      <button class="btn sm" id="btnRefresh">刷新</button>
+      <button class="btn sm primary" id="btnPrepare">生成预填单</button>
+      <span class="small muted" id="distHint">—</span>
+    </div>
+
+    <div class="cols">
+      <div class="stack">
+        <div class="card">
+          <div class="row" style="justify-content:space-between;margin-bottom:10px">
+            <h3 style="margin:0">表单预填字段</h3>
+            <button class="btn sm primary" id="btnCopyAll">复制全部预填</button>
+          </div>
+          <table>
+            <thead><tr><th style="width:150px">字段</th><th>预填内容</th><th style="width:70px"></th></tr></thead>
+            <tbody id="fieldsBody"><tr><td colspan="3" class="empty">点击「生成预填单」开始</td></tr></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>预填包导出 / 导入</h3>
+          <p class="hint">导出为 JSON 可在另一台电脑导入（离线迁移）；导入只恢复预填内容，不会向平台提交任何东西。</p>
+          <div class="row" style="margin:10px 0">
+            <button class="btn sm" id="btnExport">导出预填包</button>
+            <button class="btn sm" id="btnLoadBundles">查看导出记录</button>
+          </div>
+          <textarea id="importText" placeholder='把导出的 JSON 粘贴到这里，然后点「导入预填包」'></textarea>
+          <div class="row" style="margin-top:8px">
+            <button class="btn sm" id="btnImport">导入预填包</button>
+            <span class="small muted" id="importHint"></span>
+          </div>
+          <div id="bundleList" class="small muted" style="margin-top:10px"></div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="card">
+          <h3>平台入口</h3>
+          <div id="linkBox" class="hint">生成预填单后显示平台上传页入口。</div>
+        </div>
+
+        <div class="card">
+          <h3>上传前材料清单</h3>
+          <div class="checklist" id="checklistBox"><p class="hint">—</p></div>
+        </div>
+
+        <div class="card">
+          <h3>交付闸门</h3>
+          <div id="gateBox" class="hint">—</div>
+        </div>
+
+        <div class="card">
+          <h3>状态回写（只跟踪工作台）</h3>
+          <div class="stack">
+            <div><label class="fld" for="statusSel">平台当前状态</label><select id="statusSel" style="width:100%"></select></div>
+            <div><label class="fld" for="noteText">备注（选填）</label><input id="noteText" type="text" placeholder="如：已在红果创作中心上传，等待审核" style="width:100%"></div>
+            <button class="btn primary" id="btnMark">回写状态</button>
+            <div id="submissionList" class="small muted"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>提醒</h3>
+          <ul class="warn-list small" id="warnBox"><li class="muted">—</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="common.js"></script>
+  <script src="upload-helper.js"></script>
+</body>
+</html>
