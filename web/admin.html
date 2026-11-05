@@ -93,6 +93,25 @@
       </div>
     </div>
 
+    <!-- 算力网关（密钥不进代码，改完立即生效） -->
+    <div class="card" style="margin-top:16px">
+      <h3>算力网关（剧本/画面/视频都走这里，改完立即生效）</h3>
+      <div class="form-grid">
+        <div><label class="fld">网关地址</label><input type="text" id="rlGateway" placeholder="留空则用服务端默认网关"></div>
+        <div><label class="fld">密钥（留空=不修改）</label><input type="password" id="rlKey" placeholder="sk-..."></div>
+      </div>
+      <div class="row" style="margin-top:12px;align-items:center;gap:12px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+          <input type="checkbox" id="rlMock" style="width:auto"> 用演练模式（不真调上游，只跑通链路）
+        </label>
+        <button class="btn primary" id="btnRlSave">保存并生效</button>
+        <button class="btn" id="btnRlProbe">保存后探活</button>
+        <span class="badge" id="rlState">未加载</span>
+      </div>
+      <p class="hint" id="rlHint">当前密钥：—</p>
+      <p class="hint">安全说明：密钥存数据盘（app_settings），不写进代码仓库、不出现在任何用户端接口；换密钥只影响下一个请求，不用重新发版。</p>
+    </div>
+
     <!-- 充值活动 -->
     <div class="card" style="margin-top:16px">
       <h3>充值活动（按档次加赠，小程序实时生效）</h3>

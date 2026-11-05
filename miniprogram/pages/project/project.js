@@ -146,6 +146,8 @@ Page({
     error: '',
     tab: 'material',
     tabs: TABS,
+    recipes: [],
+    syncRules: [],
     tabIndex: 0,
     segTabsStyle: '',
     setup: false,
@@ -232,6 +234,7 @@ Page({
     this.setData({ balance: getApp().globalData.balance || 0 });
     // 回到前台继续轮询托管任务（后台仍在逐集推进）
     if (this.data.job && this.data.job.status === 'running') this.pollJob();
+    if (!this.data.recipes.length) this.loadEditLibraries();
   },
 
   onHide() {
@@ -442,8 +445,59 @@ Page({
   goFlow() {
     motion.haptic();
     const idx = TABS.findIndex((t) => t.key === 'script');
-    this.setData({ tab: 'flow', tabIndex: idx < 0 ? 2 : idx, segTabsStyle: motion.segStyle(idx < 0 ? 2 : idx, TABS.length) });
+    const i = idx < 0 ? 0 : idx;
+    this.setData({ tab: 'script', tabIndex: i, segTabsStyle: motion.segStyle(i, TABS.length) });
     wx.pageScrollTo({ scrollTop: 0, duration: 180 });
+  },
+
+  /** 九大提示词库里的「剪辑配方」「字幕同步」：让用户能换打法，而不是写死 */
+  loadEditLibraries() {
+    Promise.all([api.promptKind('edit'), api.promptKind('sync')])
+      .then(([r, s2]) => {
+        this.setData({
+          recipes: (r.items || []).map((x) => ({ code: x.code, name: x.name, text: x.text })),
+          syncRules: (s2.items || []).map((x) => ({ code: x.code, name: x.name, text: x.text })),
+        });
+      })
+      .catch(() => { /* 库读不到不影响剪辑单本身 */ });
+  },
+
+  pickRecipe() {
+    const list = this.data.recipes || [];
+    if (!list.length) return;
+    motion.haptic();
+    wx.showActionSheet({
+      itemList: list.map((x) => `${x.name}（${x.code.replace('EDR-', '')}）`),
+      success: (r) => {
+        const pick = list[r.tapIndex];
+        if (!pick) return;
+        api.updateProject(this.data.projectId, { editRecipe: pick.code })
+          .then(() => {
+            wx.showToast({ title: `已切换：${pick.name}`, icon: 'none' });
+            this.reloadEdit();
+          })
+          .catch(() => {});
+      },
+    });
+  },
+
+  pickSyncRule() {
+    const list = this.data.syncRules || [];
+    if (!list.length) return;
+    motion.haptic();
+    wx.showActionSheet({
+      itemList: list.map((x) => `${x.name}（${x.code.replace('SYN-', '')}）`),
+      success: (r) => {
+        const pick = list[r.tapIndex];
+        if (!pick) return;
+        api.updateProject(this.data.projectId, { subtitleSync: pick.code })
+          .then(() => {
+            wx.showToast({ title: `已切换：${pick.name}`, icon: 'none' });
+            this.reloadEdit();
+          })
+          .catch(() => {});
+      },
+    });
   },
 
   toggleShots() {    motion.haptic();

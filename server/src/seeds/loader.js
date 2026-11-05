@@ -70,6 +70,10 @@ class SeedStore {
     // 导演语法扩展库（构图/氛围/镜头/调色 + 组合配方）与音效卡
     this.cinemaGrammar = readJson('cinema_grammar.json');
     this.sfxLibrary = readJson('sfx_library.json');
+    // V4.4：九大提示词库新增三类（特效 / 剪辑成片 / 字幕同步），前六类沿用原有卡片库
+    this.fxLibrary = readJson('fx_library.json');
+    this.editRecipes = readJson('edit_recipes.json');
+    this.subtitleSync = readJson('subtitle_sync.json');
     const reg = readJson('model_registry.seed.json');
     this.modelRegistry = reg.models ?? [];
     this.modelRegistryMeta = { note: reg._note, lastSync: reg._last_sync };
@@ -100,6 +104,9 @@ class SeedStore {
     this._color = indexBy(this.cinemaGrammar.color ?? []);
     this._recipe = indexBy(this.cinemaGrammar.recipes ?? []);
     this._sfx = indexBy(this.sfxLibrary, 'code');
+    this._fx = indexBy(this.fxLibrary, 'code');
+    this._editRecipe = indexBy(this.editRecipes, 'code');
+    this._sync = indexBy(this.subtitleSync, 'code');
 
     // 按类别预分组
     this._rhythmByCat = {};
@@ -165,6 +172,11 @@ class SeedStore {
   }
   /** 音效卡 */
   sfx(code) { return this._sfx.get(code) ?? null; }
+
+  // —— V4.4 九大提示词库 ——
+  fx(code) { return this._fx.get(code) ?? null; }
+  editRecipe(code) { return this._editRecipe.get(code) ?? null; }
+  subtitleSyncRule(code) { return this._sync.get(code) ?? null; }
   /** 按转场找音效（用于自动排点） */
   sfxForTransition(transitionCode) {
     return this.sfxLibrary.filter((s) => (s.for_transition ?? []).includes(transitionCode));

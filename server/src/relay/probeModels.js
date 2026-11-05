@@ -55,7 +55,7 @@ export async function probeModels({ deep = false } = {}) {
       if (!model) continue;
       const at = new Date().toISOString();
       if (!ids.has(String(model.upstream_id))) {
-        results.push({ code: item.code, status: 'unavailable', checked_at: at, note: '网关清单中不存在该上游模型' });
+        results.push({ code: item.code, status: 'unavailable', checked_at: at, note: '网关清单中不存在该上游模型，请在 model_registry 里换绑 upstream_id' });
         continue;
       }
       if (model.role !== 'chat' || !deep) {
@@ -69,17 +69,28 @@ export async function probeModels({ deep = false } = {}) {
           body: {
             model: model.upstream_id,
             messages: [{ role: 'user', content: 'ping' }],
-            max_tokens: 8,
+            // 推理模型（DeepSeek-V4-Pro 等）会先花 token 在 reasoning_content 上，
+            // 8 个 token 会被思考过程吃光、content 为空，从而被误判为「不可用」。
+            // 给到 64 既够推理模型吐出一个字，又几乎不花钱。
+            max_tokens: 64,
             temperature: 0,
           },
         });
-        const ok = r.ok && Boolean(r.json?.choices?.[0]?.message?.content);
+        const msg = r.json?.choices?.[0]?.message ?? {};
+        // 有正文 = 正常；没正文但有 reasoning_content = 推理模型在思考，同样算活着
+        const ok = r.ok && Boolean(msg.content || msg.reasoning_content);
+        const note = !r.ok
+          ? `调用失败 HTTP ${r.status}`
+          : msg.content
+            ? '最小调用成功'
+            : '最小调用成功（推理型模型，仅返回思考过程）';
         results.push({
           code: item.code,
           status: ok ? 'ok' : 'down',
           latency_ms: Date.now() - started,
           checked_at: at,
-          note: ok ? '最小调用成功' : `调用失败 HTTP ${r.status}`,
+          note,
+          reasoning_model: Boolean(!msg.content && msg.reasoning_content),
         });
       } catch (e) {
         results.push({ code: item.code, status: 'down', checked_at: at, note: e.message });

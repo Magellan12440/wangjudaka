@@ -26,6 +26,7 @@ import {
   aspectRules,
 } from './segments.js';
 import * as V from './validators.js';
+import * as prompts from '../prompts/PromptLibrary.js';
 
 export class PromptCompiler {
   /**
@@ -234,6 +235,19 @@ export class PromptCompiler {
       silentOthers: spk.silentOthers,
     });
 
+    // V4.4：分镜图/音视频环节强制带上运镜·光影·转场·特效（视频另加配乐与情绪）
+    const libStage = kind === 'image' ? 'storyboard' : 'media';
+    const lib = prompts.compose(libStage, {
+      ...(req.libraries ?? {}),
+      movement: req.libraries?.movement ?? moveCard?.code ?? null,
+      transition: req.libraries?.transition ?? trn.code ?? null,
+      lighting: req.libraries?.lighting ?? (Array.isArray(lightingCodes) ? lightingCodes[0] : lightingCodes) ?? null,
+      emotion: req.libraries?.emotion ?? null,
+    });
+    if (lib.missing.length) {
+      fail('PROMPT_LIBRARY_MISSING', `提示词库不完整，缺少：${lib.missing.map((m) => m.name).join('、')}`, { missing: lib.missing });
+    }
+    const libText = prompts.toPromptText(lib);
     const enParts = [s1.en, s2.en, s25.en, s3.en, s35.en, s4.en, s5.en, s6.en].filter(Boolean);
     const zhParts = [s1.zh, s2.zh, s25.zh, s3.zh, s35.zh, s4.zh, s5.zh, s6.zh].filter(Boolean);
     const neg = buildNegative({
@@ -251,8 +265,8 @@ export class PromptCompiler {
       shot_no: req.shot_no ?? null,
       kind,
       target_model: modelCode,
-      prompt_en: `${enParts.join(' ')}. ${neg.en}.`,
-      prompt_zh: `${zhParts.join('')}负面排除：${neg.zh}。`,
+      prompt_en: `${libText} ${enParts.join(' ')}. ${neg.en}.`,
+      prompt_zh: `${zhParts.join('')}${libText}负面排除：${neg.zh}。`,
       negative: neg.en,
       reference_images: references.filter((r) => r.url),
       pending_reference_plan: refCheck.pending.map((r) => ({ role: r.role, asset_code: r.asset_code })),
@@ -291,6 +305,12 @@ export class PromptCompiler {
         quality,
         purpose: req.options?.purpose ?? 'preview',
         bgm: bgm?.track_id ?? null,
+      },
+      prompt_libraries: {
+        stage: libStage,
+        blocks: lib.blocks,
+        missing: lib.missing,
+        digest: digestOf(lib),
       },
     };
 
@@ -341,10 +361,21 @@ export class PromptCompiler {
 
   /** 文本环节（剧本 / 分镜 / 节奏诊断）：轻量分支，仍过安全与余额 */
   #compileText(req) {
-    const messages = req.messages ?? [
+    // V4.4：剧本/角色环节必须带上内置提示词库（情绪 + 节奏 / 情绪 + 光影）
+    const stage = req.stage === 'character' ? 'character' : 'script';
+    const lib = prompts.compose(stage, req.libraries ?? {});
+    if (lib.missing.length) {
+      fail('PROMPT_LIBRARY_MISSING', `提示词库不完整，缺少：${lib.missing.map((m) => m.name).join('、')}`, { missing: lib.missing });
+    }
+    const libText = prompts.toPromptText(lib);
+    const base = req.messages ?? [
       { role: 'system', content: req.system ?? '你是一位专业的短剧编剧。' },
       { role: 'user', content: req.user ?? '' },
     ];
+    // 库约束放在 system 之后、user 之前，保证模型先读到硬规则再动笔
+    const messages = req.messages
+      ? [...base, { role: 'system', content: libText }]
+      : [base[0], { role: 'system', content: libText }, base[1]];
     const modelCode = req.model ?? modelRegistry.defaultFor('chat');
     const model = modelRegistry.get(modelCode);
     const join = messages.map((m) => m.content).join('\n');
@@ -369,6 +400,7 @@ export class PromptCompiler {
       compile_warnings: [],
       compiled_at: new Date().toISOString(),
       meta: { purpose: req.options?.purpose ?? 'preview' },
+      prompt_libraries: { stage, blocks: lib.blocks, missing: lib.missing, digest: digestOf(lib) },
     };
     payload._stamp = issueStamp(payload);
     return payload;
@@ -402,6 +434,15 @@ export class PromptCompiler {
       throw e;
     }
   }
+}
+
+
+/** 库内容指纹：同样的库与选择 → 同样的指纹，便于审计「这条片子用了哪套约束」 */
+function digestOf(lib) {
+  const raw = `${lib.stage}|${lib.blocks.map((b) => `${b.kind}:${b.code}`).join(',')}`;
+  let h = 0;
+  for (let i = 0; i < raw.length; i += 1) h = (h * 31 + raw.charCodeAt(i)) >>> 0;
+  return h.toString(16).padStart(8, '0');
 }
 
 function resolutionOf(aspect, quality) {

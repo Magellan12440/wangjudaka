@@ -17,9 +17,30 @@ import { fail, ERR } from '../core/errors.js';
 import { newId, nowIso } from '../core/util.js';
 import { ledger } from '../ledger/Ledger.js';
 import wechatClient from '../wechat/WechatClient.js';
+import { logger } from '../core/redact.js';
 
 const USERS = 'users';
+const SMS = 'sms_codes';
 const SECRET = config.wechat.sessionSecret || crypto.randomBytes(32).toString('hex');
+
+
+/** 手机号规范化：只接受中国大陆 11 位手机号（保留 +86 前缀容错） */
+export function normalizePhone(input) {
+  const raw = String(input ?? '').replace(/[\s-]/g, '');
+  const m = raw.match(/^(?:\+?86)?(1[3-9]\d{9})$/);
+  if (!m) fail('PHONE_INVALID', '请输入正确的 11 位手机号');
+  return m[1];
+}
+
+export function maskPhone(phone) {
+  const p = String(phone ?? '');
+  if (p.length !== 11) return '';
+  return `${p.slice(0, 3)}****${p.slice(-4)}`;
+}
+
+function sha256(s) {
+  return crypto.createHash('sha256').update(String(s)).digest('hex');
+}
 
 class AuthService {
   /**
@@ -106,6 +127,128 @@ class AuthService {
   }
 
   /** 对外用户信息（不含 openid 等内部字段） */
+  // ============================================================
+  // 账号体系（V4.4）：微信之外，再给一条「手机号 + 密码 / 验证码」的路
+  // ============================================================
+
+  /**
+   * 发验证码。
+   * 没有接短信服务商时**不假装已发**：返回 sent:false + 测试码，并在文案里写明。
+   * 接了服务商（config.sms.provider 非空）才真发，且绝不回吐验证码。
+   */
+  sendCode({ phone } = {}) {
+    const p = normalizePhone(phone);
+    const now = Date.now();
+    const last = db.find(SMS, (x) => x.phone === p).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    if (last && now - new Date(last.created_at).getTime() < 60_000) {
+      fail('SMS_TOO_FREQUENT', '验证码 60 秒内只能发一次，请稍后再试');
+    }
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    db.insert(SMS, {
+      id: newId('sms'),
+      phone: p,
+      code_hash: sha256(`${p}:${code}`),
+      expires_at: new Date(now + 5 * 60_000).toISOString(),
+      attempts: 0,
+      used: false,
+      created_at: new Date().toISOString(),
+    });
+    const live = Boolean(config.sms?.provider);
+    logger.info('验证码已生成', { phone: maskPhone(p), live });
+    return {
+      sent: live,
+      mode: live ? 'sms' : 'dev',
+      expires_in_sec: 300,
+      // 未接服务商时必须让开发/测试能看到码，否则本地无法登录；生产接了就永不下发
+      dev_code: live ? undefined : code,
+      note: live ? '验证码已下发' : '未配置短信服务商，这是本地测试码（上线前请接入短信服务）',
+    };
+  }
+
+  /** 手机号 + 验证码登录（未注册则自动注册，符合「验证码即注册」的直觉） */
+  loginByCode({ phone, code, nickname = null } = {}) {
+    const p = normalizePhone(phone);
+    const row = db.find(SMS, (x) => x.phone === p && !x.used)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    if (!row) fail('CODE_NOT_FOUND', '请先获取验证码');
+    if (new Date(row.expires_at).getTime() < Date.now()) fail('CODE_EXPIRED', '验证码已过期，请重新获取');
+    if (row.attempts >= 5) fail('CODE_LOCKED', '尝试次数过多，请重新获取验证码');
+    if (sha256(`${p}:${String(code ?? '').trim()}`) !== row.code_hash) {
+      db.update(SMS, row.id, { attempts: row.attempts + 1 });
+      fail('CODE_INVALID', '验证码不对，请检查后重试');
+    }
+    db.update(SMS, row.id, { used: true, used_at: nowIso() });
+    return this.#loginOrCreate({ phone: p, nickname });
+  }
+
+  /** 设置/修改密码（需已登录；旧密码不强制，因为微信用户本来就没密码） */
+  setPassword(userId, { password } = {}) {
+    const pw = String(password ?? '');
+    if (pw.length < 6) fail('PASSWORD_TOO_SHORT', '密码至少 6 位');
+    if (pw.length > 64) fail('PASSWORD_TOO_LONG', '密码最长 64 位');
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync(pw, salt, 32).toString('hex');
+    const user = db.findOne(USERS, (u) => u.id === userId);
+    if (!user) fail(ERR.NOT_FOUND, '用户不存在');
+    db.update(USERS, userId, { password_hash: hash, password_salt: salt, password_updated_at: nowIso() });
+    return this.publicUser(db.findOne(USERS, (u) => u.id === userId));
+  }
+
+  /** 手机号 + 密码登录 */
+  loginByPassword({ phone, password } = {}) {
+    const p = normalizePhone(phone);
+    const user = db.findOne(USERS, (u) => u.phone === p);
+    // 不区分「没这个号」和「密码错」，避免被用来探测手机号是否注册
+    if (!user?.password_hash) fail('LOGIN_FAILED', '手机号或密码不对');
+    const hash = crypto.scryptSync(String(password ?? ''), user.password_salt, 32).toString('hex');
+    const a = Buffer.from(hash, 'hex');
+    const b = Buffer.from(user.password_hash, 'hex');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) fail('LOGIN_FAILED', '手机号或密码不对');
+    db.update(USERS, user.id, { last_login_at: nowIso() });
+    return { token: this.#sign(user.id), user: this.publicUser(user), mode: 'password', isNewUser: false };
+  }
+
+  /** 绑定手机号（微信登录后补绑，便于换机找回） */
+  bindPhone(userId, { phone, code } = {}) {
+    const p = normalizePhone(phone);
+    const row = db.find(SMS, (x) => x.phone === p && !x.used)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    if (!row) fail('CODE_NOT_FOUND', '请先获取验证码');
+    if (new Date(row.expires_at).getTime() < Date.now()) fail('CODE_EXPIRED', '验证码已过期');
+    if (sha256(`${p}:${String(code ?? '').trim()}`) !== row.code_hash) {
+      db.update(SMS, row.id, { attempts: row.attempts + 1 });
+      fail('CODE_INVALID', '验证码不对');
+    }
+    const occupied = db.findOne(USERS, (u) => u.phone === p && u.id !== userId);
+    if (occupied) fail('PHONE_TAKEN', '该手机号已绑定其他账号');
+    db.update(SMS, row.id, { used: true, used_at: nowIso() });
+    db.update(USERS, userId, { phone: p, phone_bound_at: nowIso() });
+    return this.publicUser(db.findOne(USERS, (u) => u.id === userId));
+  }
+
+  /** 内部：手机号登录时没有账号就建一个（账本同时开户） */
+  #loginOrCreate({ phone, nickname = null }) {
+    let user = db.findOne(USERS, (u) => u.phone === phone);
+    let isNewUser = false;
+    if (!user) {
+      user = db.insert(USERS, {
+        id: newId('user'),
+        openid: `phone_${sha256(phone).slice(0, 20)}`,
+        phone,
+        nickname: nickname ?? `创作者${phone.slice(-4)}`,
+        avatar: null,
+        created_at: nowIso(),
+        last_login_at: nowIso(),
+      });
+      ledger.ensureAccount(user.id);
+      isNewUser = true;
+    } else {
+      db.update(USERS, user.id, { last_login_at: nowIso(), ...(nickname ? { nickname } : {}) });
+      user = db.findOne(USERS, (u) => u.id === user.id);
+    }
+    return { token: this.#sign(user.id), user: this.publicUser(user), mode: 'phone', isNewUser };
+  }
+
   publicUser(user) {
     return {
       id: user.id,
@@ -114,6 +257,9 @@ class AuthService {
       balance_points: ledger.balance(user.id),
       // 新用户默认昵称是「创作者_xxxxxx」，头像为空 —— 前端据此提示补全资料
       profile_complete: Boolean(user.avatar) && !/^创作者_/.test(String(user.nickname ?? '')),
+      phone_masked: maskPhone(user.phone),
+      has_password: Boolean(user.password_hash),
+      has_phone: Boolean(user.phone),
       created_at: user.created_at,
     };
   }

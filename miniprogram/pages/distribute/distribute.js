@@ -246,6 +246,8 @@ Page({
           platformCode: platform.code,
         })
           .then(() => {
+            const app = getApp();
+            if (app && app.globalData) app.globalData.selectedPlatform = platform.code;
             this.setData({ sheetPlatform: null });
             wx.showToast({ title: '任务已创建', icon: 'none' });
             this.loadProjectData();
@@ -364,24 +366,33 @@ Page({
   recordRevenue(e) {
     const id = e.currentTarget.dataset.id;
     wx.showModal({
-      title: '录入本期收益',
+      title: '录入本期收益（元）',
       editable: true,
-      placeholderText: '金额（元），例如 1200',
+      placeholderText: '例如 1200，填 0 表示本期未产生收益',
       success: (r) => {
-        if (!r.confirm || !r.content) return;
+        if (!r.confirm || r.content === '') return;
         const amount = Number(r.content);
         if (!isFinite(amount) || amount < 0) {
           wx.showToast({ title: '请输入正确的金额', icon: 'none' });
           return;
         }
-        api.distributionRevenue(id, { amount, currency: 'CNY' })
+        // 账期默认当月，看板按月汇总靠它
+        const now = new Date();
+        const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        api.distributionRevenue(id, { amount, currency: 'CNY', period, settlementStatus: '待结算' })
           .then(() => {
-            wx.showToast({ title: '收益已入账', icon: 'none' });
+            wx.showToast({ title: '已回填，看板已更新', icon: 'none' });
             this.loadProjectData();
           })
           .catch(() => {});
       },
     });
+  },
+
+  /** 收益看板：把这里的回填数据汇总成趋势与平台分布 */
+  goRevenue() {
+    require('../../utils/motion.js').haptic();
+    wx.navigateTo({ url: '/pages/revenue/revenue' });
   },
 
   openStats(e) {

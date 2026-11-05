@@ -46,11 +46,31 @@ Page({
     profileComplete: false,
     // 充值活动
     campaign: null,
+    // 账号安全（V4.4）
+    hasPhone: false,
+    phoneMasked: '',
+    hasPassword: false,
+    secTab: 'phone',
+    secPhone: '',
+    secCode: '',
+    secPwd: '',
+    secPwd2: '',
+    secCountdown: 0,
+    secBusy: false,
+    secDevCode: '',
+    secError: '',
+    // 收益看板（V4.4）
+    revenueTotal: 0,
   },
 
   onShow() {
     const app = getApp();
     motion.enter(this);
+    // 没有登录态时先把人送到登录页，而不是留一个「创作者」的假头像
+    if (!app.globalData.userId) {
+      wx.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/mine/mine') });
+      return;
+    }
     this.setData({
       balance: app.globalData.balance || 0,
       balanceShow: app.globalData.balance || 0,
@@ -62,7 +82,102 @@ Page({
       this.loadPackages();
       this.loadRedeems();
       this.loadFilms();
+      this.loadRevenue();
     });
+  },
+
+  /** 收益看板入口：先取一个总额做卡片，点进去看明细 */
+  loadRevenue() {
+    api.revenue()
+      .then((d) => this.setData({ revenueTotal: (d && d.total) || 0 }))
+      .catch(() => { /* 看板失败不影响我的页 */ });
+  },
+
+  openRevenue() {
+    motion.haptic();
+    wx.navigateTo({ url: '/pages/revenue/revenue' });
+  },
+
+  // —— 账号安全（V4.4）：绑手机 / 设密码 ——
+  openSecurity() {
+    motion.haptic();
+    const hasPhone = this.data.hasPhone;
+    this.setData({
+      sheet: 'security',
+      secTab: hasPhone ? 'password' : 'phone',
+      secError: '',
+      secPhone: '',
+      secCode: '',
+      secPwd: '',
+      secPwd2: '',
+      secDevCode: '',
+    });
+  },
+
+  switchSec(e) {
+    this.setData({ secTab: e.currentTarget.dataset.tab, secError: '' });
+  },
+
+  onSecInput(e) {
+    const key = e.currentTarget.dataset.key;
+    let v = e.detail.value || '';
+    if (key === 'secPhone') v = v.replace(/\D/g, '').slice(0, 11);
+    if (key === 'secCode') v = v.replace(/\D/g, '').slice(0, 6);
+    this.setData({ [key]: v, secError: '' });
+  },
+
+  sendSecCode() {
+    if (this.data.secCountdown > 0) return;
+    const phone = this.data.secPhone;
+    if (!/^1[3-9]\d{9}$/.test(phone)) return this.setData({ secError: '请输入正确的手机号' });
+    api.sendSms(phone)
+      .then((d) => {
+        this.setData({
+          secCountdown: 60,
+          secDevCode: d.dev_code || '',
+          secError: d.sent ? '' : '未接短信服务，测试码已填入上方',
+        });
+        if (!d.sent && d.dev_code) this.setData({ secCode: d.dev_code });
+        if (this.secTimer) clearInterval(this.secTimer);
+        this.secTimer = setInterval(() => {
+          const n = this.data.secCountdown - 1;
+          if (n <= 0) { clearInterval(this.secTimer); this.secTimer = null; this.setData({ secCountdown: 0 }); return; }
+          this.setData({ secCountdown: n });
+        }, 1000);
+      })
+      .catch((e) => this.setData({ secError: e.message || '发送失败' }));
+  },
+
+  bindSecPhone() {
+    const { secPhone, secCode } = this.data;
+    if (!/^1[3-9]\d{9}$/.test(secPhone)) return this.setData({ secError: '请输入正确的手机号' });
+    if (!/^\d{6}$/.test(secCode)) return this.setData({ secError: '请输入 6 位验证码' });
+    this.setData({ secBusy: true });
+    api.bindPhone(secPhone, secCode)
+      .then((d) => {
+        this.setData({
+          secBusy: false,
+          hasPhone: !!d.user.has_phone,
+          phoneMasked: d.user.phone_masked || '',
+          secTab: 'password',
+          secCode: '',
+        });
+        wx.showToast({ title: '已绑定', icon: 'none' });
+      })
+      .catch((e) => this.setData({ secBusy: false, secError: e.message || '绑定失败' }));
+  },
+
+  saveSecPassword() {
+    const { secPwd, secPwd2 } = this.data;
+    if (secPwd.length < 6) return this.setData({ secError: '密码至少 6 位' });
+    if (secPwd !== secPwd2) return this.setData({ secError: '两次输入的密码不一致' });
+    this.setData({ secBusy: true });
+    api.setPassword(secPwd)
+      .then((d) => {
+        this.setData({ secBusy: false, hasPassword: !!d.user.has_password, secPwd: '', secPwd2: '' });
+        wx.showToast({ title: '密码已设置', icon: 'none' });
+      })
+      .catch((e) => this.setData({ secBusy: false, secError: e.message || '设置失败' }));
   },
 
   /** 我的资产：所有已出成片（跨项目逐集汇总，方便一键分发） */
@@ -145,6 +260,9 @@ Page({
           loginMode: d.mode || '',
           uidText: fmt.shortId(d.user.id),
           profileComplete: !!d.user.profile_complete,
+          hasPhone: !!d.user.has_phone,
+          phoneMasked: d.user.phone_masked || '',
+          hasPassword: !!d.user.has_password,
         });
         motion.countUp(this, 'balanceShow', d.user.balance_points || 0, { duration: 700 });
       })
@@ -230,6 +348,24 @@ Page({
   },
 
   noop() {},
+
+  logout() {
+    wx.showModal({
+      title: '退出登录',
+      content: '退出后需要重新登录才能继续做剧，本地草稿不会丢失。',
+      confirmText: '退出',
+      success: (r) => {
+        if (!r.confirm) return;
+        try { wx.removeStorageSync('token'); } catch (e) { /* ignore */ }
+        const app = getApp();
+        app.globalData.userId = '';
+        app.globalData.user = null;
+        app.globalData.token = '';
+        this.setData({ sheet: '' });
+        wx.reLaunch({ url: '/pages/login/login' });
+      },
+    });
+  },
 
   selectPackage(e) {
     this.setData({ selectedId: e.currentTarget.dataset.id }, () => this.refreshPayText());
@@ -362,6 +498,7 @@ Page({
   },
 
   onUnload() {
+    if (this.secTimer) clearInterval(this.secTimer);
     this.__gone = true;
     motion.clear(this);
   },

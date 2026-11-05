@@ -112,6 +112,50 @@
     }).catch(function (e) { LW.toast(e.message, 'err'); });
   };
 
+  // ---------- 算力网关 ----------
+  function renderRelay(r) {
+    $('rlGateway').value = r.gateway || '';
+    $('rlMock').checked = !!r.mock;
+    var src = r.source === 'admin' ? '管理台设置' : r.source === 'env' ? '环境变量' : '未配置';
+    $('rlState').textContent = r.has_api_key ? (r.mock ? '演练模式' : '真实调用') : '缺少密钥';
+    $('rlState').className = 'badge' + (r.has_api_key && !r.mock ? ' ok' : '');
+    $('rlHint').textContent = '当前密钥：' + (r.api_key_masked || '—')
+      + '（来源：' + src + '）'
+      + (r.updated_at ? ' · 更新于 ' + new Date(r.updated_at).toLocaleString() : '');
+  }
+
+  function loadRelay() {
+    return call('/api/admin/relay').then(renderRelay);
+  }
+
+  function saveRelay() {
+    var body = { gateway: $('rlGateway').value.trim(), mock: $('rlMock').checked };
+    var k = $('rlKey').value.trim();
+    if (k) body.apiKey = k;
+    return call('/api/admin/relay', { method: 'POST', body: body }).then(function (r) {
+      $('rlKey').value = '';
+      renderRelay(r);
+      LW.toast('已保存并立即生效', 'ok');
+      return r;
+    });
+  }
+
+  $('btnRlSave').onclick = function () {
+    saveRelay().catch(function (e) { LW.toast(e.message, 'err'); });
+  };
+
+  $('btnRlProbe').onclick = function () {
+    saveRelay().then(function () {
+      LW.toast('正在真实探活，约 10 秒…', 'ok');
+      return call('/api/admin/relay/probe', { method: 'POST' });
+    }).then(function (r) {
+      renderRelay(r);
+      var p = r.probe || {};
+      var down = (p.results || []).filter(function (x) { return x.status !== 'ok'; });
+      LW.toast(down.length ? ('探活完成，' + down.length + ' 个不可用：' + down.map(function (x) { return x.code; }).join(',')) : '探活通过：全部可用', down.length ? 'err' : 'ok');
+    }).catch(function (e) { LW.toast(e.message, 'err'); });
+  };
+
   // ---------- 充值活动 ----------
   var campaignCache = { bonusByPackage: {} };
 
@@ -343,6 +387,7 @@
     loadOverview().catch(function (e) { LW.toast(e.message, 'err'); });
     loadPackages().catch(function (e) { LW.toast(e.message, 'err'); });
     loadCampaign().catch(function (e) { LW.toast(e.message, 'err'); });
+    loadRelay().catch(function (e) { LW.toast(e.message, 'err'); });
     loadCodes().catch(function (e) { LW.toast(e.message, 'err'); });
     loadStats().catch(function (e) { LW.toast(e.message, 'err'); });
     loadInvStats().catch(function (e) { LW.toast(e.message, 'err'); });

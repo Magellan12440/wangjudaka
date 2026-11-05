@@ -316,7 +316,7 @@ curl -s -o /dev/null -w "%{http_code}\n" https://<域名>/api/admin/overview  # 
 - 体检新增第 9 组闸门：每页必须有 `pageAnim` 与 `hover-class="tap-on"`，全仓不得残留旧主色 `#f2c14e`
 
 **验收**：`npm run verify` **496 项全绿** —— 228 单测 / 13 前端 / 15 组体检 / 61 运行时 / 64 部署 /
-22+16+77 冒烟；版本 4.3.0。
+22+16+77 冒烟；版本 4.4.0。
 
 ### 阶段 F — 代码侧已就绪，只差资质材料
 - ~~真实 API Key~~ ✅ 已配置并验证（V3.5）

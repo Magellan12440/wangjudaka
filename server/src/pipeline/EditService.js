@@ -45,7 +45,29 @@ export function normalizeEpisodeNo(v) {
   return `E${String(Number(m[1])).padStart(2, '0')}`;
 }
 
-export class EditService {
+export 
+/** 剪辑配方 → 字幕同步规则的默认搭配（用户没单独指定时用） */
+const SYNC_BY_RECIPE = {
+  'EDR-SHORTDRAMA': 'SYN-SHORT',
+  'EDR-ACTION': 'SYN-SHORT',
+  'EDR-TRAILER': 'SYN-SHORT',
+  'EDR-EMOTIONAL': 'SYN-NARR',
+  'EDR-DOCU': 'SYN-NARR',
+  'EDR-COMEDY': 'SYN-KEYWORD',
+  'EDR-SUSPENSE': 'SYN-STD',
+  'EDR-SERIES': 'SYN-STD',
+};
+
+/** 按项目设定挑剪辑配方：优先用户手选，其次风格默认，最后兜底短剧强钩 */
+function pickEditRecipe(project) {
+  const explicit = project.spec?.edit_recipe;
+  if (explicit && seeds.editRecipe(explicit)) return seeds.editRecipe(explicit);
+  const byStyle = project.spec?.style_code ? seeds.style(project.spec.style_code)?.edit_recipe : null;
+  if (byStyle && seeds.editRecipe(byStyle)) return seeds.editRecipe(byStyle);
+  return seeds.editRecipe('EDR-SHORTDRAMA') ?? seeds.editRecipes?.[0] ?? null;
+}
+
+class EditService {
   /** 取某集可剪辑的镜头（已生成优先取视频，其次取图片当静帧） */
   collectShots(projectId, episodeNo = null) {
     const planRec = db.findOne('director_plans', (x) => x.project_id === projectId);
@@ -136,6 +158,11 @@ export class EditService {
       ...(shellSegs.outro ? [shellSegs.outro] : []),
     ];
 
+    const recipe = pickEditRecipe(project);
+    const syncRule = seeds.subtitleSyncRule(
+      project.spec?.subtitle_sync ?? SYNC_BY_RECIPE[recipe?.code] ?? 'SYN-STD'
+    ) ?? seeds.subtitleSync?.[0] ?? null;
+
     const built = editPlan.buildEditPlan({
       projectId,
       episodeNo: episode ?? normalizeEpisodeNo(shots[0]?.shot_no) ?? 'E01',
@@ -145,12 +172,17 @@ export class EditService {
       aspect: project.spec?.aspect ?? '9:16',
       quality: project.spec?.quality ?? '1080p',
       bgmUrl: project.spec?.bgm_url ?? null,
+      // V4.4：剪辑成片与字幕同步都必须落到具体库条目上，不靠模型自由发挥
+      editRecipe: recipe,
+      subtitleRule: syncRule,
     });
 
     return {
       ...built,
       missing_shots: missing,
       coverage: shots.length ? +((shots.length - missing.length) / shots.length).toFixed(3) : 0,
+      recipe: recipe ? { code: recipe.code, name: recipe.name, rhythm: recipe.cut_rhythm, avg_cut_sec: recipe.avg_cut_sec } : null,
+      sync: syncRule ? { code: syncRule.code, name: syncRule.name, max_chars: syncRule.max_chars_per_line } : null,
       shell: {
         enabled: shellService.get(projectId).enabled,
         intro: Boolean(shellSegs.intro),

@@ -20,6 +20,7 @@
 import crypto from 'node:crypto';
 import { config } from '../config/env.js';
 import { logger } from '../core/redact.js';
+import * as prompts from '../prompts/PromptLibrary.js';
 import { fail, ERR } from '../core/errors.js';
 import { relayPool } from './RelayPool.js';
 import { modelRegistry } from './ModelRegistry.js';
@@ -83,6 +84,8 @@ class RelayAdapter {
     if (!verifyStamp(compiled._stamp, compiled)) {
       fail(ERR.ILLEGAL_RELAY_ACCESS, '编译签名校验失败：请求内容与签名不一致');
     }
+    // V4.4 硬闸门：必须带齐该环节的内置提示词库，否则拒绝生成（不消耗用户点数）
+    prompts.assertCompiled(compiled);
 
     const model = modelRegistry.get(compiled.target_model);
     if (opts.purpose === 'delivery') modelRegistry.getForDelivery(compiled.target_model);
@@ -368,6 +371,12 @@ function normalizeResult(compiled, json, ctx) {
   // —— live：chat 同步 ——
   if (compiled.kind === 'chat' || compiled.kind === 'text') {
     const usage = json?.usage ?? {};
+    const msg = json?.choices?.[0]?.message ?? {};
+    // 推理型模型（DeepSeek-V4-Pro 等）会把 token 先花在 reasoning_content 上：
+    // 若正文为空，绝不能当成功返回空字符串，否则下游解析会得到莫名其妙的空剧本。
+    if (!msg.content && msg.reasoning_content) {
+      fail(ERR.RELAY_UPSTREAM_ERROR, '模型只返回了思考过程、没有正文（多为输出长度上限太小），请重试或改用非推理模型');
+    }
     const suanli = (Number(usage.prompt_tokens ?? 0) * (model?.price?.suanli_in ?? 0)
       + Number(usage.completion_tokens ?? 0) * (model?.price?.suanli_out ?? 0)) / 1000;
     return {
@@ -375,7 +384,7 @@ function normalizeResult(compiled, json, ctx) {
       mock: false,
       kind: compiled.kind ?? 'chat',
       url: null,
-      text: json?.choices?.[0]?.message?.content ?? '',
+      text: msg.content ?? '',
       raw: { usage },
       actual_credits: suanli > 0 ? Math.max(1, suanliToPoints(suanli)) : (compiled.estimated_credits ?? 1),
       upstream_model: model?.upstream_id ?? null,

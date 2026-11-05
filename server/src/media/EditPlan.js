@@ -70,6 +70,8 @@ export function buildEditPlan({
   bgmUrl = null,
   bgmTrackId = null,
   voiceUrl = null,
+  subtitleRule = null,
+  editRecipe = null,
 } = {}) {
   const errors = [];
   const warnings = [];
@@ -141,6 +143,7 @@ export function buildEditPlan({
     })),
     aspect,
     aiLabel,
+    rule: subtitleRule,
   });
   for (const w of subs.warnings) warnings.push({ shot: w.shot, code: 'SUBTITLE_OVERFLOW', issue: w.issue });
 
@@ -202,6 +205,8 @@ export function buildEditPlan({
       stats: subs.stats,
       cues: subs.cues,
       srt: subs.srt,
+      edit_recipe: editRecipe ? { code: editRecipe.code, name: editRecipe.name } : null,
+      subtitle_sync: subtitleRule ? { code: subtitleRule.code, name: subtitleRule.name } : null,
       ass: toAss(subs.cues, { aspect, title: `网剧大咖 ${episodeNo}` }),
       plain: toPlainScript(subs.cues),
     },
