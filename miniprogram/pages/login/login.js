@@ -98,12 +98,13 @@ Page({
       .then((d) => {
         this.setData({
           sending: false,
-          countdown: RESEND_SEC,
-          // 后端未接短信服务商时会明确返回 dev 码，我们照实展示，不假装已发短信
+          countdown: d.sent || d.dev_code ? RESEND_SEC : 0,
+          // 后端未接短信服务商时会明确返回 dev 码，照实展示；线上则只会说明「暂未接入」
           devCode: d.dev_code || '',
-          devNote: d.sent ? '' : d.note || '未配置短信服务，这是测试码',
+          devNote: d.sent ? '' : d.note || '未配置短信服务',
+          error: d.sent || d.dev_code ? '' : (d.note || '暂不可用'),
         });
-        this.tick();
+        if (d.sent || d.dev_code) this.tick();
         if (d.sent) wx.showToast({ title: '验证码已发送', icon: 'none' });
       })
       .catch((e) => this.setData({ sending: false, error: e.message || '发送失败' }));

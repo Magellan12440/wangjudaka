@@ -133,9 +133,9 @@ Page({
     api.sendSms(phone)
       .then((d) => {
         this.setData({
-          secCountdown: 60,
+          secCountdown: d.sent || d.dev_code ? 60 : 0,
           secDevCode: d.dev_code || '',
-          secError: d.sent ? '' : '未接短信服务，测试码已填入上方',
+          secError: d.sent || d.dev_code ? '' : (d.note || '暂不可用'),
         });
         if (!d.sent && d.dev_code) this.setData({ secCode: d.dev_code });
         if (this.secTimer) clearInterval(this.secTimer);
