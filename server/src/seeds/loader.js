@@ -8,7 +8,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logger } from '../core/redact.js';
-import { fail, ERR } from '../core/errors.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -19,13 +18,29 @@ const DATA_DIR = path.join(__dirname, 'data');
  */
 const ART_STYLE_CODES = new Set(['STY-2DANIME', 'STY-3DANIME', 'STY-3DREAL']);
 
-function readJson(file) {
+/**
+ * 容器化部署的硬教训：种子缺失时若直接 throw，进程会在启动第一步退出，
+ * 容器进入 CrashLoopBackOff，看板上只有「部署失败 / Back-off restarting」，
+ * 完全看不到真正的原因（也是我们踩过的那次坑）。
+ * 所以这里改为「降级 + 显式记录」：缺哪个文件就记下来，返回空结构，
+ * 由 validate() 汇总成 problems，/health 直接把缺失清单吐出来。
+ */
+export const seedProblems = [];
+
+function readJson(file, fallback = []) {
   const p = path.join(DATA_DIR, file);
-  if (!fs.existsSync(p)) fail(ERR.NOT_FOUND, `种子文件缺失: ${file}`);
+  if (!fs.existsSync(p)) {
+    const msg = `种子文件缺失: ${file}`;
+    seedProblems.push({ file, issue: 'missing' });
+    logger.error(msg, { path: p, hint: '检查 .gitignore / .dockerignore 是否误排除了 server/src/seeds/data' });
+    return fallback;
+  }
   try {
     return JSON.parse(fs.readFileSync(p, 'utf8'));
   } catch (e) {
-    fail(ERR.INTERNAL, `种子文件解析失败: ${file}`, { error: e.message });
+    seedProblems.push({ file, issue: `parse: ${e.message}` });
+    logger.error(`种子文件解析失败: ${file}`, { error: e.message });
+    return fallback;
   }
 }
 
@@ -352,7 +367,9 @@ class SeedStore {
         if (t[f] === undefined) problems.push({ item: t.track_id, issue: `缺授权字段 ${f}` });
       }
     }
-    return { ok: problems.length === 0, problems, counts: actual };
+    // 缺失/损坏的文件是最硬的问题，排在最前，方便线上 /health 一眼看到
+    for (const p of seedProblems) problems.unshift({ item: p.file, issue: `加载失败(${p.issue})` });
+    return { ok: problems.length === 0, problems, counts: actual, missing_files: seedProblems.map((p) => p.file) };
   }
 }
 

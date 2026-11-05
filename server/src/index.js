@@ -24,13 +24,42 @@ if (!v.ok) {
   logger.info('种子库自检通过', v.counts);
 }
 
-const server = http.createServer((req, res) => {
+const handler = (req, res) => {
   handleRequest(req, res).catch((e) => {
     logger.error('未捕获异常', { msg: e.message });
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: false, code: 'INTERNAL', message: '服务内部错误' }));
   });
-});
+};
+
+const server = http.createServer(handler);
+
+/**
+ * 兜底端口：容器编排层（微信云托管 / K8s）只按它配置的端口探活。
+ * 如果平台没把 PORT 注入进来，或注入的端口与控制台服务端口不一致，
+ * 进程会听在一个没人探的端口上 → 探活全失败 → Back-off restarting failed container。
+ * 所以在主端口之外，额外听一组常见端口，任一被探到即可通过。
+ * 绑不上（EADDRINUSE / EACCES）只记 warn，绝不影响主端口启动。
+ */
+const FALLBACK_PORTS = String(process.env.FALLBACK_PORTS ?? (config.server.env === 'production' ? '80,3000,8080,8787' : ''))
+  .split(',')
+  .map((s) => Number(s.trim()))
+  .filter((p) => Number.isInteger(p) && p > 0 && p < 65536 && p !== config.server.port);
+
+const extraServers = [];
+globalThis.__extraPorts = [];
+for (const p of FALLBACK_PORTS) {
+  const s = http.createServer(handler);
+  s.on('error', (e) => logger.warn('兜底端口监听失败（不影响主端口）', { port: p, code: e.code }));
+  s.listen(p, config.server.host, () => {
+    globalThis.__extraPorts.push(p);
+    logger.info('兜底端口已监听', { port: p });
+    console.log(`  兜底端口: ${p}（供平台探活/反代使用）`);
+  });
+  extraServers.push(s);
+}
+
+
 
 server.listen(config.server.port, config.server.host, () => {
   logger.info('服务已启动', {
@@ -80,6 +109,10 @@ function shutdown(signal) {
     clearTimeout(force);
     process.exit(0);
   });
+  // 兜底端口一并关闭，避免残留句柄拖住退出
+  for (const s of extraServers) {
+    try { s.close(); } catch { /* 忽略 */ }
+  }
   // 保持连接不拖死退出流程：10s 后由上面的兜底强制结束
 }
 
