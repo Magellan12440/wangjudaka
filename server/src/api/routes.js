@@ -74,15 +74,24 @@ function projectOf(req, projectId, { required = true } = {}) {
 /** 路由表：[method, pathPattern, handler] */
 export const routes = [
   // —— 基础 ——
-  ['GET', '/health', async () => ({
-    ok: true,
-    service: 'wangju-daka-server',
-    version: config.server.version,
-    env: config.server.env,
-    uptime_sec: Math.round(process.uptime()),
-    relay: relayHealthSummary(),
-    seeds: seeds.validate().counts,
-  })],
+  ['GET', '/health', async () => {
+    const v = seeds.validate();
+    return {
+      ok: true,
+      service: 'wangju-daka-server',
+      version: config.server.version,
+      env: config.server.env,
+      uptime_sec: Math.round(process.uptime()),
+      relay: relayHealthSummary(),
+      seeds: v.counts,
+      // 种子不全时仍返回 200（否则容器会被判不健康反复重启，掩盖真实原因），
+      // 但把诚实状态和缺失清单直接暴露出来，线上一眼可见。
+      seeds_ok: v.ok,
+      seeds_missing: v.missing_files ?? [],
+      seeds_problems: v.ok ? [] : v.problems.slice(0, 8),
+      ports: [config.server.port, ...(globalThis.__extraPorts ?? [])],
+    };
+  }],
 
   ['GET', '/api/config', async () => publicConfig()],
 
