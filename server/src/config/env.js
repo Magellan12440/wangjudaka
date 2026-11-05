@@ -126,6 +126,12 @@ export const config = {
     usdCnyRate: num('USD_CNY_RATE', 7.1),
     /** 中转站算力与人民币换算（代理商合同口径，默认 1 算力 ≈ 1 元） */
     suanliCnyRate: num('SUANLI_CNY_RATE', 1.0),
+    /**
+     * 余额预警阈值（V4.5）。
+     * 刻意不用「按单价预测还能出几集」——单价随模型/时长/画质浮动，
+     * 预测必然失真，用户会拿预测去对账。这里只做「余额偏低了」这件事的提醒。
+     */
+    lowBalancePoints: num('LOW_BALANCE_POINTS', 300),
   },
   compliance: {
     aiLabelEnabled: bool('AI_LABEL_ENABLED', true),

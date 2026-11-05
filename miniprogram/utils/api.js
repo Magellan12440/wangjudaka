@@ -319,6 +319,9 @@ module.exports = {
 
   // —— 收益看板（V4.4） ——
   revenue: () => request({ url: '/api/me/revenue' }),
+  // 批量回填：一次提交多条，后端整批校验归属、整批写入（不做半截成功）
+  revenueBatch: (payload) =>
+    request({ url: '/api/me/revenue/batch', method: 'POST', data: payload, toast: true }),
 
   // —— 九大提示词库（V4.4，只读展示） ——
   prompts: () => request({ url: '/api/prompts' }),

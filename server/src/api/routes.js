@@ -121,36 +121,100 @@ function revenueDashboard(userId) {
   let settled = 0;
   let published = 0;
 
+  /**
+   * 金额与结算状态一律以 earnings 账为准（Analytics 的追加式收益账）。
+   * distributions 上只有一份「累计金额 + 最近一期」的兼容快照，没有结算状态，
+   * 只看快照会导致「已结算」永远为 0、跨月拆不开。
+   */
+  const projectIds = new Set(projects.map((p) => p.id));
+  const earns = projectIds.size
+    ? db.find('earnings', (e) => projectIds.has(e.project_id))
+    : [];
+
+  const distById = new Map();
+  for (const p of projects) {
+    const list = distributionHub.list(p.id).filter((d) => d && d.archived !== true);
+    for (const d of list) distById.set(d.id, { d, p });
+    if (list.length) {
+      published += list.filter((d) => ['已上线', '已通过'].includes(d.status)).length;
+    }
+  }
+
+  const amountByProject = {};
+  for (const e of earns) {
+    const amount = Number(e.gross_amount_cny ?? 0) || 0;
+    total += amount;
+    amountByProject[e.project_id] = (amountByProject[e.project_id] ?? 0) + amount;
+    if (String(e.settlement_status ?? '') === '已结算') settled += amount; else pending += amount;
+
+    const holder = distById.get(e.distribution_id);
+    const d = holder?.d;
+    const pcode = d?.platform_code ?? d?.platform ?? e.platform ?? 'unknown';
+    byPlatform[pcode] ||= { platform_code: pcode, platform_name: seeds.platform(pcode)?.name ?? pcode, amount: 0, count: 0 };
+    byPlatform[pcode].amount += amount;
+    byPlatform[pcode].count += 1;
+
+    const when = String(e.period ?? e.created_at ?? '').slice(0, 7);
+    if (when) byMonth[when] = (byMonth[when] ?? 0) + amount;
+  }
+
+  const earnedProjectIds = new Set(earns.map((e) => e.project_id));
   for (const p of projects) {
     const list = distributionHub.list(p.id).filter((d) => d && d.archived !== true);
     if (!list.length) continue;
-    let projectTotal = 0;
-    for (const d of list) {
-      const amount = Number(d.revenue_amount ?? d.revenue?.amount ?? 0) || 0;
-      projectTotal += amount;
-      total += amount;
-      const settle = String(d.revenue?.settlement_status ?? d.settlement_status ?? '待结算');
-      if (settle.includes('已结算')) settled += amount; else pending += amount;
-      if (['已上线', '已通过'].includes(d.status)) published += 1;
-
-      const pcode = d.platform_code ?? 'unknown';
-      byPlatform[pcode] ||= { platform_code: pcode, platform_name: seeds.platform(pcode)?.name ?? pcode, amount: 0, count: 0 };
-      byPlatform[pcode].amount += amount;
-      byPlatform[pcode].count += 1;
-
-      const when = String(d.revenue?.period ?? d.updated_at ?? d.created_at ?? '').slice(0, 7);
-      if (when) byMonth[when] = (byMonth[when] ?? 0) + amount;
-    }
+    // 一条收益都没回填的项目不进「按项目」——否则未回填时满屏 0，用户以为坏了；
+    // 这时应该走空态引导去回填。
+    if (!earnedProjectIds.has(p.id)) continue;
     byProject.push({
       project_id: p.id,
       title: p.title,
       index_label: projectIndex.view(p).index_label,
       distributions: list.length,
-      amount: +projectTotal.toFixed(2),
+      amount: +(amountByProject[p.id] ?? 0).toFixed(2),
     });
   }
 
   const months = Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b)).slice(-6);
+
+  /**
+   * 待回填清单（V4.5）：已上线/已通过但收益还是 0 的分发记录。
+   * 之前用户要在「分发」页逐个平台点开才能填，8 个平台就是 8 次往返；
+   * 这里一次性列出来，前端用批量回填一次提交。
+   */
+  const unfilled = [];
+  const filledIds = new Set(earns.map((e) => e.distribution_id));
+  for (const p of projects) {
+    for (const d of distributionHub.list(p.id)) {
+      if (!d || d.archived === true) continue;
+      if (!['已上线', '已通过'].includes(d.status)) continue;
+      // 只要账上已经有回填记录就不算待填（填 0 也是填过了，不能反复提醒）
+      if (filledIds.has(d.id)) continue;
+      const code = d.platform_code ?? d.platform ?? 'unknown';
+      unfilled.push({
+        distribution_id: d.id,
+        project_id: p.id,
+        title: p.title,
+        platform_code: code,
+        platform_name: seeds.platform(code)?.name ?? code ?? '未知平台',
+        status: d.status,
+        period: String(d.revenue?.period ?? d.updated_at ?? d.created_at ?? '').slice(0, 7) || null,
+      });
+    }
+  }
+
+  const balance = ledger.balance(userId);
+  const lowLine = config.credit.lowBalancePoints;
+  const quota = {
+    balance: +Number(balance || 0).toFixed(2),
+    low_line: lowLine,
+    level: balance <= 0 ? 'empty' : (balance < lowLine ? 'low' : 'ok'),
+    note: balance <= 0
+      ? '点数已用完：下一集会在开始前暂停，充值后从当前集继续'
+      : (balance < lowLine
+        ? `点数偏低（低于 ${lowLine} 点）：成片是一集一结算，建议先充值再开托管，避免生成到一半停下`
+        : null),
+  };
+
   return {
     total: +total.toFixed(2),
     pending: +pending.toFixed(2),
@@ -159,13 +223,61 @@ function revenueDashboard(userId) {
     projects: byProject.sort((a, b) => b.amount - a.amount),
     platforms: Object.values(byPlatform).sort((a, b) => b.amount - a.amount),
     monthly: months.map(([month, amount]) => ({ month, amount: +amount.toFixed(2) })),
+    unfilled,
+    quota,
     note: total === 0
       ? '还没有回填收益：成片在分发平台上线后，回到「分发」页把播放与收益填进来，这里就会自动汇总'
       : '本页是你自己回填的口径，与平台后台对账时以平台结算单为准',
   };
 }
 
+/**
+ * 批量回填收益（V4.5）。
+ * 一次提交多条，逐条校验归属：任何一条不属于当前用户就整批拒绝，
+ * 不做「部分成功」——半截写入会让用户对不上账。
+ */
+function batchFillRevenue(userId, { period = null, items = [] } = {}) {
+  if (!Array.isArray(items) || !items.length) {
+    throw new AppError('BAD_REQUEST', '没有要回填的记录');
+  }
+  if (items.length > 50) throw new AppError('BAD_REQUEST', '一次最多回填 50 条');
+
+  const mine = new Set();
+  for (const p of db.find(PROJECTS, (x) => x.user_id === userId)) {
+    for (const d of distributionHub.list(p.id)) if (d) mine.add(d.id);
+  }
+
+  const clean = [];
+  for (const it of items) {
+    const id = String(it?.distribution_id ?? it?.id ?? '').trim();
+    if (!id) throw new AppError('BAD_REQUEST', '缺少分发记录 ID');
+    if (!mine.has(id)) throw new AppError('OBJECT_FORBIDDEN', '含不属于你的分发记录，整批未写入');
+    const amount = Number(it?.amount ?? 0);
+    if (!Number.isFinite(amount) || amount < 0) throw new AppError('BAD_REQUEST', '金额必须是不小于 0 的数字');
+    const status = String(it?.settlement_status ?? it?.settlementStatus ?? '待结算');
+    if (!['待结算', '已结算'].includes(status)) throw new AppError('BAD_REQUEST', '结算状态只能是「待结算」或「已结算」');
+    clean.push({ id, amount: +amount.toFixed(2), status });
+  }
+
+  const periodOrDefault = /^\d{4}-\d{2}$/.test(String(period ?? ''))
+    ? String(period)
+    : new Date().toISOString().slice(0, 7);
+
+  let written = 0;
+  for (const it of clean) {
+    distributionHub.recordRevenue(it.id, {
+      amount: it.amount,
+      period: periodOrDefault,
+      settlementStatus: it.status,
+    });
+    written += 1;
+  }
+  return { written, period: periodOrDefault, items: clean };
+}
+
 /** 路由表：[method, pathPattern, handler] */
+export { revenueDashboard, batchFillRevenue };
+
 export const routes = [
   // —— 基础 ——
   ['GET', '/health', async () => {
@@ -1260,6 +1372,12 @@ export const routes = [
   ['GET', '/api/me/revenue', async ({ req, query }) => {
     const userId = scopedUserId(req, query);
     return revenueDashboard(userId);
+  }],
+
+  // 批量回填（V4.5）：8 个平台逐个点开太反人类，一次填完；整批校验、整批写入
+  ['POST', '/api/me/revenue/batch', async ({ req, body }) => {
+    const userId = scopedUserId(req, {});
+    return batchFillRevenue(userId, { period: body.period ?? null, items: body.items ?? [] });
   }],
 
   ['GET', '/api/wechat/status', async () => wechatClient.status()],

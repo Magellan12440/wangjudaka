@@ -43,7 +43,7 @@ module.exports = {
   baseUrl: HOSTS[env] || HOSTS.develop,
   brand: '网剧大咖',
   slogan: '一句话，开一部网剧',
-  version: '4.4.1',
+  version: '4.5.0',
   supportEmail: 'support@wangjudaka.com',
   // 联调阶段允许「mock 发货」（点了即刻到账、不产生真实扣款），用于本地/内测跑通全链路。
   // 正式提审前若虚拟支付商户号还没开通，请把它改成 false：

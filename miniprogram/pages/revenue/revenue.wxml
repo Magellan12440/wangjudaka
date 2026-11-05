@@ -43,6 +43,26 @@
         </view>
       </view>
 
+      <!-- 额度预警：只说「偏低/用完」，不预测还能出几集（预测一定会失真） -->
+      <view wx:if="{{quota && quota.level !== 'ok'}}" class="quota-bar {{quota.level}}">
+        <view class="quota-main">
+          <view class="quota-title">{{quota.level === 'empty' ? '点数已用完' : '点数偏低'}}</view>
+          <view class="quota-sub">{{quota.note}}</view>
+        </view>
+        <view class="quota-btn tap" hover-class="tap-on" bindtap="goRecharge">去充值</view>
+      </view>
+
+      <!-- 待回填：已上线但还没填收益，一次填完 -->
+      <view wx:if="{{unfilled.length}}" class="glass card">
+        <view class="fill-head">
+          <view>
+            <view class="card-title" style="margin-bottom:6rpx">待回填收益</view>
+            <view class="fill-sub">{{unfilled.length}} 条已上线分发还没有金额</view>
+          </view>
+          <view class="fill-btn tap" hover-class="tap-on" bindtap="openFill">一键回填</view>
+        </view>
+      </view>
+
       <!-- 月度趋势 -->
       <view class="glass card" wx:if="{{bars.length}}">
         <view class="card-title">近半年</view>
@@ -94,5 +114,49 @@
 
       <view wx:else class="hint mt16">{{note}}</view>
     </block>
+  </view>
+
+  <!-- 批量回填抽屉 -->
+  <view wx:if="{{fillOpen}}" class="sheet-mask" bindtap="closeFill" catchtouchmove="noop">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <view class="sheet-title">回填收益</view>
+        <view class="sheet-close" bindtap="closeFill">关闭</view>
+      </view>
+      <view class="field-label">
+        <text>账期</text>
+        <text class="opt">{{fillPeriod}}（按平台结算单填）</text>
+      </view>
+      <scroll-view scroll-y class="sheet-scroll">
+        <view wx:for="{{fillRows}}" wx:key="distribution_id" class="fill-row">
+          <view class="fill-row-top">
+            <view class="fill-row-name">{{item.platform_name}}</view>
+            <view class="fill-row-title">{{item.title}}</view>
+          </view>
+          <view class="fill-row-ctrl">
+            <input
+              class="fill-input"
+              type="digit"
+              placeholder="0.00"
+              placeholder-class="input-ph"
+              value="{{item.amount}}"
+              data-i="{{index}}"
+              bindinput="onAmount"
+              cursor-spacing="180"
+            />
+            <view class="seg tiny">
+              <view class="seg-item {{item.settle === '待结算' ? 'on' : ''}}" data-i="{{index}}" data-v="待结算" bindtap="pickSettle">待结算</view>
+              <view class="seg-item {{item.settle === '已结算' ? 'on' : ''}}" data-i="{{index}}" data-v="已结算" bindtap="pickSettle">已结算</view>
+            </view>
+          </view>
+        </view>
+        <view wx:if="{{!fillRows.length}}" class="hint mt16">没有待回填的记录</view>
+      </scroll-view>
+      <view class="btn btn-block mt16 {{submitting ? 'btn-disabled' : 'tap'}}" hover-class="{{submitting ? '' : 'tap-on'}}" bindtap="submitFill">
+        {{submitting ? '正在写入…' : '提交回填'}}
+      </view>
+      <view class="hint mt8">没填金额的行会被跳过；金额填 0 表示该条确实没有收益。</view>
+    </view>
   </view>
 </view>
