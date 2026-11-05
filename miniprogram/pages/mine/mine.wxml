@@ -40,6 +40,18 @@
       </view>
     </view>
 
+    <!-- 管理后台（V4.7）：只有 role=admin 的账号才看得到，普通用户没有这个入口 -->
+    <view wx:if="{{isAdmin}}" class="adm-entry tap" hover-class="tap-on" bindtap="goAdmin">
+      <view class="adm-entry-left">
+        <view class="adm-entry-tag">ADMIN</view>
+        <view class="flex1">
+          <view class="adm-entry-title">管理后台</view>
+          <view class="adm-entry-sub">用户、点数、兑换码、模型与网关</view>
+        </view>
+      </view>
+      <text class="adm-entry-arrow">›</text>
+    </view>
+
     <!-- 收益看板入口 -->
     <view class="rev-card tap" hover-class="tap-on" bindtap="openRevenue">
       <view class="rev-left">

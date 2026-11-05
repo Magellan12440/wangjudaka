@@ -175,6 +175,9 @@ Page({
   data: {
     projectId: '',
     pageAnim: false,
+    // 多项目（V4.7）：项目页要能直接换剧/再开一部，而不是只能退回首页
+    switcherOpen: false,
+    projectList: [],
     loading: true,
     error: '',
     tab: 'material',
@@ -289,6 +292,46 @@ Page({
   },
 
   noop() {},
+
+  // —— 多项目（V4.7）：在一部剧里也能直接换到另一部，或再开一部 ——
+  openSwitcher() {
+    motion.haptic();
+    const app = getApp();
+    if (!app.globalData.userId) return;
+    api.projects(app.globalData.userId)
+      .then((list) => {
+        const arr = (Array.isArray(list) ? list : []).map((p) => ({
+          id: p.id,
+          title: p.title,
+          label: p.index_label || '',
+          current: p.id === this.data.projectId,
+        }));
+        this.setData({ projectList: arr, switcherOpen: true });
+      })
+      .catch((e) => wx.showToast({ title: e.message || '列表加载失败', icon: 'none' }));
+  },
+
+  closeSwitcher() {
+    this.setData({ switcherOpen: false });
+  },
+
+  pickProject(e) {
+    const id = e.currentTarget.dataset.id;
+    motion.haptic();
+    this.setData({ switcherOpen: false });
+    if (!id || id === this.data.projectId) return;
+    // 换剧用 redirectTo：避免栈里堆一串项目页，返回时跳回上一个看过的剧
+    wx.redirectTo({ url: `/pages/project/project?id=${id}` });
+  },
+
+  newProject() {
+    motion.haptic();
+    const app = getApp();
+    app.globalData.startNew = true;
+    app.globalData.draftTitle = '';
+    this.setData({ switcherOpen: false });
+    wx.switchTab({ url: '/pages/create/create' });
+  },
 
   reload(showLoading) {
     if (!this.data.projectId) {

@@ -329,4 +329,28 @@ module.exports = {
   // —— 九大提示词库（V4.4，只读展示） ——
   prompts: () => request({ url: '/api/prompts' }),
   promptKind: (kind) => request({ url: `/api/prompts/${enc(kind)}` }),
+
+  // —— 管理后台（V4.7）：管理员在手机里就能操作 ——
+  adminBootstrapStatus: () => request({ url: '/api/admin/bootstrap' }),
+  adminBootstrap: (payload) =>
+    request({ url: '/api/admin/bootstrap', method: 'POST', data: payload, toast: true }),
+  adminLogin: (phone, password) =>
+    request({ url: '/api/admin/login', method: 'POST', data: { phone, password } }),
+  adminStats: () => request({ url: '/api/admin/stats' }),
+  adminUsers: (q, offset) =>
+    request({ url: '/api/admin/users', data: { q: q || '', offset: offset || 0, limit: 30 } }),
+  adminUser: (id) => request({ url: `/api/admin/users/${enc(id)}` }),
+  adminAdjustPoints: (id, delta, note) =>
+    request({ url: `/api/admin/users/${enc(id)}/points`, method: 'POST', data: { delta, note }, toast: true }),
+  adminSetStatus: (id, status) =>
+    request({ url: `/api/admin/users/${enc(id)}/status`, method: 'POST', data: { status }, toast: true }),
+  adminSetRole: (id, role) =>
+    request({ url: `/api/admin/users/${enc(id)}/role`, method: 'POST', data: { role }, toast: true }),
+  adminCodes: () => request({ url: '/api/admin/redeem-codes' }),
+  adminCreateCodes: (payload) =>
+    request({ url: '/api/admin/redeem-codes', method: 'POST', data: payload, toast: true }),
+  adminModels: () => request({ url: '/api/admin/models/catalog' }),
+  adminProbeModels: (deep) =>
+    request({ url: '/api/admin/models/probe', method: 'POST', data: { deep: deep === true }, timeout: 120000 }),
+  adminRelay: () => request({ url: '/api/admin/relay' }),
 };

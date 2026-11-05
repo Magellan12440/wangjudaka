@@ -6,11 +6,21 @@
 
   <view class="layer" style="padding: 20rpx 32rpx 0">
     <view class="between">
-      <view>
+      <view class="flex1">
         <view class="eyebrow">NEW PRODUCTION</view>
         <view class="h1" style="margin-top:12rpx">新建项目</view>
       </view>
       <view class="step-count num">0{{step}}<text class="step-total">/02</text></view>
+    </view>
+
+    <!-- 多项目（V4.7）：一部剧在跑，不等于不能再开一部 -->
+    <view class="mp-bar mt16">
+      <view class="mp-left tap" hover-class="tap-on" bindtap="openSwitcher">
+        <text class="mp-num">{{myProjects.length || 0}}</text>
+        <text class="mp-text">部剧在手上 · 切换</text>
+      </view>
+      <view wx:if="{{step === 1}}" class="mp-new tap" hover-class="tap-on" bindtap="newProject">清空重填</view>
+      <view wx:elif="{{myProjects.length}}" class="mp-new tap" hover-class="tap-on" bindtap="newProject">另开一部</view>
     </view>
 
     <view class="steps">
@@ -299,5 +309,31 @@
       <view class="h3 mt24">正在建组</view>
       <view class="hint mt8">{{createPhase}}… {{elapsed}}s</view>
     </view>
+  </view>
+
+  <!-- 切换项目（V4.7） -->
+  <view wx:if="{{switcherOpen}}" class="sheet-mask" bindtap="closeSwitcher"></view>
+  <view wx:if="{{switcherOpen}}" class="sheet">
+    <view class="sheet-bar"></view>
+    <view class="sheet-title">我的剧组 · {{myProjects.length}} 部</view>
+    <scroll-view scroll-y class="mp-list">
+      <view
+        wx:for="{{myProjects}}"
+        wx:key="id"
+        class="lrow tap"
+        hover-class="tap-on"
+        data-id="{{item.id}}"
+        bindtap="pickProject"
+      >
+        <view class="lrow-main">
+          <view class="lrow-title ellipsis"><text wx:if="{{item.label}}" class="idx-tag">{{item.label}}</text>{{item.title}}</view>
+          <view class="lrow-sub">点一下进这部剧</view>
+        </view>
+        <text class="lrow-arrow">›</text>
+      </view>
+      <view wx:if="{{!myProjects.length}}" class="hint" style="padding:40rpx 0;text-align:center">还没有剧，填个剧名就是第一部</view>
+    </scroll-view>
+    <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="newProject">＋ 新建一部</view>
+    <view class="sheet-cancel tap" hover-class="tap-on" bindtap="closeSwitcher">取消</view>
   </view>
 </view>

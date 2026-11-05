@@ -183,6 +183,13 @@ export const config = {
    */
   admin: {
     token: str('ADMIN_TOKEN', ''),
+    /**
+     * 内置管理员账号（V4.7）：配了手机号 + 密码就在启动时自动建好，
+     * 之后在小程序「我的 → 管理后台」用手机号密码登录。
+     * 不配也不会卡住：系统会生成一次性激活码并打到启动日志里。
+     */
+    phone: str('ADMIN_PHONE', ''),
+    password: str('ADMIN_PASSWORD', ''),
     /** 兑换码默认有效期天数（生成时可覆盖） */
     redeemDefaultExpireDays: num('REDEEM_DEFAULT_EXPIRE_DAYS', 90),
     /** 单次批量生成兑换码上限 */

@@ -30,6 +30,11 @@
       <view class="p-hero-bg cover-{{project.cover}}"></view>
       <view class="p-hero-fade"></view>
       <view class="p-hero-inner layer">
+        <!-- 多项目（V4.7）：在这部剧里也能换剧或再开一部 -->
+        <view class="p-top">
+          <view class="p-top-btn tap" hover-class="tap-on" bindtap="openSwitcher">⇄ 我的剧组</view>
+          <view class="p-top-btn tap" hover-class="tap-on" bindtap="newProject">＋ 新建</view>
+        </view>
         <view class="between">
           <view class="p-season" wx:if="{{project.seasonTag}}">{{project.seasonTag}}</view>
           <view class="p-season" wx:else>连载项目</view>
@@ -747,5 +752,30 @@
         {{savingText ? '保存中…' : '存为素材'}}
       </view>
     </view>
+  </view>
+
+  <!-- 切换项目（V4.7） -->
+  <view wx:if="{{switcherOpen}}" class="sheet-mask" bindtap="closeSwitcher"></view>
+  <view wx:if="{{switcherOpen}}" class="sheet">
+    <view class="sheet-bar"></view>
+    <view class="sheet-title">我的剧组 · {{projectList.length}} 部</view>
+    <scroll-view scroll-y class="p-list">
+      <view
+        wx:for="{{projectList}}"
+        wx:key="id"
+        class="lrow tap {{item.current ? 'on' : ''}}"
+        hover-class="tap-on"
+        data-id="{{item.id}}"
+        bindtap="pickProject"
+      >
+        <view class="lrow-main">
+          <view class="lrow-title ellipsis"><text wx:if="{{item.label}}" class="p-idx">{{item.label}}</text>{{item.title}}</view>
+          <view class="lrow-sub">{{item.current ? '正在看这部' : '点一下切过去'}}</view>
+        </view>
+        <text wx:if="{{item.current}}" class="p-cur">当前</text>
+      </view>
+    </scroll-view>
+    <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="newProject">＋ 新建一部剧</view>
+    <view class="sheet-cancel tap" hover-class="tap-on" bindtap="closeSwitcher">取消</view>
   </view>
 </view>

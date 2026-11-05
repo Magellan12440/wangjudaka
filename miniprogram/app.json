@@ -8,7 +8,8 @@
     "pages/invite/invite",
     "pages/legal/legal",
     "pages/login/login",
-    "pages/revenue/revenue"
+    "pages/revenue/revenue",
+    "pages/admin/admin"
   ],
   "window": {
     "backgroundTextStyle": "dark",

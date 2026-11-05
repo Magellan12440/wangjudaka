@@ -597,6 +597,104 @@ async function main() {
     loginPage.loginByPassword();
     ok('登录页缺密码时给提示而不是静默', Boolean(loginPage.data.error), loginPage.data.error);
 
+    // —— 10.6 多项目（V4.7）：一部剧在跑，也要能再开一部、能换着看 ——
+    const multi = loadPage('pages/create/create.js');
+    multi.onLoad();
+    multi.onShow();
+    await sleep(600);
+    ok('创作页拿到自己的剧组列表', Array.isArray(multi.data.myProjects) && multi.data.myProjects.length >= 1,
+      String((multi.data.myProjects || []).length));
+
+    multi.setData({ step: 2, title: '占位剧名', prompt: '占位创意' });
+    appInstance.globalData.startNew = true;
+    multi.onShow();
+    ok('「另开一部」把表单复位到第一步', multi.data.step === 1 && multi.data.title === '', JSON.stringify({ s: multi.data.step, t: multi.data.title }));
+    ok('「另开一部」用完即清标记', appInstance.globalData.startNew === false);
+
+    multi.openSwitcher();
+    await sleep(400);
+    ok('切换抽屉能打开并列出项目', multi.data.switcherOpen === true && (multi.data.myProjects || []).length >= 1);
+    multi.closeSwitcher();
+    ok('切换抽屉可关闭', multi.data.switcherOpen === false);
+
+    const projSwitcher = loadPage('pages/project/project.js');
+    projSwitcher.onLoad({ id: projectId, setup: '1' });
+    await sleep(1200);
+    projSwitcher.openSwitcher();
+    await sleep(600);
+    ok('项目页也能直接换剧', projSwitcher.data.switcherOpen === true && (projSwitcher.data.projectList || []).length >= 1,
+      String((projSwitcher.data.projectList || []).length));
+    const curItem = (projSwitcher.data.projectList || []).find((x) => x.id === projectId);
+    ok('当前这部剧在列表里标了「当前」', Boolean(curItem && curItem.current), JSON.stringify(curItem && curItem.current));
+    projSwitcher.closeSwitcher();
+
+    // —— 10.7 管理员账号（V4.7）：激活码 → 建号 → 进后台 ——
+    const bootStatus = await fetch(`${BASE}/api/admin/bootstrap`).then((r) => r.json()).catch(() => null);
+    ok('引导状态可读且说明还需不需要激活', Boolean(bootStatus && bootStatus.ok && typeof bootStatus.data.need_bootstrap === 'boolean'),
+      JSON.stringify(bootStatus && bootStatus.data));
+
+    const codeMatch = log.match(/管理员激活码[^A-Z]*([A-Z0-9]{5}-[A-Z0-9]{5})/);
+    ok('首次启动在日志里给出激活码', Boolean(codeMatch), codeMatch ? '已拿到' : String(log).slice(-160));
+    const bootCode = codeMatch ? codeMatch[1] : '';
+
+    const wrongBoot = await fetch(`${BASE}/api/admin/bootstrap`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'ZZZZZ-ZZZZZ', phone: '13900000001', password: 'admin888' }),
+    }).then((r) => r.json()).catch(() => null);
+    ok('错误激活码被拒', Boolean(wrongBoot && wrongBoot.ok === false), JSON.stringify(wrongBoot && wrongBoot.code));
+
+    const bootRes = await fetch(`${BASE}/api/admin/bootstrap`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: bootCode || 'NOSUCH', phone: '13900000001', password: 'admin888', nickname: '站长' }),
+    }).then((r) => r.json()).catch(() => null);
+    const adminToken = bootRes && bootRes.data && bootRes.data.token;
+    ok('激活码能建出管理员并直接拿到登录态', Boolean(adminToken), JSON.stringify(bootRes && (bootRes.code || bootRes.message)));
+    ok('管理员账号带 is_admin', Boolean(bootRes && bootRes.data && bootRes.data.user && bootRes.data.user.is_admin === true));
+
+    const adminHeaders = { Authorization: `Bearer ${adminToken}` };
+    const statsRes = await fetch(`${BASE}/api/admin/stats`, { headers: adminHeaders }).then((r) => r.json()).catch(() => null);
+    ok('管理员登录态能读后台概览', Boolean(statsRes && statsRes.ok && statsRes.data.users.total >= 1),
+      JSON.stringify(statsRes && (statsRes.code || statsRes.message)));
+
+    const usersRes = await fetch(`${BASE}/api/admin/users`, { headers: adminHeaders }).then((r) => r.json()).catch(() => null);
+    ok('管理员能看用户列表', Boolean(usersRes && usersRes.ok && Array.isArray(usersRes.data.items) && usersRes.data.items.length >= 1));
+    ok('用户列表不带密码哈希', !JSON.stringify(usersRes).includes('password_hash'));
+
+    const plainToken = appInstance.globalData.token;
+    const plainHeaders = { Authorization: `Bearer ${plainToken}` };
+    const deniedStats = await fetch(`${BASE}/api/admin/stats`, { headers: plainHeaders });
+    ok('普通用户访问管理接口 403', deniedStats.status === 403, String(deniedStats.status));
+
+    // 管理员页面：带着管理员登录态进来应直接进后台
+    appInstance.globalData.token = adminToken;
+    wx.setStorageSync('token', adminToken);
+    appInstance.applyUser({ user: bootRes.data.user });
+    const adminPage = loadPage('pages/admin/admin.js');
+    adminPage.onLoad();
+    await sleep(1200);
+    ok('管理员打开后台直接进控制台', adminPage.data.phase === 'console', adminPage.data.phase);
+    adminPage.loadStats();
+    await sleep(800);
+    ok('后台概览拿到数字', Boolean(adminPage.data.stats && adminPage.data.stats.users.total >= 1));
+
+    adminPage.switchTab({ currentTarget: { dataset: { key: 'users' } } });
+    await sleep(1000);
+    ok('后台用户 tab 能列出账号', (adminPage.data.users || []).length >= 1, String((adminPage.data.users || []).length));
+
+    // 「我的」页入口：按服务端返回的 is_admin 决定显不显示，不在本地猜
+    const minePage = loadPage('pages/mine/mine.js');
+    appInstance.globalData.token = plainToken;
+    wx.setStorageSync('token', plainToken);
+    await minePage.syncUser();
+    ok('普通用户看不到管理后台入口', minePage.data.isAdmin === false, String(minePage.data.isAdmin));
+
+    appInstance.globalData.token = adminToken;
+    wx.setStorageSync('token', adminToken);
+    await minePage.syncUser();
+    ok('管理员在我的页能看到入口', minePage.data.isAdmin === true, String(minePage.data.isAdmin));
+    appInstance.globalData.token = plainToken;
+    wx.setStorageSync('token', plainToken);
+
     // —— 11. 协议页 ——
     const legal = loadPage('pages/legal/legal.js');
     legal.onLoad({ type: 'privacy' });
