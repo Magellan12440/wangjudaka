@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import authService, { normalizePhone, maskPhone } from '../src/auth/AuthService.js';
 import { db } from '../src/store/db.js';
+import { config } from '../src/config/env.js';
 
 const PHONE = '13900139000';
 
@@ -90,5 +91,22 @@ test('验证码只落哈希，不存明文', () => {
   for (const r of rows) {
     assert.ok(r.code_hash && r.code_hash.length === 64, '应为 sha256 十六进制');
     assert.equal(r.code, undefined, '不允许存明文验证码');
+  }
+});
+
+test('生产环境未接短信时不下发测试码（否则可被用来接管账号）', () => {
+  const env = config.server.env;
+  const provider = config.sms.provider;
+  try {
+    config.server.env = 'production';
+    config.sms.provider = '';
+    const r = authService.sendCode({ phone: '13800138001' });
+    assert.equal(r.sent, false);
+    assert.equal(r.mode, 'unavailable');
+    assert.equal(r.dev_code, undefined, '生产环境不允许回吐验证码');
+    assert.ok(r.note.includes('微信登录'));
+  } finally {
+    config.server.env = env;
+    config.sms.provider = provider;
   }
 });

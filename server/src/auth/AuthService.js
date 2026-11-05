@@ -154,14 +154,20 @@ class AuthService {
       created_at: new Date().toISOString(),
     });
     const live = Boolean(config.sms?.provider);
-    logger.info('验证码已生成', { phone: maskPhone(p), live });
+    // 生产环境绝不下发验证码明文：否则任何人拿到手机号就能直接登录/接管账号。
+    // 仅在非生产（本地/测试）或显式开启 SMS_DEV_CODE=1 时才回吐，且文案写明这是测试码。
+    const exposeDev = !live && (config.server.env !== 'production' || String(process.env.SMS_DEV_CODE ?? '') === '1');
+    logger.info('验证码已生成', { phone: maskPhone(p), live, exposeDev });
     return {
       sent: live,
-      mode: live ? 'sms' : 'dev',
+      mode: live ? 'sms' : exposeDev ? 'dev' : 'unavailable',
       expires_in_sec: 300,
-      // 未接服务商时必须让开发/测试能看到码，否则本地无法登录；生产接了就永不下发
-      dev_code: live ? undefined : code,
-      note: live ? '验证码已下发' : '未配置短信服务商，这是本地测试码（上线前请接入短信服务）',
+      dev_code: exposeDev ? code : undefined,
+      note: live
+        ? '验证码已下发'
+        : exposeDev
+          ? '未配置短信服务商，这是本地测试码（上线前请接入短信服务）'
+          : '线上暂未接入短信服务，请先用微信登录；如需短信登录请联系管理员配置服务商',
     };
   }
 
