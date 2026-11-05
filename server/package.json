@@ -1,0 +1,36 @@
+{
+  "name": "wangju-daka-server",
+  "version": "4.2.0",
+  "private": true,
+  "type": "module",
+  "description": "网剧大咖 · 服务端编排内核（零第三方运行时依赖，Node >= 22）",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --import ./tests/setup-env.js --test --test-concurrency=1 tests/*.test.js",
+    "test:watch": "node --test --watch tests/",
+    "seed:check": "node scripts/check_seeds.js",
+    "models:sync": "node scripts/sync_models.js",
+    "models:sync:write": "node scripts/sync_models.js --write",
+    "smoke": "node scripts/smoke_v33.js",
+    "smoke:h": "node scripts/smoke_v34.js",
+    "smoke:v35": "node scripts/smoke_v35.js",
+    "smoke:mini": "node scripts/smoke_mini.js",
+    "mini:check": "node scripts/check_miniprogram.js",
+    "smoke:live": "node scripts/live_smoke.js --live",
+    "web:check": "node scripts/check_web.js",
+    "verify": "npm run seed:check && npm test && npm run web:check && npm run mini:check && npm run mini:sim && npm run deploy:check && npm run smoke:h && npm run smoke:v35 && npm run smoke:mini",
+    "mini:sim": "node scripts/mini_runtime_sim.js",
+    "mini:doctor": "node scripts/mini_upload.js doctor",
+    "mini:lan": "node scripts/mini_upload.js lan",
+    "mini:preview": "node scripts/mini_upload.js preview",
+    "mini:upload": "node scripts/mini_upload.js upload",
+    "pack": "node scripts/pack_release.js",
+    "deploy:check": "node scripts/check_deploy.js"
+  },
+  "devDependencies": {
+    "miniprogram-ci": "^2.1.31"
+  }
+}

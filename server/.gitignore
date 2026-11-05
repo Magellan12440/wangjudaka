@@ -1,0 +1,22 @@
+# 凭据（绝对禁止提交）
+.env
+.env.local
+.env.production
+*.key
+*.pem
+
+# 运行时数据
+data/
+data_test/
+data_smoke_h/
+logs/
+tmp/
+coverage/
+
+# 依赖
+node_modules/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store

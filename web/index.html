@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>网剧大咖 · PC 端</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    .wrap { max-width: 1080px; margin: 36px auto; padding: 0 20px; }
+    .hero { margin-bottom: 26px; }
+    .hero h1 { margin: 0 0 8px; font-size: 26px; }
+    .hero p { margin: 0; color: var(--muted); }
+    .entries { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+    .entry { display: block; color: inherit; padding: 22px; border: 1px solid var(--line);
+      border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); transition: .18s; }
+    .entry:hover { text-decoration: none; transform: translateY(-2px); border-color: var(--brand); }
+    .entry .ico { font-size: 26px; }
+    .entry h2 { margin: 10px 0 6px; font-size: 17px; }
+    .entry p { margin: 0 0 14px; color: var(--muted); font-size: 13px; min-height: 60px; }
+    .entry .go { color: var(--brand); font-size: 13px; font-weight: 600; }
+    #health { margin-top: 24px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">网剧大咖 <small>PC 端 · 本地联调</small></div>
+    <div class="spacer"></div>
+    <span class="tag">DAG JSON 是事实</span>
+    <span class="tag warn">MOCK 模式不产生真实消耗</span>
+  </header>
+
+  <div class="wrap">
+    <div class="hero">
+      <h1>PC 工作台</h1>
+      <p>与小程序共用同一套 Blueprint / 总谱 API：小程序渲染纵向泳道，PC 渲染无限画布。</p>
+    </div>
+
+    <div class="entries">
+      <a class="entry" href="canvas.html">
+        <div class="ico">◇</div>
+        <h2>无限画布</h2>
+        <p>拖拽节点、缩放平移、查看依赖边与闸门、推进节点状态、保存布局。布局只是渲染层，节点定义永远来自 DAG。</p>
+        <div class="go">打开画布 →</div>
+      </a>
+      <a class="entry" href="upload-helper.html">
+        <div class="ico">▤</div>
+        <h2>上传助手</h2>
+        <p>生成平台表单预填、素材清单、证据包入口，打开平台上传页并回写状态。只做预填与提醒，绝不自动投稿。</p>
+        <div class="go">打开上传助手 →</div>
+      </a>
+      <a class="entry" href="admin.html">
+        <div class="ico">⚙</div>
+        <h2>管理员后台</h2>
+        <p>充值档次配置（含赠送福利）、兑换码批量生成/作废/统计、经营概览。需 ADMIN_TOKEN 鉴权，未配置时一律拒绝。</p>
+        <div class="go">进入管理台 →</div>
+      </a>
+      <a class="entry" href="/health" target="_blank" rel="noopener">
+        <div class="ico">◎</div>
+        <h2>服务健康</h2>
+        <p>查看算力模式、种子库计数、比对 provider 配置状态。所有接口响应均经全局脱敏，不含任何凭据。</p>
+        <div class="go">查看 /health →</div>
+      </a>
+    </div>
+
+    <div class="card" id="health">正在读取服务状态…</div>
+  </div>
+
+  <script src="common.js"></script>
+  <script>
+    (function () {
+      var box = document.getElementById('health');
+      LW.api('/health').then(function (d) {
+        box.innerHTML = '<h3>服务状态</h3><div class="row">' +
+          '<span class="badge ' + (d.relay && d.relay.mode === 'mock' ? 'warn' : 'ok') + '">算力 ' +
+          LW.esc(d.relay ? d.relay.mode : 'unknown') + '</span>' +
+          '<span class="badge info">环境 ' + LW.esc(d.env) + '</span>' +
+          '<span class="badge">风格 ' + LW.esc(d.seeds ? d.seeds.style_presets : 0) + '</span>' +
+          '<span class="badge">情绪卡 ' + LW.esc(d.seeds ? d.seeds.emotion_cards : 0) + '</span>' +
+          '</div><p class="hint" style="margin:10px 0 0">接口清单见工程内 docs/API.md；静态页面清单可访问 /api/web/status。</p>';
+      }).catch(function (e) {
+        box.innerHTML = '<h3>服务状态</h3><div class="notice err">' + LW.esc(e.message) + '</div>';
+      });
+    })();
+  </script>
+</body>
+</html>

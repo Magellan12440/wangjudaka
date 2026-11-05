@@ -1,0 +1,191 @@
+/* ============================================================
+   分发与收益 · 夜戏设计系统 v2
+   ============================================================ */
+
+.dist-layer { padding: 20rpx 28rpx 60rpx; box-sizing: border-box; }
+
+.dist-head { padding: 8rpx 4rpx 26rpx; animation: rise 0.5s cubic-bezier(0.16, 0.84, 0.28, 1) both; }
+
+/* —— 项目选择 —— */
+.proj-scroll { white-space: nowrap; margin: 0 0 22rpx; padding: 4rpx 0 12rpx; }
+.proj-chip {
+  display: inline-flex; align-items: center; vertical-align: top;
+  padding: 12rpx 20rpx 12rpx 12rpx; margin-right: 16rpx;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1rpx solid rgba(255, 255, 255, 0.075);
+  border-radius: 22rpx; max-width: 430rpx;
+  transition: border-color 0.2s, background 0.2s, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.proj-chip.on {
+  border-color: rgba(243, 201, 105, 0.62);
+  background: rgba(243, 201, 105, 0.09);
+  box-shadow: 0 12rpx 30rpx rgba(243, 201, 105, 0.12);
+}
+.pchip-cover {
+  width: 64rpx; height: 84rpx; border-radius: 14rpx;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 30rpx; font-weight: 800; color: rgba(255, 255, 255, 0.94);
+  margin-right: 16rpx; flex-shrink: 0;
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.22);
+}
+.pchip-main { display: flex; flex-direction: column; min-width: 0; }
+.pchip-title {
+  font-size: 25rpx; color: #EDF1F8; font-weight: 600;
+  max-width: 268rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* —— 看板 —— */
+.board-card {
+  position: relative; overflow: hidden;
+  padding: 28rpx 26rpx 22rpx; border-radius: 30rpx;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(243, 201, 105, 0.14), transparent 62%),
+    linear-gradient(158deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.012));
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 22rpx 50rpx rgba(0, 0, 0, 0.34);
+  animation: rise 0.56s cubic-bezier(0.16, 0.84, 0.28, 1) 0.05s both;
+}
+.board-grid { display: flex; margin-top: 22rpx; }
+.bg-cell {
+  flex: 1; text-align: center; position: relative;
+  padding: 4rpx 0;
+}
+.bg-cell + .bg-cell::before {
+  content: ""; position: absolute; left: 0; top: 8rpx; bottom: 8rpx; width: 1rpx;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+}
+.bg-value { font-size: 38rpx; font-weight: 800; color: #FFFFFF; letter-spacing: 0.4rpx; line-height: 1.15; }
+.bg-label { font-size: 20rpx; color: #6E7A8E; margin-top: 8rpx; letter-spacing: 1rpx; }
+.board-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 22rpx; }
+
+/* —— 平台入口 —— */
+.pf-grid { display: flex; flex-wrap: wrap; }
+.pf-cell {
+  width: 25%; display: flex; flex-direction: column; align-items: center;
+  margin-bottom: 26rpx;
+  animation: rise 0.46s cubic-bezier(0.16, 0.84, 0.28, 1) both;
+}
+.pf-cell:nth-child(1) { animation-delay: 0.03s; }
+.pf-cell:nth-child(2) { animation-delay: 0.06s; }
+.pf-cell:nth-child(3) { animation-delay: 0.09s; }
+.pf-cell:nth-child(4) { animation-delay: 0.12s; }
+.pf-cell:nth-child(5) { animation-delay: 0.15s; }
+.pf-cell:nth-child(6) { animation-delay: 0.18s; }
+.pf-cell:nth-child(7) { animation-delay: 0.21s; }
+.pf-cell:nth-child(8) { animation-delay: 0.24s; }
+.pf {
+  width: 86rpx; height: 86rpx; border-radius: 26rpx;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 34rpx; font-weight: 800; color: #FFFFFF;
+  margin-right: 16rpx;
+  box-shadow: 0 14rpx 32rpx rgba(0, 0, 0, 0.34), inset 0 2rpx 0 rgba(255, 255, 255, 0.28);
+}
+.pf-cell .pf { margin-right: 0; margin-bottom: 12rpx; }
+.pf-sm { width: 66rpx; height: 66rpx; border-radius: 20rpx; font-size: 27rpx; margin-right: 16rpx; }
+.pf-a { background: linear-gradient(145deg, #FF6E60, #C9302C); }
+.pf-b { background: linear-gradient(145deg, #4A505C, #14171C); }
+.pf-c { background: linear-gradient(145deg, #FFAB55, #E2561F); }
+.pf-d { background: linear-gradient(145deg, #55A0FF, #1C4FD6); }
+.pf-e { background: linear-gradient(145deg, #4FD4FA, #0F7FB3); }
+.pf-f { background: linear-gradient(145deg, #FFA044, #E04E00); }
+.pf-g { background: linear-gradient(145deg, #FF6B84, #C4123A); }
+.pf-h { background: linear-gradient(145deg, #FF8FB0, #C2185B); }
+.pf-name {
+  font-size: 20rpx; color: #98A2B3; max-width: 140rpx; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* —— 任务卡 —— */
+.task-card {
+  padding: 24rpx; margin-bottom: 18rpx; border-radius: 26rpx;
+  background: linear-gradient(158deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.01));
+  border: 1rpx solid rgba(255, 255, 255, 0.075);
+}
+.task-main { min-width: 0; flex: 1; }
+.task-name { font-size: 27rpx; color: #FFFFFF; font-weight: 600; }
+.task-data {
+  display: flex; margin-top: 20rpx; padding: 18rpx 0;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.06);
+}
+.td { flex: 1; text-align: center; }
+.td-v { font-size: 30rpx; color: #EDF1F8; font-weight: 700; }
+.td-l { font-size: 19rpx; color: #6E7A8E; margin-top: 4rpx; }
+.task-actions { display: flex; margin-top: 18rpx; }
+.task-actions .btn { flex: 1; margin-right: 12rpx; height: 60rpx; font-size: 22rpx; }
+.task-actions .btn:last-child { margin-right: 0; }
+
+/* —— 选择器 —— */
+.picker {
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1rpx solid rgba(255, 255, 255, 0.085);
+  border-radius: 18rpx; padding: 22rpx 24rpx;
+  font-size: 26rpx; color: #DFE5EF;
+}
+.picker-arrow { color: #6E7A8E; font-size: 32rpx; }
+
+/* —— 测算 —— */
+.calc-row { display: flex; }
+.calc-field { flex: 1; margin-right: 16rpx; }
+.calc-field:last-child { margin-right: 0; }
+.calc-input { margin-top: 8rpx; }
+
+.calc-result {
+  margin-top: 22rpx; padding: 24rpx;
+  background: linear-gradient(158deg, rgba(243, 201, 105, 0.12), rgba(243, 201, 105, 0.02));
+  border: 1rpx solid rgba(243, 201, 105, 0.26);
+  border-radius: 22rpx;
+}
+.calc-main { display: flex; align-items: baseline; justify-content: space-between; margin-top: 16rpx; }
+.calc-label { font-size: 22rpx; color: #A99260; }
+.calc-value { font-size: 50rpx; font-weight: 800; color: #F3C969; letter-spacing: -0.5rpx; }
+.calc-sub { display: flex; justify-content: space-between; font-size: 21rpx; color: #8D97A9; margin-top: 10rpx; }
+
+/* —— 键值行 —— */
+.kv {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 15rpx 0;
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.05);
+}
+.kv-k { font-size: 24rpx; color: #8D97A9; width: 140rpx; flex-shrink: 0; }
+.kv-v { font-size: 24rpx; color: #DFE5EF; text-align: right; flex: 1; line-height: 1.5; }
+
+.tips { margin-top: 18rpx; }
+
+/* —— 四步闭环 —— */
+.steps {
+  margin-top: 20rpx; padding-top: 18rpx;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.06);
+}
+.steps-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6rpx; }
+.steps-title { font-size: 21rpx; color: #8B95A7; letter-spacing: 1rpx; }
+.steps-count { font-size: 20rpx; color: #F3C969; font-weight: 700; }
+.step {
+  display: flex; align-items: center;
+  padding: 14rpx 0;
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.04);
+}
+.step:last-child { border-bottom: none; }
+.step-dot {
+  flex: none; width: 44rpx; height: 44rpx; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22rpx; font-weight: 700; margin-right: 16rpx;
+  background: rgba(255, 255, 255, 0.05); color: #6E7A8E;
+  border: 1rpx solid rgba(255, 255, 255, 0.1);
+}
+.step-dot.st-done { background: rgba(84, 209, 143, 0.16); color: #6FE0A8; border-color: rgba(84, 209, 143, 0.42); }
+.step-dot.st-cur { background: rgba(243, 201, 105, 0.18); color: #FFE0A3; border-color: rgba(243, 201, 105, 0.5); }
+.step-dot.st-bad { background: rgba(242, 108, 108, 0.16); color: #F58C8C; border-color: rgba(242, 108, 108, 0.45); }
+.step-line { display: flex; align-items: center; }
+.step-name { font-size: 24rpx; color: #E4E9F3; font-weight: 600; }
+.step-state { font-size: 19rpx; margin-left: 12rpx; color: #6E7A8E; }
+.step-state.st-done { color: #6FE0A8; }
+.step-state.st-cur { color: #FFE0A3; }
+.step-state.st-bad { color: #F58C8C; }
+.step-note {
+  font-size: 20rpx; color: #6E7A8E; margin-top: 4rpx; line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 380rpx;
+}
+.step-act { flex: none; font-size: 21rpx; color: #F3C969; margin-left: 12rpx; }

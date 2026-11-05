@@ -1,0 +1,49 @@
+[Unit]
+Description=Wangju Daka API (网剧大咖 服务端)
+Documentation=file:///opt/wangju-daka/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 建议用非 root 专用账号运行：
+#   useradd --system --home /opt/wangju-daka --shell /usr/sbin/nologin wangju
+#   chown -R wangju:wangju /opt/wangju-daka /var/lib/wangju-daka
+User=wangju
+Group=wangju
+
+WorkingDirectory=/opt/wangju-daka/server
+# 生产凭据只放在这个文件里，权限 600，属主 wangju
+EnvironmentFile=/opt/wangju-daka/server/.env
+
+# 用 /usr/bin/env 解析 node，避免 node 装在 /usr/local/bin 时路径写死失效
+ExecStart=/usr/bin/env node src/index.js
+
+# 崩溃自动拉起；退出码 0（人工 systemctl stop）不重启
+Restart=always
+RestartSec=3
+
+# 优雅退出：先 SIGTERM 让服务把 JSON 数据落盘，超时才强杀
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=20
+
+# 资源与句柄
+LimitNOFILE=65535
+# 内存兜底（按机器规格调整；触顶会被 OOM killer 干掉后自动重启）
+# MemoryMax=1G
+
+# 日志走系统日志：journalctl -u wangju-daka -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wangju-daka
+
+# 最小权限加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/wangju-daka
+
+[Install]
+WantedBy=multi-user.target

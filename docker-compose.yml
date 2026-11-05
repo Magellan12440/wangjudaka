@@ -1,0 +1,39 @@
+# 一键起服务：docker compose up -d --build
+#
+# 前置：
+#   cp deploy/env.production.example server/.env   # 然后填真实值
+#
+# 说明：
+#   - env_file 指向 server/.env（生产凭据，权限 600，不进版本库）
+#   - 数据落在 server/data，容器重建不丢；备份直接打包这个目录
+#   - 端口只绑 127.0.0.1，外网统一走 Nginx + HTTPS（否则 8787 直接暴露公网）
+#   - 小程序 request 合法域名必须是 https，见 deploy/nginx/wangjudaka.conf
+services:
+  api:
+    build: .
+    image: wangju-daka:latest
+    container_name: wangju-daka
+    restart: unless-stopped
+    # 作为 PID 1 时正确转发信号并回收僵尸进程，配合服务端 SIGTERM 优雅退出
+    init: true
+    ports:
+      - "127.0.0.1:8787:8787"
+    env_file:
+      - server/.env
+    environment:
+      - DATA_DIR=/data
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+    volumes:
+      - ./server/data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
