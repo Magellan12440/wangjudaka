@@ -1,0 +1,76 @@
+[
+  {
+    "asset_type": "character",
+    "code_prefix": "CH",
+    "lock_fields": ["face_shape", "hair", "eyes", "skin_tone", "signature_garment", "signature_accessory", "body_type", "age_range"],
+    "required_lock_count": 4,
+    "prompt_template_en": "{name}: {face_shape} face, {hair}, {eyes}, {skin_tone} skin, wearing {signature_garment}, {signature_accessory}, {body_type} build",
+    "prompt_template_zh": "{name}：{face_shape}脸型，{hair}，{eyes}，{skin_tone}肤色，身穿{signature_garment}，{signature_accessory}，{body_type}体型",
+    "suggested_locks": [
+      "面部轮廓与上妆一致",
+      "发型发色一致",
+      "标志性服装与配色一致",
+      "随身道具（饰品/武器）一致"
+    ],
+    "negative_defaults": ["换脸", "发型突变", "服装变色", "年龄漂移"]
+  },
+  {
+    "asset_type": "scene",
+    "code_prefix": "SC",
+    "lock_fields": ["space_layout", "key_props", "color_palette", "light_source", "time_of_day", "camera_anchor"],
+    "required_lock_count": 3,
+    "prompt_template_en": "{name}: {space_layout}, key props {key_props}, {color_palette} palette, lit by {light_source} at {time_of_day}",
+    "prompt_template_zh": "{name}：{space_layout}，关键陈设{key_props}，{color_palette}配色，{light_source}照明，{time_of_day}",
+    "suggested_locks": [
+      "空间结构与家具位置一致",
+      "关键陈设一致",
+      "光源方向与色温一致"
+    ],
+    "negative_defaults": ["布局改变", "陈设消失", "光源方向突变"]
+  },
+  {
+    "asset_type": "prop",
+    "code_prefix": "PR",
+    "lock_fields": ["shape", "material", "color", "scale", "wear_state", "distinctive_mark"],
+    "required_lock_count": 3,
+    "prompt_template_en": "{name}: {color} {material} {shape}, {scale} in frame, {distinctive_mark}",
+    "prompt_template_zh": "{name}：{color}{material}{shape}，画面中占{scale}，{distinctive_mark}",
+    "suggested_locks": [
+      "外形与材质一致",
+      "颜色与做旧程度一致",
+      "独特印记一致"
+    ],
+    "negative_defaults": ["形状变化", "材质变化", "颜色漂移"]
+  },
+  {
+    "asset_type": "voice",
+    "code_prefix": "VO",
+    "lock_fields": ["timbre", "pitch", "speech_rate", "accent", "emotion_baseline", "breath"],
+    "required_lock_count": 3,
+    "prompt_template_en": "voice of {name}: {timbre} timbre, {pitch} pitch, {speech_rate} rate, {accent} accent, baseline emotion {emotion_baseline}",
+    "prompt_template_zh": "{name}的声线：{timbre}音色，{pitch}音高，{speech_rate}语速，{accent}口音，基准情绪{emotion_baseline}",
+    "suggested_locks": [
+      "音色与音高一致",
+      "语速与口音一致",
+      "基准情绪一致"
+    ],
+    "negative_defaults": ["音色突变", "音高漂移", "口音变化"]
+  },
+  {
+    "asset_type": "emotion",
+    "code_prefix": "EM",
+    "lock_fields": ["brow", "eyes", "mouth", "jaw", "breath", "gesture", "posture", "gaze"],
+    "required_lock_count": 4,
+    "prompt_template_en": "emotion {name}: brow {brow}, eyes {eyes}, mouth {mouth}, jaw {jaw}, breath {breath}, hands {gesture}, posture {posture}, gaze {gaze}",
+    "prompt_template_zh": "情绪 {name}：眉 {brow}，眼 {eyes}，嘴 {mouth}，下颌 {jaw}，呼吸 {breath}，手 {gesture}，体态 {posture}，视线 {gaze}",
+    "suggested_locks": [
+      "眉形与额纹一致",
+      "眼形与睁合幅度一致",
+      "嘴形与唇部张力一致",
+      "呼吸节奏与屏气点一致"
+    ],
+    "negative_defaults": ["情绪漂移", "表情僵硬", "中途换表情", "五官与情绪不符"],
+    "extends": "emotion_cards",
+    "note": "情绪是一类资产：卡片本体来自 emotion_cards.json，入库时按角色固化为该角色的表演锁（同一情绪不同角色表现不同）"
+  }
+]

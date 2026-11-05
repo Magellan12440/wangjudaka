@@ -1,0 +1,86 @@
+[
+  {
+    "code": "BP_ONESHOT",
+    "name": "一句话成片",
+    "desc": "用户只给一句话 → 剧本 → 分镜 → 资产 → 图片 → 视频 → 音频 → 成片 → 交付包",
+    "nodes": [
+      { "id": "N01", "name": "需求解析", "out": "spec", "can_rerun": false },
+      { "id": "N02", "name": "大纲与人物", "out": "outline", "can_rerun": true },
+      { "id": "N03", "name": "剧本", "out": "script", "can_rerun": true },
+      { "id": "N04", "name": "节奏诊断", "out": "rhythm_report", "can_rerun": true, "gate": true },
+      { "id": "N05", "name": "分镜表", "out": "storyboard", "can_rerun": true },
+      { "id": "N06", "name": "资产生成", "out": "assets", "can_rerun": true },
+      { "id": "N07", "name": "关键帧图", "out": "keyframes", "can_rerun": true, "per_shot": true },
+      { "id": "N08", "name": "视频生成", "out": "clips", "can_rerun": true, "per_shot": true },
+      { "id": "N09", "name": "配音与配乐", "out": "audio", "can_rerun": true },
+      { "id": "N10", "name": "混音", "out": "mixed", "can_rerun": true },
+      { "id": "N11", "name": "剪辑成片", "out": "episode_mp4", "can_rerun": true },
+      { "id": "N12", "name": "交付包与AI标识", "out": "delivery", "can_rerun": false }
+    ],
+    "gates": [
+      { "at": "N04", "rule": "hook>=0.75 && conflict>=2.5/集 && reversal>=3 && empathy>=1/3集", "on_fail": "回退 N03 重写，最多 2 轮，第 3 轮转人工" },
+      { "at": "N07", "rule": "每张关键帧必须通过编译器 12 校验", "on_fail": "拒绝生成" },
+      { "at": "N08", "rule": "一致性分 >= 0.82", "on_fail": "标记漂移并允许按镜号重生成" }
+    ]
+  },
+  {
+    "code": "BP_PREVIEW",
+    "name": "预览档（低成本）",
+    "desc": "用预览档模型跑通全片，确认后再按 BP_PREMIUM 出成品（720P 审阅 + 1080P 定稿）",
+    "nodes": [
+      { "id": "N02", "name": "大纲与人物", "out": "outline" },
+      { "id": "N03", "name": "剧本", "out": "script" },
+      { "id": "N05", "name": "分镜表", "out": "storyboard" },
+      { "id": "N07P", "name": "关键帧图（预览档）", "out": "keyframes", "model_pref": "IMG-FAST" },
+      { "id": "N08P", "name": "视频生成（预览档）", "out": "clips", "model_pref": "VID-CHEAP" },
+      { "id": "N11", "name": "剪辑成片", "out": "episode_mp4", "resolution": "720p" }
+    ],
+    "gates": []
+  },
+  {
+    "code": "BP_PREMIUM",
+    "name": "定稿档（交付）",
+    "desc": "沿用预览已确认的提示词与种子，切换到高质量模型出 1080P 成品",
+    "nodes": [
+      { "id": "N07", "name": "关键帧图（定稿）", "out": "keyframes", "model_pref": "IMG-DEFAULT" },
+      { "id": "N08", "name": "视频生成（定稿）", "out": "clips", "model_pref": "VID-DEFAULT", "resolution": "1080p" },
+      { "id": "N09", "name": "配音与配乐", "out": "audio" },
+      { "id": "N10", "name": "混音", "out": "mixed" },
+      { "id": "N11", "name": "剪辑成片", "out": "episode_mp4", "resolution": "1080p" },
+      { "id": "N12", "name": "交付包与AI标识", "out": "delivery" }
+    ],
+    "gates": [{ "at": "N12", "rule": "片头/封面/简介三处 AI 标识齐全", "on_fail": "禁止进入分发" }]
+  },
+  {
+    "code": "BP_STANDARD",
+    "name": "标准分步",
+    "desc": "用户在每一步确认后再进入下一步（自由选择模型与重生成的默认模式）",
+    "nodes": [
+      { "id": "N02", "name": "大纲与人物", "out": "outline" },
+      { "id": "N03", "name": "剧本", "out": "script" },
+      { "id": "N04", "name": "节奏诊断", "out": "rhythm_report", "gate": true },
+      { "id": "N05", "name": "分镜表", "out": "storyboard" },
+      { "id": "N06", "name": "资产生成", "out": "assets" },
+      { "id": "N07", "name": "关键帧图", "out": "keyframes" },
+      { "id": "N08", "name": "视频生成", "out": "clips" },
+      { "id": "N09", "name": "配音与配乐", "out": "audio" },
+      { "id": "N11", "name": "剪辑成片", "out": "episode_mp4" },
+      { "id": "N12", "name": "交付包与AI标识", "out": "delivery" }
+    ],
+    "gates": []
+  },
+  {
+    "code": "BP_NARRATION",
+    "name": "解说/小说推文",
+    "desc": "以旁白驱动，画面为氛围镜头，成本低，适合批量产出",
+    "nodes": [
+      { "id": "N03", "name": "旁白稿", "out": "script" },
+      { "id": "N05", "name": "氛围分镜", "out": "storyboard" },
+      { "id": "N07", "name": "关键帧图", "out": "keyframes" },
+      { "id": "N08", "name": "视频生成", "out": "clips" },
+      { "id": "N09", "name": "旁白配音与配乐", "out": "audio" },
+      { "id": "N11", "name": "剪辑成片", "out": "episode_mp4" }
+    ],
+    "gates": []
+  }
+]

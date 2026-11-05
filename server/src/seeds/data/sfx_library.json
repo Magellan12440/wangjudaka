@@ -1,0 +1,114 @@
+[
+  {
+    "code": "SFX-WHOOSH", "name": "呼啸转场", "kind": "whoosh", "duration": 0.55, "gain_db": -12,
+    "synth": { "type": "noise_sweep", "f0": 2400, "f1": 320, "q": 1.1, "attack": 0.08, "release": 0.25 },
+    "use_when": "任何非硬切转场，尾端对齐剪切点",
+    "for_transition": ["TRN-OBJWIPE", "TRN-BODYWIPE", "TRN-WHIP", "TRN-WATERWIPE", "TRN-CROWD", "TRN-SLIDE-L", "TRN-WIPE-R", "TRN-WIPE-UP"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-RISER", "name": "上升蓄势", "kind": "riser", "duration": 1.8, "gain_db": -14,
+    "synth": { "type": "tone_sweep", "f0": 180, "f1": 1200, "q": 0.8, "attack": 1.5, "release": 0.3, "wave": "saw" },
+    "use_when": "集首 / 反转前 2 秒",
+    "for_transition": ["TRN-ZOOMIN", "TRN-RADIAL", "TRN-PIXEL"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-IMPACT", "name": "重击", "kind": "impact", "duration": 0.7, "gain_db": -9,
+    "synth": { "type": "thump", "f0": 90, "f1": 42, "attack": 0.004, "release": 0.55 },
+    "use_when": "硬切到动作高点 / 打脸 / 摔门",
+    "for_transition": ["TRN-HARDCUT", "TRN-FREEZE"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-HEARTBEAT", "name": "心跳", "kind": "heartbeat", "duration": 1.2, "gain_db": -16,
+    "synth": { "type": "two_thump", "f0": 62, "f1": 38, "gap": 0.28, "attack": 0.01, "release": 0.3 },
+    "use_when": "紧张 / 恐惧 / 等待",
+    "for_mood": ["suspense", "tense", "fear"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-STING", "name": "惊弦", "kind": "sting", "duration": 1.4, "gain_db": -15,
+    "synth": { "type": "chord_stab", "notes": [0, 1, 7], "root_hz": 220, "attack": 0.006, "release": 1.2, "wave": "saw", "detune": 0.008 },
+    "use_when": "揭穿 / 惊吓 / 断点",
+    "for_mood": ["shock", "reveal"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-SPARKLE", "name": "灵光", "kind": "sparkle", "duration": 1.6, "gain_db": -18,
+    "synth": { "type": "bell_cluster", "root_hz": 880, "notes": [0, 4, 7, 11, 14], "attack": 0.002, "release": 1.4 },
+    "use_when": "仙侠法术 / 转场提亮",
+    "for_mood": ["magic", "ethereal"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-DOOR", "name": "门轴", "kind": "foley", "duration": 1.1, "gain_db": -17,
+    "synth": { "type": "noise_sweep", "f0": 900, "f1": 420, "q": 5.5, "attack": 0.2, "release": 0.6 },
+    "use_when": "门框穿行转场",
+    "for_transition": ["TRN-DOORWAY", "TRN-INTODARK"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-THUNDER", "name": "闷雷", "kind": "ambience_hit", "duration": 2.4, "gain_db": -13,
+    "synth": { "type": "noise_bed", "f0": 120, "f1": 60, "q": 0.7, "attack": 0.05, "release": 2.0, "color": "brown" },
+    "use_when": "闪电 / 惊吓 / 天象",
+    "for_transition": ["TRN-DISSOLVE-W", "TRN-INTOWHITE"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-RAIN-BED", "name": "雨声床", "kind": "ambience", "duration": 0, "gain_db": -24,
+    "synth": { "type": "noise_bed", "f0": 3200, "f1": 1400, "q": 0.6, "attack": 1.2, "release": 1.5, "color": "pink" },
+    "use_when": "氛围为 ATM-RAIN 时全程铺底",
+    "for_atmosphere": ["ATM-RAIN", "ATM-REFLECTION"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-WIND-BED", "name": "风声床", "kind": "ambience", "duration": 0, "gain_db": -26,
+    "synth": { "type": "noise_bed", "f0": 800, "f1": 500, "q": 0.9, "attack": 2.0, "release": 2.0, "color": "pink" },
+    "use_when": "空旷 / 雪原 / 山顶",
+    "for_atmosphere": ["ATM-SNOW", "ATM-FOG"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-CITY-BED", "name": "城市底噪", "kind": "ambience", "duration": 0, "gain_db": -28,
+    "synth": { "type": "noise_bed", "f0": 420, "f1": 260, "q": 0.5, "attack": 1.5, "release": 2.0, "color": "brown" },
+    "use_when": "都市 / 室内",
+    "for_atmosphere": ["ATM-STEAM", "ATM-REFLECTION", "ATM-PAPER"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-ROOM-BED", "name": "室内静场", "kind": "ambience", "duration": 0, "gain_db": -30,
+    "synth": { "type": "noise_bed", "f0": 200, "f1": 120, "q": 0.4, "attack": 1.0, "release": 1.5, "color": "brown" },
+    "use_when": "无明确环境的对话戏兜底",
+    "for_atmosphere": [],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-FIRE-BED", "name": "火声", "kind": "ambience", "duration": 0, "gain_db": -26,
+    "synth": { "type": "noise_bed", "f0": 1200, "f1": 700, "q": 0.8, "attack": 0.8, "release": 1.2, "color": "pink" },
+    "use_when": "烛火 / 战场 / 焚毁",
+    "for_atmosphere": ["ATM-EMBER"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-MAGIC-SWELL", "name": "法术涌起", "kind": "riser", "duration": 2.6, "gain_db": -17,
+    "synth": { "type": "tone_sweep", "f0": 220, "f1": 1760, "q": 1.6, "attack": 2.2, "release": 0.4, "wave": "triangle" },
+    "use_when": "仙侠施法 / 变身",
+    "for_mood": ["magic", "epic"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-PULSE", "name": "低频脉冲", "kind": "pulse", "duration": 0.4, "gain_db": -20,
+    "synth": { "type": "thump", "f0": 70, "f1": 52, "attack": 0.005, "release": 0.3 },
+    "use_when": "赛博 / 机械 / 倒计时量化节奏",
+    "for_mood": ["cyber", "tense"],
+    "license": "自研合成，无版权"
+  },
+  {
+    "code": "SFX-CRICKET", "name": "夜虫", "kind": "ambience", "duration": 0, "gain_db": -30,
+    "synth": { "type": "bell_cluster", "root_hz": 3200, "notes": [0, 0, 7], "attack": 0.01, "release": 0.12, "sparse": true },
+    "use_when": "夜外 / 乡村 / 静默前的对比",
+    "for_atmosphere": ["ATM-FOG"],
+    "license": "自研合成，无版权"
+  }
+]
