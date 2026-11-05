@@ -26,6 +26,36 @@ const IDEAS = [
   '末日第七年，我在废墟里捡到了当年的情敌',
 ];
 
+/**
+ * 创作来源（V4.6）。
+ * 两条路都通向同一套生产链，区别只在「剧本从哪来」：
+ *   idea     —— AI 出创意，适合还没有故事的人
+ *   material —— 用户自带小说/剧本改编，系统必须沿用素材里的人物与世界观
+ * 第二条路是为「手上已经有成熟创意、只想快点拍出来」的用户准备的。
+ */
+const ORIGINS = [
+  {
+    key: 'idea',
+    label: '让 AI 出创意',
+    sub: '给一个题材方向，系统编故事',
+    icon: '创',
+  },
+  {
+    key: 'material',
+    label: '改编我的素材',
+    sub: '贴小说/剧本正文，按你的故事拍',
+    icon: '改',
+  },
+];
+
+/** 改编强度：素材改编时必须让用户明确「改到什么程度」，否则 AI 会自作主张 */
+const ADAPT_MODES = [
+  { key: 'faithful', label: '忠于原著', sub: '主线、人物、结局都不动，只做竖屏拆分' },
+  { key: 'remix', label: '按短剧重排', sub: '保设定保人物，重排节奏、合并次要角色、加强钩子' },
+];
+
+const MIN_ADAPT_CHARS = 200;
+
 Page({
   data: {
     pageAnim: false,
@@ -63,6 +93,15 @@ Page({
     stylesError: '',
     showAllStyles: false,
     canCreate: false,
+    // —— 创作来源（V4.6）——
+    origins: ORIGINS,
+    origin: 'idea',
+    adaptModes: ADAPT_MODES,
+    adaptMode: 'remix',
+    scriptText: '',
+    scriptChars: 0,
+    scriptName: '',
+    minAdaptChars: MIN_ADAPT_CHARS,
   },
 
   onLoad() {
@@ -162,7 +201,70 @@ Page({
   },
 
   syncMeta() {
-    this.setData({ canCreate: String(this.data.title || '').trim().length >= 2 });
+    const d = this.data;
+    const titled = String(d.title || '').trim().length >= 2;
+    // 改编路线：只有剧名不算准备好，得真有正文——否则「改编」两个字是空的
+    const ready = d.origin === 'material'
+      ? titled && String(d.scriptText || '').trim().length >= MIN_ADAPT_CHARS
+      : titled;
+    this.setData({ canCreate: ready });
+  },
+
+  pickOrigin(e) {
+    const origin = e.currentTarget.dataset.key;
+    if (!origin || origin === this.data.origin) return;
+    motion.haptic();
+    this.setData({ origin }, () => this.syncMeta());
+    if (origin === 'material') wx.pageScrollTo({ scrollTop: 300, duration: 240 });
+  },
+
+  pickAdaptMode(e) {
+    const adaptMode = e.currentTarget.dataset.key;
+    if (!adaptMode) return;
+    motion.haptic();
+    this.setData({ adaptMode });
+  },
+
+  onScriptText(e) {
+    const v = e.detail.value || '';
+    this.setData({ scriptText: v, scriptChars: v.replace(/\s/g, '').length }, () => this.syncMeta());
+  },
+
+  /**
+   * 从微信聊天里选 TXT 读进输入框。
+   * 只支持 txt：docx 是压缩包，前端解不了——那条路走「建组后素材页选 DOCX 自动取正文」，
+   * 这里如实提示，不假装能读。
+   */
+  pickScriptFile() {
+    motion.haptic();
+    wx.chooseMessageFile({
+      count: 1,
+      type: 'file',
+      extension: ['txt', 'md'],
+      success: (res) => {
+        const f = res.tempFiles && res.tempFiles[0];
+        if (!f) return;
+        if (f.size > 2 * 1024 * 1024) {
+          wx.showToast({ title: '文本超过 2MB，请拆分后再传', icon: 'none' });
+          return;
+        }
+        wx.getFileSystemManager().readFile({
+          filePath: f.path,
+          encoding: 'utf8',
+          success: (r) => {
+            const text = String(r.data || '').slice(0, 20000);
+            this.setData({
+              scriptText: text,
+              scriptChars: text.replace(/\s/g, '').length,
+              scriptName: f.name || '',
+            }, () => this.syncMeta());
+            wx.showToast({ title: `已读入 ${(f.name || '文本').slice(0, 12)}`, icon: 'none' });
+          },
+          fail: () => wx.showToast({ title: '这个文件读不出正文，可直接粘贴', icon: 'none' }),
+        });
+      },
+      fail: () => {},
+    });
   },
 
   next() {
@@ -170,6 +272,13 @@ Page({
     if (title.length < 2) {
       wx.showToast({ title: '先给这部剧起个名字（至少 2 个字）', icon: 'none' });
       return;
+    }
+    if (this.data.origin === 'material') {
+      const chars = String(this.data.scriptText || '').trim().length;
+      if (chars < MIN_ADAPT_CHARS) {
+        wx.showToast({ title: `改编至少要有 ${MIN_ADAPT_CHARS} 字正文`, icon: 'none' });
+        return;
+      }
     }
     motion.haptic();
     this.setData({ step: 2 });
@@ -297,14 +406,47 @@ Page({
       shellEnabled: this.data.shellEnabled,
       models: this.data.picks,
       editProfile: this.data.editProfile,
+      origin: this.data.origin,
+      adaptMode: this.data.origin === 'material' ? this.data.adaptMode : null,
       ...this.spec(),
     })
       .then((proj) => {
+        // 改编路线：项目一建好就把正文落成素材，用户进项目就能直接点「生成剧本」，
+        // 不用再走一遍「先上传、再返回」的来回。
+        const text = String(this.data.scriptText || '').trim();
+        if (this.data.origin !== 'material' || !text) return proj;
+        this.setData({ createPhase: '上传素材' });
+        return api
+          .addTextMaterial(proj.id, {
+            name: this.data.scriptName || `${title}_正文.txt`,
+            text,
+            note: this.data.adaptMode === 'faithful' ? '忠于原著' : '按短剧重排',
+            source: 'paste',
+          })
+          .then(() => proj)
+          .catch(() => {
+            // 素材没存上不能让用户以为改编成功了——明确告诉他去素材页补
+            wx.showModal({
+              title: '正文没存上',
+              content: '项目已创建，但正文上传失败。请到「素材」页重新粘贴正文，再生成剧本。',
+              showCancel: false,
+            });
+            return proj;
+          });
+      })
+      .then((proj) => {
         this.setData({ createPhase: '进入剧组' });
         this.stopTicker();
-        this.setData({ creating: false, createPhase: '', step: 1, title: '', prompt: '', quote: null });
+        // 先记下路线，下面 setData 会把 origin 复位，不能复位后再判断
+        const wasMaterial = this.data.origin === 'material';
+        this.setData({
+          creating: false, createPhase: '', step: 1, title: '', prompt: '',
+          quote: null, scriptText: '', scriptChars: 0, scriptName: '', origin: 'idea',
+        });
         app.globalData.draftTitle = '';
-        wx.navigateTo({ url: `/pages/project/project?id=${proj.id}&fresh=1&setup=1` });
+        // 改编路线直接落在素材 tab：下一步就是点「用这些素材生成剧本」
+        const adapt = wasMaterial ? '&tab=material&adapt=1' : '';
+        wx.navigateTo({ url: `/pages/project/project?id=${proj.id}&fresh=1&setup=1${adapt}` });
       })
       .catch((e) => {
         this.stopTicker();

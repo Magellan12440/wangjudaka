@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.5.1: 收益看板改按earnings账聚合(修已结算恒为0/平台全落unknown) + 多平台批量回填 + 待回填清单 + 额度预警 + 本月对账单CSV导出 + 13条收益回归"
+MSG = "v4.6.0: 新增素材改编创作路线(贴正文→建项目→素材自动入库→按素材生成剧本) + 改编强度忠于原著/按短剧重排 + 无素材时硬拒绝不许凭空编 + 项目页改编流水线 + 12条端到端自测"
 
 
 def api(method, path, payload=None, retries=3):

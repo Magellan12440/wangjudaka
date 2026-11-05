@@ -18,6 +18,21 @@ import { fail, ERR } from '../core/errors.js';
 
 const LOCK_TEMPLATE_BY_TYPE = { character: 'CH', scene: 'SC', prop: 'PR', voice: 'VO' };
 
+/**
+ * 改编强度指令（V4.6）。抽成纯函数是为了能被单测锁住：
+ * 这段文案直接决定 AI 敢不敢改用户的结局，不能靠「看代码觉得没问题」。
+ */
+export function adaptInstruction(spec = {}, hasReference = false) {
+  if (!hasReference) return '';
+  if (spec.adapt_mode === 'faithful') {
+    return '改编要求：忠于原著。保留原作主线、人物关系与关键台词，只做竖屏化拆分，不得改动结局。';
+  }
+  if (spec.adapt_mode === 'remix') {
+    return '改编要求：保留原作的设定与人物，允许重排节奏、合并次要人物、加强钩子，但世界观与主角动机不得改变。';
+  }
+  return '';
+}
+
 export class StoryEngine {
   /**
    * N02：大纲与人物
@@ -40,6 +55,8 @@ export class StoryEngine {
     const user = [
       `创意：${prompt}`,
       reference ? `以下是用户上传的参考素材，请优先沿用其中的人物关系、世界观与关键情节，不要另起炉灶：\n${reference}` : '',
+      // 改编强度（V4.6）：素材改编路线下用户要能选「照原著拍」还是「按竖屏短剧重排」
+      adaptInstruction(spec, Boolean(reference)),
       `总时长：${spec.total_minutes} 分钟，单集 ${spec.episode_sec} 秒`,
       '输出 JSON 结构：',
       '{"title":"","logline":"","characters":[{"code":"CH01","name":"","role":"","traits":"","locks":["","","",""]}],',

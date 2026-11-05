@@ -94,6 +94,29 @@
         </view>
       </view>
 
+      <!-- 改编流水线（V4.6）：只在「改编我的素材」路线显示，AI 出创意不需要这条 -->
+      <view wx:if="{{project.origin === 'material' && adaptFlow}}" class="adapt-flow">
+        <view class="af-head">
+          <text class="af-title">改编流水线</text>
+          <text class="af-count num">{{adaptFlow.done}}/{{adaptFlow.total}}</text>
+        </view>
+        <scroll-view scroll-x class="af-scroll" enhanced show-scrollbar="{{false}}">
+          <view class="af-track">
+            <view
+              wx:for="{{adaptFlow.steps}}"
+              wx:key="key"
+              class="af-node {{item.done ? 'done' : ''}} {{item.current ? 'cur' : ''}}"
+              data-tab="{{item.tab}}"
+              bindtap="switchTab"
+            >
+              <view class="af-dot">{{item.done ? '✓' : index + 1}}</view>
+              <view class="af-name">{{item.label}}</view>
+            </view>
+          </view>
+        </scroll-view>
+        <view class="af-next">{{adaptFlow.next}}</view>
+      </view>
+
       <!-- 7 个 tab -->
       <view class="seg">
         <view class="seg-ind" style="{{segTabsStyle}}"></view>
@@ -114,7 +137,7 @@
               <view class="title">素材库</view>
               <view class="tiny mt8">{{materialStats.by_kind.text}} 文本 · {{materialStats.by_kind.image}} 图 · {{materialStats.by_kind.video}} 视频 · {{materialStats.text_chars}} 字</view>
             </view>
-            <view class="pill pill-violet pill-no-dot">创作输入</view>
+            <view class="pill {{project.origin === 'material' ? 'pill-gold' : 'pill-violet'}} pill-no-dot">{{project.origin === 'material' ? '素材改编' : '创作输入'}}</view>
           </view>
 
           <view class="upload-grid mt24">
@@ -159,9 +182,9 @@
 
         <view wx:if="{{materials.length === 0}}" class="card empty">
           <view class="empty-icon float">素</view>
-          <view class="empty-title">还没有素材</view>
-          <view class="empty-sub">上传小说正文、角色参考图或参考视频，</view>
-          <view class="empty-sub" style="margin-top:0">生成剧本时会优先沿用你的人物与世界观。</view>
+          <view class="empty-title">{{project.origin === 'material' ? '这条路要先给正文' : '还没有素材'}}</view>
+          <view class="empty-sub">{{project.origin === 'material' ? '你选了「改编我的素材」：' : '上传小说正文、角色参考图或参考视频，'}}</view>
+          <view class="empty-sub" style="margin-top:0">{{project.origin === 'material' ? '贴小说/剧本正文，系统会沿用你的人物与世界观拆分剧集。' : '生成剧本时会优先沿用你的人物与世界观。'}}</view>
         </view>
 
         <view wx:else class="card">
@@ -186,13 +209,14 @@
 
         <view class="notice">
           <view class="dot"></view>
-          <view class="flex1">文本会节选后直接进入剧本大纲；图片与视频作为视觉参考存档，并把你写的说明一并交给 AI。单个项目最多 24 个素材。</view>
+          <view wx:if="{{project.origin === 'material'}}" class="flex1">正文节选后进入大纲，按「{{project.adaptModeText}}」改写：人物关系与世界观不改，图片视频作为造型参考。单个项目最多 24 个素材。</view>
+          <view wx:else class="flex1">文本会节选后直接进入剧本大纲；图片与视频作为视觉参考存档，并把你写的说明一并交给 AI。单个项目最多 24 个素材。</view>
         </view>
 
         <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="generateScript">
-          {{busy === 'plan' ? '正在生成剧本…' : (plan ? '用当前素材重新生成剧本' : '用这些素材生成剧本')}}
+          {{busy === 'plan' ? '正在生成剧本…' : (plan ? (project.origin === 'material' ? '按我的素材重新生成剧本' : '用当前素材重新生成剧本') : (project.origin === 'material' ? '按我的素材生成剧本' : '用这些素材生成剧本'))}}
         </view>
-        <view class="hint" style="text-align:center;margin-top:14rpx">生成剧本会产出大纲、人物、分镜与角色资产</view>
+        <view class="hint" style="text-align:center;margin-top:14rpx">{{project.origin === 'material' ? '产出大纲 → 剧集划分 → 分镜 → 角色/道具/场景资产，全程沿用你的故事' : '生成剧本会产出大纲、人物、分镜与角色资产'}}</view>
         <view class="gap32"></view>
       </block>
 
