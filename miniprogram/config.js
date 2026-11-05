@@ -17,10 +17,10 @@ const HOSTS = {
   // 本地联调（工具内 / 手机预览码）。手机扫码时 127.0.0.1 指的是手机自己，
   // 所以这里填电脑的局域网 IP（换网络后跑 npm run mini:lan 更新这一行）。
   develop: 'http://192.168.1.123:8787',
-  // 体验版（内测）—— 上线前换成你的已备案 https 域名
-  trial: 'https://api.wangjudaka.com',
-  // 线上正式版
-  release: 'https://api.wangjudaka.com',
+  // 体验版（内测）—— 微信云托管默认域名（免备案，需加入后台 request 合法域名）
+  trial: 'https://express-r0ph-341726-13-1525512932.sh.run.tcloudbase.com',
+  // 线上正式版 —— 上线后换成已备案自定义域名；过渡期先用云托管域名
+  release: 'https://express-r0ph-341726-13-1525512932.sh.run.tcloudbase.com',
 };
 
 /** 当前运行环境：develop | trial | release；拿不到时按开发版处理 */
