@@ -23,6 +23,7 @@ Page({
     fillRows: [],
     fillPeriod: '',
     submitting: false,
+    exporting: false,
   },
 
   onLoad() {
@@ -84,6 +85,37 @@ Page({
     motion.haptic();
     // 充值是「我的」页里的弹层，不是独立页
     wx.switchTab({ url: '/pages/mine/mine' });
+  },
+
+  /**
+   * 导出对账单。
+   * 小程序里没有「下载文件到电脑」这条路（csv 也打不开），
+   * 所以走复制到剪贴板——用户粘进 Excel / WPS 就能直接对账。
+   */
+  exportBill() {
+    if (this.data.exporting) return;
+    motion.haptic();
+    this.setData({ exporting: true });
+    api.revenueExport()
+      .then((r) => {
+        this.setData({ exporting: false });
+        if (!r.rows) {
+          wx.showModal({ title: '这个月还没回填', content: r.note, showCancel: false });
+          return;
+        }
+        wx.setClipboardData({
+          data: r.csv,
+          success: () => wx.showModal({
+            title: `已复制 ${r.rows} 条`,
+            content: `${r.filename}（合计 ¥${r.total}）已复制到剪贴板，粘贴到 Excel / WPS 即可对账。${r.note}`,
+            showCancel: false,
+          }),
+        });
+      })
+      .catch((e) => {
+        this.setData({ exporting: false });
+        wx.showToast({ title: e.message || '导出失败', icon: 'none' });
+      });
   },
 
   openProject(e) {

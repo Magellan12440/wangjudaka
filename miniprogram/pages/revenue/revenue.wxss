@@ -50,6 +50,12 @@
 
 /* —— 待回填 —— */
 .fill-head { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; }
+.ghost-btn {
+  flex: none; padding: 13rpx 26rpx; border-radius: 999rpx;
+  font-size: 23rpx; color: #E9DFC4;
+  border: 1rpx solid rgba(243, 201, 105, 0.36);
+  background: rgba(243, 201, 105, 0.08);
+}
 .fill-sub { font-size: 21rpx; color: #8B95A6; }
 .fill-btn {
   flex: none; padding: 14rpx 26rpx; border-radius: 999rpx;

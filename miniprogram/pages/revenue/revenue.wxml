@@ -63,6 +63,17 @@
         </view>
       </view>
 
+      <!-- 对账单：复制 CSV 粘到 Excel -->
+      <view wx:if="{{total > 0}}" class="glass card">
+        <view class="fill-head">
+          <view>
+            <view class="card-title" style="margin-bottom:6rpx">本月对账单</view>
+            <view class="fill-sub">导出 CSV 复制到 Excel / WPS 对账</view>
+          </view>
+          <view class="ghost-btn tap" hover-class="tap-on" bindtap="exportBill">{{exporting ? '导出中…' : '导出'}}</view>
+        </view>
+      </view>
+
       <!-- 月度趋势 -->
       <view class="glass card" wx:if="{{bars.length}}">
         <view class="card-title">近半年</view>

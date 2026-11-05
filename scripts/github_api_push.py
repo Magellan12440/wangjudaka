@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.5.0: 收益看板改以earnings账为准(修结算状态恒为0/平台归unknown) + 多平台批量回填一次提交 + 待回填清单 + 额度预警(低于阈值提醒充值) + 批量回填整批校验归属 + 10条收益回归测试"
+MSG = "v4.5.1: 收益看板改按earnings账聚合(修已结算恒为0/平台全落unknown) + 多平台批量回填 + 待回填清单 + 额度预警 + 本月对账单CSV导出 + 13条收益回归"
 
 
 def api(method, path, payload=None, retries=3):
