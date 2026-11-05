@@ -40,6 +40,7 @@ import materialService from '../assets/MaterialService.js';
 import authService from '../auth/AuthService.js';
 import { resolveScope, resolveOwnership } from '../auth/scope.js';
 import * as relayRuntime from '../relay/RelayRuntime.js';
+import * as promptLibrary from '../prompts/PromptLibrary.js';
 import { probeModels } from '../relay/probeModels.js';
 import contentSecurity from '../security/ContentSecurity.js';
 import virtualPay from '../pay/VirtualPay.js';
@@ -103,6 +104,65 @@ function projectOf(req, projectId, { required = true } = {}) {
   if (own === 'auth_required') throw new AppError('AUTH_REQUIRED', '请先登录');
   if (own === 'forbidden') throw new AppError('OBJECT_FORBIDDEN', '不能操作其他用户的项目');
   return p;
+}
+
+/**
+ * 收益看板聚合（V4.4）。
+ * 数据来源是用户自己在分发工作台回填的「播放/收益」，所以这里只做汇总与对账提示，
+ * 不编造平台侧数据——没回填就是 0，并在 note 里说清楚。
+ */
+function revenueDashboard(userId) {
+  const projects = db.find(PROJECTS, (p) => p.user_id === userId && p.archived !== true);
+  const byProject = [];
+  const byPlatform = {};
+  const byMonth = {};
+  let total = 0;
+  let pending = 0;
+  let settled = 0;
+  let published = 0;
+
+  for (const p of projects) {
+    const list = distributionHub.list(p.id).filter((d) => d && d.archived !== true);
+    if (!list.length) continue;
+    let projectTotal = 0;
+    for (const d of list) {
+      const amount = Number(d.revenue_amount ?? d.revenue?.amount ?? 0) || 0;
+      projectTotal += amount;
+      total += amount;
+      const settle = String(d.revenue?.settlement_status ?? d.settlement_status ?? '待结算');
+      if (settle.includes('已结算')) settled += amount; else pending += amount;
+      if (['已上线', '已通过'].includes(d.status)) published += 1;
+
+      const pcode = d.platform_code ?? 'unknown';
+      byPlatform[pcode] ||= { platform_code: pcode, platform_name: seeds.platform(pcode)?.name ?? pcode, amount: 0, count: 0 };
+      byPlatform[pcode].amount += amount;
+      byPlatform[pcode].count += 1;
+
+      const when = String(d.revenue?.period ?? d.updated_at ?? d.created_at ?? '').slice(0, 7);
+      if (when) byMonth[when] = (byMonth[when] ?? 0) + amount;
+    }
+    byProject.push({
+      project_id: p.id,
+      title: p.title,
+      index_label: projectIndex.view(p).index_label,
+      distributions: list.length,
+      amount: +projectTotal.toFixed(2),
+    });
+  }
+
+  const months = Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b)).slice(-6);
+  return {
+    total: +total.toFixed(2),
+    pending: +pending.toFixed(2),
+    settled: +settled.toFixed(2),
+    published_count: published,
+    projects: byProject.sort((a, b) => b.amount - a.amount),
+    platforms: Object.values(byPlatform).sort((a, b) => b.amount - a.amount),
+    monthly: months.map(([month, amount]) => ({ month, amount: +amount.toFixed(2) })),
+    note: total === 0
+      ? '还没有回填收益：成片在分发平台上线后，回到「分发」页把播放与收益填进来，这里就会自动汇总'
+      : '本页是你自己回填的口径，与平台后台对账时以平台结算单为准',
+  };
 }
 
 /** 路由表：[method, pathPattern, handler] */
@@ -172,6 +232,17 @@ export const routes = [
   ['GET', '/api/catalog/models', async ({ query }) => {
     if (query.role) return modelCatalog.list(query.role);
     return modelCatalog.publicRoles();
+  }],
+
+  // —— 九大提示词库（V4.4）：前端只读展示「系统内置哪些专业约束」 ——
+  ['GET', '/api/prompts', async () => ({
+    summary: promptLibrary.summary(),
+    stages: promptLibrary.STAGE_REQUIREMENTS,
+  })],
+  ['GET', '/api/prompts/:kind', async ({ params }) => {
+    const kind = String(params.kind ?? '');
+    if (!promptLibrary.KINDS[kind]) throw new AppError('PROMPT_KIND_UNKNOWN', `未知提示词库: ${kind}`);
+    return { kind, name: promptLibrary.KINDS[kind].name, items: promptLibrary.listKind(kind) };
   }],
 
   // —— 账户与点数 ——
@@ -376,6 +447,15 @@ export const routes = [
     if (body.editProfile) {
       const ok = modelCatalog.list('edit').items.some((x) => x.code === body.editProfile);
       if (ok) spec.edit_profile = body.editProfile;
+    }
+    // V4.4：剪辑配方与字幕同步规则可由用户指定（不选就按风格自动搭配）
+    if (body.editRecipe !== undefined) {
+      if (!body.editRecipe) delete spec.edit_recipe;
+      else if (seeds.editRecipe(String(body.editRecipe))) spec.edit_recipe = String(body.editRecipe);
+    }
+    if (body.subtitleSync !== undefined) {
+      if (!body.subtitleSync) delete spec.subtitle_sync;
+      else if (seeds.subtitleSyncRule(String(body.subtitleSync))) spec.subtitle_sync = String(body.subtitleSync);
     }
     if (body.seriesTitle !== undefined) {
       db.update(PROJECTS, p.id, { series_title: String(body.seriesTitle ?? '').slice(0, 30) || p.title });
@@ -1160,6 +1240,28 @@ export const routes = [
     const user = authService.requireUser(req);
     return { user: authService.updateProfile(user.id, { nickname: body.nickname, avatar: body.avatar }) };
   }],
+  // —— 账号体系（V4.4）：短信验证码 / 手机号密码 / 绑定手机 ——
+  ['POST', '/api/auth/sms', async ({ body }) => authService.sendCode({ phone: body.phone })],
+  ['POST', '/api/auth/login/code', async ({ body, req }) => {
+    const r = authService.loginByCode({ phone: body.phone, code: body.code, nickname: body.nickname ?? null });
+    return { ...r, invite: null };
+  }],
+  ['POST', '/api/auth/login/password', async ({ body }) => authService.loginByPassword({ phone: body.phone, password: body.password })],
+  ['POST', '/api/auth/password', async ({ body, req }) => {
+    const user = authService.requireUser(req);
+    return { user: authService.setPassword(user.id, { password: body.password }) };
+  }],
+  ['POST', '/api/auth/bind-phone', async ({ body, req }) => {
+    const user = authService.requireUser(req);
+    return { user: authService.bindPhone(user.id, { phone: body.phone, code: body.code }) };
+  }],
+
+  // —— 收益看板（V4.4）：把分发回填的钱汇总成用户看得懂的口径 ——
+  ['GET', '/api/me/revenue', async ({ req, query }) => {
+    const userId = scopedUserId(req, query);
+    return revenueDashboard(userId);
+  }],
+
   ['GET', '/api/wechat/status', async () => wechatClient.status()],
 
   // —— 内容安全机审（V3.5）——

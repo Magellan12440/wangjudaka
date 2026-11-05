@@ -1,0 +1,27 @@
+.head { padding: 28rpx 4rpx 18rpx; }
+.title { font-size: 42rpx; font-weight: 700; letter-spacing: 1rpx; }
+.sub { margin-top: 8rpx; font-size: 22rpx; color: #8B95A6; }
+
+.card { padding: 26rpx 24rpx; margin-bottom: 20rpx; }
+.card-title { font-size: 23rpx; color: #9AA4B4; margin-bottom: 16rpx; letter-spacing: 1rpx; }
+
+.hero { padding: 30rpx 26rpx; }
+.hero-label { font-size: 22rpx; color: #9AA4B4; }
+.hero-num {
+  margin-top: 8rpx;
+  font-size: 76rpx; font-weight: 700; line-height: 1.1;
+  color: #F7E4B4; font-variant-numeric: tabular-nums;
+  text-shadow: 0 10rpx 40rpx rgba(243, 201, 105, 0.25);
+}
+
+.idx {
+  margin-right: 8rpx; padding: 0 8rpx; border-radius: 6rpx;
+  font-size: 19rpx; color: #E0BD77;
+  background: rgba(243, 201, 105, 0.12);
+  font-family: "SF Mono", Menlo, monospace;
+}
+
+.empty { text-align: center; padding: 44rpx 30rpx; }
+.empty-title { font-size: 30rpx; font-weight: 600; }
+.empty-sub { margin-top: 12rpx; font-size: 22rpx; line-height: 1.7; color: #8792A3; }
+.err { color: #FF8E8E; font-size: 24rpx; }

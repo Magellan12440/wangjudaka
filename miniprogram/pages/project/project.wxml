@@ -513,6 +513,26 @@
           </view>
         </view>
 
+        <!-- 剪辑打法（对应「剪辑成片」「字幕同步」两个内置库） -->
+        <view class="glass-lite lib-card">
+          <view class="lib-title">剪辑打法</view>
+          <view class="lib-row tap" hover-class="tap-on" bindtap="pickRecipe">
+            <view class="lib-main">
+              <view class="lib-k">剪辑配方</view>
+              <view class="lib-v">{{edit && edit.recipe ? edit.recipe.name : '按风格自动搭配'}}</view>
+            </view>
+            <view class="lib-arrow">切换 ›</view>
+          </view>
+          <view class="lib-row tap" hover-class="tap-on" bindtap="pickSyncRule">
+            <view class="lib-main">
+              <view class="lib-k">字幕同步</view>
+              <view class="lib-v">{{edit && edit.sync ? edit.sync.name : '标准对白'}}</view>
+            </view>
+            <view class="lib-arrow">切换 ›</view>
+          </view>
+          <view class="lib-note">系统内置九大提示词库（情绪/转场/运镜/光影/节奏/配乐/特效/剪辑/字幕），生成时会强制带入，不需要你逐条写</view>
+        </view>
+
         <!-- 本集成片：剪辑单 + 一键渲染 -->
         <view class="card {{edit && edit.ok ? 'card-gold' : ''}}">
           <view class="between">

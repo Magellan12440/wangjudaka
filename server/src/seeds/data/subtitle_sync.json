@@ -1,0 +1,80 @@
+[
+  {
+    "code": "SYN-SHORT",
+    "name": "短句快切",
+    "max_chars_per_line": 13,
+    "max_lines": 1,
+    "min_dur_sec": 0.8,
+    "max_dur_sec": 3.2,
+    "gap_sec": 0.08,
+    "lead_offset_ms": -120,
+    "prompt_zh": "字幕比人声早 120ms 出现，单行不超过 13 字，一行说完立刻换行，不留残句",
+    "use_case": "强钩短剧、动作段",
+    "avoid": "长台词会被切成碎片"
+  },
+  {
+    "code": "SYN-STD",
+    "name": "标准对白",
+    "max_chars_per_line": 16,
+    "max_lines": 2,
+    "min_dur_sec": 1.0,
+    "max_dur_sec": 4.5,
+    "gap_sec": 0.12,
+    "lead_offset_ms": -80,
+    "prompt_zh": "按语义断句而非按字数断句，一句话不跨两屏，句末标点保留",
+    "use_case": "通用对白",
+    "avoid": "语气词单独成屏会显得跳"
+  },
+  {
+    "code": "SYN-NARR",
+    "name": "旁白叙述",
+    "max_chars_per_line": 20,
+    "max_lines": 2,
+    "min_dur_sec": 1.6,
+    "max_dur_sec": 5.5,
+    "gap_sec": 0.16,
+    "lead_offset_ms": 0,
+    "prompt_zh": "旁白与画面同步起，允许两行；每段旁白结束后留 0.3 秒黑场呼吸",
+    "use_case": "内心独白、纪录式",
+    "avoid": "快节奏段落"
+  },
+  {
+    "code": "SYN-SING",
+    "name": "配乐卡点",
+    "max_chars_per_line": 12,
+    "max_lines": 1,
+    "min_dur_sec": 0.6,
+    "max_dur_sec": 2.2,
+    "gap_sec": 0.05,
+    "lead_offset_ms": -150,
+    "prompt_zh": "字幕落点对齐鼓点，宁可提前不可延后；一行一句，卡点处留白",
+    "use_case": "燃向、MV 式剪辑",
+    "avoid": "信息量大的对白"
+  },
+  {
+    "code": "SYN-KEYWORD",
+    "name": "关键词强调",
+    "max_chars_per_line": 16,
+    "max_lines": 2,
+    "min_dur_sec": 1.0,
+    "max_dur_sec": 4.0,
+    "gap_sec": 0.1,
+    "lead_offset_ms": -80,
+    "prompt_zh": "每屏最多一个关键词放大强调，其余保持常规字号，不允许整屏加粗",
+    "use_case": "爽剧、反转揭示",
+    "avoid": "连续三屏都强调"
+  },
+  {
+    "code": "SYN-SILENT",
+    "name": "无声留白",
+    "max_chars_per_line": 18,
+    "max_lines": 1,
+    "min_dur_sec": 1.2,
+    "max_dur_sec": 3.0,
+    "gap_sec": 0.2,
+    "lead_offset_ms": 0,
+    "prompt_zh": "无对白段落不强行上字幕，只在必要信息点出现；空白本身就是节奏",
+    "use_case": "情绪段落、空镜",
+    "avoid": "信息密集段落"
+  }
+]

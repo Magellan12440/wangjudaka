@@ -45,6 +45,11 @@
         <view class="stat-value num">{{statShots}}</view>
         <view class="stat-label">分镜</view>
       </view>
+      <view class="stat-divider"></view>
+      <view class="stat tap" hover-class="tap-on" bindtap="goRevenue">
+        <view class="stat-value num">{{revenueTotal}}</view>
+        <view class="stat-label">收益(元)</view>
+      </view>
     </view>
   </view>
 

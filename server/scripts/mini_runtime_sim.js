@@ -469,6 +469,75 @@ async function main() {
     ok('成片页逐集状态可渲染', Array.isArray(autoProject.data.jobStates));
     autoProject.stopJobPolling();
 
+    // —— 10.5 账号体系 + 收益看板 + 九大提示词库（V4.4） ——
+    const promptRes = await fetch(`${BASE}/api/prompts`).then((r) => r.json()).catch(() => null);
+    const pSummary = (promptRes && promptRes.data && promptRes.data.summary) || [];
+    ok('九大提示词库全部可用', pSummary.length === 9 && pSummary.every((x) => x.usable), pSummary.map((x) => x.kind).join(','));
+
+    const smsRes = await fetch(`${BASE}/api/auth/sms`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ phone: '13800138000' }),
+    }).then((r) => r.json()).catch(() => null);
+    const sms = smsRes && smsRes.data;
+    ok('验证码接口可用且如实标注模式', Boolean(sms && sms.mode), String(JSON.stringify(smsRes && smsRes.error)).slice(0, 100));
+    ok('未接短信服务时返回测试码（不假装已发）', Boolean(sms && (sms.sent === false ? sms.dev_code : true)), JSON.stringify(sms && sms.mode));
+
+    let phoneToken = '';
+    if (sms && sms.dev_code) {
+      const loginRes = await fetch(`${BASE}/api/auth/login/code`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone: '13800138000', code: sms.dev_code }),
+      }).then((r) => r.json()).catch(() => null);
+      const lc = loginRes && loginRes.data;
+      phoneToken = (lc && lc.token) || '';
+      ok('手机号验证码登录成功', Boolean(phoneToken), String(JSON.stringify(loginRes && loginRes.error)).slice(0, 100));
+      ok('登录返回账号安全字段', Boolean(lc && lc.user && 'has_password' in lc.user && 'phone_masked' in lc.user),
+        JSON.stringify(lc && lc.user && { p: lc.user.phone_masked, w: lc.user.has_password }));
+    }
+
+    if (phoneToken) {
+      const pwRes = await fetch(`${BASE}/api/auth/password`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${phoneToken}` },
+        body: JSON.stringify({ password: 'test123456' }),
+      }).then((r) => r.json()).catch(() => null);
+      ok('设置密码成功', Boolean(pwRes && pwRes.ok), String(JSON.stringify(pwRes && pwRes.error)).slice(0, 100));
+      const pwLogin = await fetch(`${BASE}/api/auth/login/password`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone: '13800138000', password: 'test123456' }),
+      }).then((r) => r.json()).catch(() => null);
+      ok('手机号+密码登录成功', Boolean(pwLogin && pwLogin.data && pwLogin.data.token), String(JSON.stringify(pwLogin && pwLogin.error)).slice(0, 100));
+      const badLogin = await fetch(`${BASE}/api/auth/login/password`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone: '13800138000', password: 'wrongpass' }),
+      }).then((r) => r.json()).catch(() => null);
+      ok('错误密码被拒绝且不泄露账号是否存在', Boolean(badLogin && badLogin.ok === false), JSON.stringify(badLogin && badLogin.code));
+    }
+
+    // 收益看板：未回填时必须是 0 + 说明，不许编造数字
+    const revRes = await fetch(`${BASE}/api/me/revenue`, { headers: { Authorization: `Bearer ${appInstance.globalData.token}` } })
+      .then((r) => r.json()).catch(() => null);
+    const rev = revRes && revRes.data;
+    ok('收益看板可读', Boolean(rev && typeof rev.total === 'number'), String(JSON.stringify(revRes && revRes.error)).slice(0, 100));
+    ok('未回填时收益为 0 且给出说明', Boolean(rev && rev.total >= 0 && rev.note), JSON.stringify(rev && { t: rev.total, n: String(rev.note).slice(0, 20) }));
+
+    // 收益看板页面能渲染
+    const revPage = loadPage('pages/revenue/revenue.js');
+    revPage.onLoad();
+    revPage.onShow();
+    await sleep(1200);
+    ok('收益看板页拿到数据', revPage.data.loading === false, JSON.stringify({ err: revPage.data.error, total: revPage.data.total }));
+    ok('收益看板页有柱状/空态二选一', revPage.data.bars.length > 0 || revPage.data.projects.length === 0);
+
+    // 登录页：三种方式都在
+    const loginPage = loadPage('pages/login/login.js');
+    loginPage.onLoad({});
+    ok('登录页默认微信登录', loginPage.data.mode === 'wechat', loginPage.data.mode);
+    loginPage.onPhone({ detail: { value: '13800138000' } });
+    ok('登录页手机号只留数字且限 11 位', loginPage.data.phone === '13800138000', loginPage.data.phone);
+    loginPage.loginByPassword();
+    ok('登录页缺密码时给提示而不是静默', Boolean(loginPage.data.error), loginPage.data.error);
+
     // —— 11. 协议页 ——
     const legal = loadPage('pages/legal/legal.js');
     legal.onLoad({ type: 'privacy' });

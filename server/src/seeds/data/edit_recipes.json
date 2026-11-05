@@ -1,0 +1,90 @@
+[
+  {
+    "code": "EDR-SHORTDRAMA",
+    "name": "短剧强钩",
+    "hook_sec": 3,
+    "cut_rhythm": "快",
+    "avg_cut_sec": 2.2,
+    "prompt_zh": "开场 3 秒内必须出现冲突或反常信息；每 8-12 秒给一个小反转；删掉所有可删的过渡镜头，宁跳不拖",
+    "subtitle_style": "大字横排、加粗描边，单行不超过 13 字",
+    "use_case": "投流/信息流主推",
+    "avoid": "慢热铺垫、长空镜"
+  },
+  {
+    "code": "EDR-EMOTIONAL",
+    "name": "情绪绵长",
+    "hook_sec": 6,
+    "cut_rhythm": "慢",
+    "avg_cut_sec": 4.5,
+    "prompt_zh": "允许镜头停留到情绪落地再切；关键台词后留 1 秒空白；用环境声替代配乐顶满",
+    "subtitle_style": "细体、居中偏下，单行不超过 16 字",
+    "use_case": "女性向、亲情、遗憾",
+    "avoid": "频繁切镜会打断情绪"
+  },
+  {
+    "code": "EDR-SUSPENSE",
+    "name": "悬疑压抑",
+    "hook_sec": 4,
+    "cut_rhythm": "由慢转快",
+    "avg_cut_sec": 3.4,
+    "prompt_zh": "前半段保持长镜头积累不安，揭露瞬间连续三个快切；画面信息永远比台词多一层",
+    "subtitle_style": "常规字号，关键词单独一行",
+    "use_case": "悬疑、犯罪、反转剧",
+    "avoid": "提前给观众解释"
+  },
+  {
+    "code": "EDR-ACTION",
+    "name": "动作爆点",
+    "hook_sec": 3,
+    "cut_rhythm": "极快",
+    "avg_cut_sec": 1.4,
+    "prompt_zh": "动作起手不拍全过程，只拍发力点与结果；每 3 镜插入一个全景交代空间关系",
+    "subtitle_style": "短句、单行不超过 10 字",
+    "use_case": "打斗、追逐、复仇",
+    "avoid": "长对白插入动作段落"
+  },
+  {
+    "code": "EDR-COMEDY",
+    "name": "喜剧节奏",
+    "hook_sec": 4,
+    "cut_rhythm": "中速卡点",
+    "avg_cut_sec": 2.6,
+    "prompt_zh": "笑点前给 0.5 秒静默，笑点后立刻切走不给解释；反应镜头比动作镜头更重要",
+    "subtitle_style": "常规，语气词单独成行",
+    "use_case": "轻喜剧、爽剧",
+    "avoid": "在笑点后停留"
+  },
+  {
+    "code": "EDR-SERIES",
+    "name": "系列连播",
+    "hook_sec": 5,
+    "cut_rhythm": "稳定",
+    "avg_cut_sec": 3.0,
+    "prompt_zh": "开头 5 秒承接上集最后一个画面；结尾留一个未解动作作为下集钩子；集间节奏保持一致以便连播",
+    "subtitle_style": "统一字号，与剧壳片头风格一致",
+    "use_case": "多集连载、托管逐集生产",
+    "avoid": "每集换一套节奏"
+  },
+  {
+    "code": "EDR-TRAILER",
+    "name": "预告切片",
+    "hook_sec": 2,
+    "cut_rhythm": "极快",
+    "avg_cut_sec": 1.0,
+    "prompt_zh": "只保留最贵的 6-8 个画面，按情绪递进排列；台词只留半句；结尾 logo 前留一帧黑",
+    "subtitle_style": "大字标题式，最多两行",
+    "use_case": "分发平台预告、投流素材",
+    "avoid": "出现完整叙事"
+  },
+  {
+    "code": "EDR-DOCU",
+    "name": "纪实质感",
+    "hook_sec": 6,
+    "cut_rhythm": "自然",
+    "avg_cut_sec": 5.5,
+    "prompt_zh": "保留呼吸与等待，允许一次「无意义」的空镜；同期声优先于配乐",
+    "subtitle_style": "细体、贴底，允许两行",
+    "use_case": "现实题材、人物特写",
+    "avoid": "过度卡点剪辑"
+  }
+]

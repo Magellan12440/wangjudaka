@@ -73,8 +73,13 @@ export function assTime(sec) {
  *  segments: [{ shot_no, start, end, duration, dialogue:[{speaker,line}] }]
  *  aspect, aiLabel (string|null), showSpeaker
  */
-export function buildSubtitles({ segments = [], aspect = '9:16', aiLabel = null, showSpeaker = false } = {}) {
-  const maxLen = SUBTITLE_RULES.max_chars[aspect] ?? 13;
+export function buildSubtitles({ segments = [], aspect = '9:16', aiLabel = null, showSpeaker = false, rule = null } = {}) {
+  // V4.4：字幕同步提示词库（每条字幕的字数、停留、间隙、提前量都由库决定，而不是写死）
+  const maxLen = rule?.max_chars_per_line ?? (SUBTITLE_RULES.max_chars[aspect] ?? 13);
+  const minCue = rule?.min_dur_sec ?? SUBTITLE_RULES.min_cue_sec;
+  const maxCue = rule?.max_dur_sec ?? SUBTITLE_RULES.max_cue_sec;
+  const gap = rule?.gap_sec ?? SUBTITLE_RULES.gap_sec;
+  const lead = (rule?.lead_offset_ms ?? 0) / 1000;
   const cues = [];
   const warnings = [];
 
@@ -105,14 +110,15 @@ export function buildSubtitles({ segments = [], aspect = '9:16', aiLabel = null,
 
     const totalChars = chunks.reduce((a, c) => a + c.chars, 0) || 1;
     // 可用时长 = 镜头时长 - 条间隙
-    const usable = Math.max(0.4, dur - SUBTITLE_RULES.gap_sec * Math.max(0, chunks.length - 1));
+    const usable = Math.max(0.4, dur - gap * Math.max(0, chunks.length - 1));
     // 时长按字数分配，但每条不超过 cps 推算的舒适上限
-    let cursor = start;
+    // 提前量：负值表示字幕早于人声出现（短剧常见做法，观众先看到字再听到声）
+    let cursor = Math.max(start, start + lead);
     for (const [i, c] of chunks.entries()) {
       const share = (c.chars / totalChars) * usable;
-      let len = Math.max(SUBTITLE_RULES.min_cue_sec, Math.min(SUBTITLE_RULES.max_cue_sec, share));
+      let len = Math.max(minCue, Math.min(maxCue, share));
       // 最后一条吃掉剩余时间，避免累积误差
-      if (i === chunks.length - 1) len = Math.max(SUBTITLE_RULES.min_cue_sec, start + dur - cursor);
+      if (i === chunks.length - 1) len = Math.max(minCue, start + dur - cursor);
       const end = Math.min(start + dur, cursor + len);
       if (end - cursor < 0.3) break;
       cues.push({
@@ -124,7 +130,7 @@ export function buildSubtitles({ segments = [], aspect = '9:16', aiLabel = null,
         role: 'dialogue',
         shot_no: seg.shot_no ?? null,
       });
-      cursor = end + SUBTITLE_RULES.gap_sec;
+      cursor = end + gap;
       if (cursor >= start + dur) break;
     }
 
@@ -146,6 +152,8 @@ export function buildSubtitles({ segments = [], aspect = '9:16', aiLabel = null,
       ai_label_cues: cues.filter((c) => c.role === 'ai_label').length,
       duration_sec: cues.length ? +cues.at(-1).end.toFixed(2) : 0,
       max_chars_per_line: maxLen,
+      sync_code: rule?.code ?? null,
+      sync_name: rule?.name ?? null,
     },
     warnings,
   };

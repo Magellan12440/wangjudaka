@@ -20,6 +20,7 @@
 import crypto from 'node:crypto';
 import { config } from '../config/env.js';
 import { logger } from '../core/redact.js';
+import * as prompts from '../prompts/PromptLibrary.js';
 import { fail, ERR } from '../core/errors.js';
 import { relayPool } from './RelayPool.js';
 import { modelRegistry } from './ModelRegistry.js';
@@ -83,6 +84,8 @@ class RelayAdapter {
     if (!verifyStamp(compiled._stamp, compiled)) {
       fail(ERR.ILLEGAL_RELAY_ACCESS, '编译签名校验失败：请求内容与签名不一致');
     }
+    // V4.4 硬闸门：必须带齐该环节的内置提示词库，否则拒绝生成（不消耗用户点数）
+    prompts.assertCompiled(compiled);
 
     const model = modelRegistry.get(compiled.target_model);
     if (opts.purpose === 'delivery') modelRegistry.getForDelivery(compiled.target_model);

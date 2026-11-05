@@ -161,6 +161,17 @@ export const config = {
     },
   },
   /**
+   * 短信验证码（V4.4）：未配置服务商时走 dev 模式——验证码只回给调用方用于自测，
+   * 并在响应里显式写 mode:'dev'，绝不假装「已发送到手机」。
+   */
+  sms: {
+    provider: str('SMS_PROVIDER', ''),
+    signName: str('SMS_SIGN_NAME', ''),
+    templateCode: str('SMS_TEMPLATE_CODE', ''),
+    /** 同手机号 24h 内最多发几条（防刷） */
+    dailyLimit: num('SMS_DAILY_LIMIT', 10),
+  },
+  /**
    * 管理员后台（V3.6）：管理端接口以 X-Admin-Token 鉴权。
    * 未配置 ADMIN_TOKEN 时管理端接口一律 403（绝不放行到默认口令）。
    */

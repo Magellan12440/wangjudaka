@@ -24,6 +24,7 @@ Page({
     statProjects: 0,
     statEpisodes: 0,
     statShots: 0,
+    revenueTotal: 0,
     projects: [],
     inspirations: INSPIRATIONS,
     privacyNeeded: false,
@@ -87,10 +88,17 @@ Page({
         motion.countUp(this, 'statProjects', stats.projects || 0, { duration: 620 });
         motion.countUp(this, 'statEpisodes', stats.episodes || 0, { duration: 620 });
         motion.countUp(this, 'statShots', stats.shots || 0, { duration: 620 });
+        // 收益只用来看趋势，失败不打扰首页
+        api.revenue().then((r) => this.setData({ revenueTotal: (r && r.total) || 0 })).catch(() => {});
       })
       .catch((e) => {
         this.setData({ loading: false, error: e.message || '加载失败' });
       });
+  },
+
+  goRevenue() {
+    motion.haptic();
+    wx.navigateTo({ url: '/pages/revenue/revenue' });
   },
 
   onInput(e) {

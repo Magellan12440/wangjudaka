@@ -16,7 +16,11 @@
         <view class="me-id">ID {{uidText}} · {{loginMode === 'live' ? '微信登录' : '体验模式'}}</view>
         <view wx:if="{{!profileComplete}}" class="me-tip tap" hover-class="tap-on" bindtap="editProfile">补一个昵称，作品署名更好认 ›</view>
       </view>
-      <view class="me-edit tap" hover-class="tap-on" bindtap="openAbout">设置</view>
+      <view class="me-edit tap" hover-class="tap-on" bindtap="openSecurity">账号安全</view>
+    </view>
+    <view wx:if="{{!hasPhone}}" class="login-bar tap" hover-class="tap-on" bindtap="openSecurity">
+      <text class="login-bar-dot"></text>
+      <text class="login-bar-text">未绑定手机号，换设备可能找不回账号 ›</text>
     </view>
 
     <!-- 余额卡 -->
@@ -33,6 +37,18 @@
         <view class="b-action primary tap" hover-class="tap-on" bindtap="openRecharge">充值</view>
         <view class="b-action tap" hover-class="tap-on" bindtap="openRedeem">兑换码</view>
         <view class="b-action tap" hover-class="tap-on" bindtap="openInvite">邀请返利</view>
+      </view>
+    </view>
+
+    <!-- 收益看板入口 -->
+    <view class="rev-card tap" hover-class="tap-on" bindtap="openRevenue">
+      <view class="rev-left">
+        <view class="rev-label">收益看板</view>
+        <view class="rev-sub">分发回填的收益、平台分布、月度趋势</view>
+      </view>
+      <view class="rev-right">
+        <view class="rev-num">¥{{revenueTotal}}</view>
+        <view class="rev-more">查看 ›</view>
       </view>
     </view>
 
@@ -154,6 +170,67 @@
     </view>
     <view class="footer-note">
       网剧大咖 v{{version}} · 内容由 AI 生成并添加标识
+    </view>
+  </view>
+
+  <!-- 账号安全弹层（V4.4） -->
+  <view wx:if="{{sheet === 'security'}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-head">
+        <text class="sheet-title">账号安全</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+
+      <view class="sec-state">
+        <view class="sec-item">
+          <view class="sec-k">手机号</view>
+          <view class="sec-v">{{hasPhone ? phoneMasked : '未绑定'}}</view>
+        </view>
+        <view class="sec-item">
+          <view class="sec-k">密码</view>
+          <view class="sec-v">{{hasPassword ? '已设置' : '未设置'}}</view>
+        </view>
+      </view>
+
+      <view class="seg mt16">
+        <view class="seg-item {{secTab === 'phone' ? 'on' : ''}}" data-tab="phone" bindtap="switchSec">绑定手机号</view>
+        <view class="seg-item {{secTab === 'password' ? 'on' : ''}}" data-tab="password" bindtap="switchSec">设置密码</view>
+      </view>
+
+      <block wx:if="{{secTab === 'phone'}}">
+        <view class="field">
+          <input class="field-input" type="number" maxlength="11" value="{{secPhone}}" placeholder="手机号"
+                 placeholder-class="field-ph" data-key="secPhone" bindinput="onSecInput" />
+        </view>
+        <view class="field">
+          <input class="field-input" type="number" maxlength="6" value="{{secCode}}" placeholder="6 位验证码"
+                 placeholder-class="field-ph" data-key="secCode" bindinput="onSecInput" />
+          <view class="field-btn {{secCountdown > 0 ? 'off' : ''}}" bindtap="sendSecCode">
+            {{secCountdown > 0 ? secCountdown + 's' : '获取验证码'}}
+          </view>
+        </view>
+        <view wx:if="{{secDevCode}}" class="sec-dev">测试码：{{secDevCode}}（未接短信服务时直接填入）</view>
+        <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="bindSecPhone">
+          {{secBusy ? '处理中…' : '绑定手机号'}}
+        </view>
+      </block>
+
+      <block wx:else>
+        <view class="field">
+          <input class="field-input" password value="{{secPwd}}" placeholder="新密码（至少 6 位）"
+                 placeholder-class="field-ph" data-key="secPwd" bindinput="onSecInput" />
+        </view>
+        <view class="field">
+          <input class="field-input" password value="{{secPwd2}}" placeholder="再输入一次"
+                 placeholder-class="field-ph" data-key="secPwd2" bindinput="onSecInput" />
+        </view>
+        <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="saveSecPassword">
+          {{secBusy ? '处理中…' : (hasPassword ? '修改密码' : '设置密码')}}
+        </view>
+        <view class="hint mt12">设置后可用「手机号 + 密码」登录，换手机不用等验证码</view>
+      </block>
+
+      <view wx:if="{{secError}}" class="sec-err">{{secError}}</view>
     </view>
   </view>
 

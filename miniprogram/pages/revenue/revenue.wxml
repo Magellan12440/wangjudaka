@@ -1,0 +1,98 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-a"></view>
+    <view class="aurora-b"></view>
+  </view>
+
+  <view class="layer page">
+    <view class="head">
+      <view class="title">收益看板</view>
+      <view class="sub">你在分发页回填的每一笔，这里都会自动汇总</view>
+    </view>
+
+    <view wx:if="{{loading}}" class="glass card">
+      <view class="skeleton" style="height:60rpx;width:60%"></view>
+      <view class="skeleton mt16" style="height:140rpx"></view>
+    </view>
+
+    <block wx:elif="{{error}}">
+      <view class="glass card">
+        <view class="err">{{error}}</view>
+        <view class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="load">重试</view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <!-- 总览 -->
+      <view class="glass card hero">
+        <view class="hero-label">累计回填收益（元）</view>
+        <view class="hero-num">{{total}}</view>
+        <view class="stat-row mt16">
+          <view class="stat">
+            <view class="stat-num small">{{settled}}</view>
+            <view class="stat-label">已结算</view>
+          </view>
+          <view class="stat">
+            <view class="stat-num small">{{pending}}</view>
+            <view class="stat-label">待结算</view>
+          </view>
+          <view class="stat">
+            <view class="stat-num small">{{published}}</view>
+            <view class="stat-label">已上线分发</view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 月度趋势 -->
+      <view class="glass card" wx:if="{{bars.length}}">
+        <view class="card-title">近半年</view>
+        <view class="bars">
+          <view class="bar-col" wx:for="{{bars}}" wx:key="month">
+            <view class="bar-fill" style="height:{{item.h}}rpx"></view>
+            <view class="bar-label">{{item.month}}</view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 平台 -->
+      <view class="glass card" wx:if="{{platforms.length}}">
+        <view class="card-title">按平台</view>
+        <view class="lrow" wx:for="{{platforms}}" wx:key="platform_code">
+          <view class="lrow-main">
+            <view class="lrow-title">{{item.platform_name}}</view>
+            <view class="lrow-sub">{{item.count}} 条分发记录</view>
+          </view>
+          <view class="lrow-right">
+            <view class="lrow-amount">{{item.amount}}</view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 项目 -->
+      <view class="glass card" wx:if="{{projects.length}}">
+        <view class="card-title">按项目</view>
+        <view class="lrow tap" hover-class="tap-on" wx:for="{{projects}}" wx:key="project_id"
+              data-id="{{item.project_id}}" bindtap="openProject">
+          <view class="lrow-main">
+            <view class="lrow-title">
+              <text wx:if="{{item.index_label}}" class="idx">{{item.index_label}}</text>{{item.title}}
+            </view>
+            <view class="lrow-sub">{{item.distributions}} 条分发</view>
+          </view>
+          <view class="lrow-right">
+            <view class="lrow-amount">{{item.amount}}</view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 空态 -->
+      <view wx:if="{{!bars.length && !projects.length}}" class="glass card empty">
+        <view class="empty-title">还没有收益数据</view>
+        <view class="empty-sub">{{note}}</view>
+        <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="goDistribute">去分发页回填</view>
+      </view>
+
+      <view wx:else class="hint mt16">{{note}}</view>
+    </block>
+  </view>
+</view>

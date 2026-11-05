@@ -1,0 +1,132 @@
+[
+  {
+    "code": "FX-NONE",
+    "name": "不用特效",
+    "cat": "none",
+    "prompt_en": "",
+    "prompt_zh": "本镜不叠加任何画面特效，保留真实质感",
+    "intensity": "none",
+    "use_case": "对话、表演、纪实段落（默认）",
+    "avoid": "需要氛围强化时改选具体特效"
+  },
+  {
+    "code": "FX-RAIN",
+    "name": "雨幕粒子",
+    "cat": "weather",
+    "prompt_en": "fine rain streaks falling in front of the lens, thin water film on the skin, backlit droplets glowing at the frame edges",
+    "prompt_zh": "细密雨幕斜落，皮肤覆薄水膜，边缘雨滴被逆光点亮",
+    "intensity": "medium",
+    "use_case": "离别、崩溃、真相揭露",
+    "avoid": "不要与「晴天」光影卡同用"
+  },
+  {
+    "code": "FX-DUST",
+    "name": "丁达尔尘光",
+    "cat": "light",
+    "prompt_en": "visible dust particles drifting through a hard shaft of window light, thin volumetric haze",
+    "prompt_zh": "硬光柱里可见浮尘缓慢飘移，薄体积雾",
+    "intensity": "low",
+    "use_case": "回忆、空镜、时间感",
+    "avoid": "现代洁净场景慎用"
+  },
+  {
+    "code": "FX-SPEEDLINE",
+    "name": "速度线",
+    "cat": "motion",
+    "prompt_en": "subtle radial speed lines behind the moving subject, motion smear on the trailing edge only",
+    "prompt_zh": "运动主体身后出现放射状速度线，仅拖尾边缘虚化",
+    "intensity": "medium",
+    "use_case": "冲刺、爆发、打斗起手",
+    "avoid": "静态对白镜头禁用"
+  },
+  {
+    "code": "FX-GLITCH",
+    "name": "数字故障",
+    "cat": "glitch",
+    "prompt_en": "brief RGB channel split and horizontal scan tearing on the edges, screen flicker for two frames",
+    "prompt_zh": "边缘出现短暂 RGB 分离与横向扫描撕裂，两帧闪断",
+    "intensity": "medium",
+    "use_case": "记忆错乱、监控视角、精神崩溃",
+    "avoid": "每集不超过 2 次，否则廉价"
+  },
+  {
+    "code": "FX-FLASHWHITE",
+    "name": "闪白切",
+    "cat": "cut",
+    "prompt_en": "a single frame of blown-out white bloom at the cut point, then the new scene resolves from overexposure",
+    "prompt_zh": "切点处一帧过曝白闪，新场景从过曝中还原",
+    "intensity": "high",
+    "use_case": "强反转、耳光、爆炸",
+    "avoid": "连续使用会晃眼，需间隔 3 镜以上"
+  },
+  {
+    "code": "FX-BLURPULL",
+    "name": "焦点拉焦",
+    "cat": "focus",
+    "prompt_en": "rack focus from the foreground object to the background figure, foreground melting into bokeh",
+    "prompt_zh": "焦点从前景物体拉到背景人物，前景化开放焦",
+    "intensity": "low",
+    "use_case": "揭示身后有人、注意力转移",
+    "avoid": "需要明确焦点落点，否则观众会看错主体"
+  },
+  {
+    "code": "FX-DOUBLEEXPO",
+    "name": "双重曝光",
+    "cat": "layering",
+    "prompt_en": "double exposure blending a close-up face with a distant memory scene at 30 percent opacity",
+    "prompt_zh": "人脸特写与远处回忆场景以三成透明度重曝叠加",
+    "intensity": "medium",
+    "use_case": "回忆、内心独白、宿命感",
+    "avoid": "动作戏禁用，会糊成一团"
+  },
+  {
+    "code": "FX-MIRRORCRACK",
+    "name": "镜面裂纹",
+    "cat": "destruct",
+    "prompt_en": "a hairline crack races across the mirror surface, splitting the reflected face into misaligned fragments",
+    "prompt_zh": "裂纹瞬间爬满镜面，倒影中的脸被切成错位碎片",
+    "intensity": "high",
+    "use_case": "人格撕裂、关系决裂",
+    "avoid": "需与镜子同框，否则无意义"
+  },
+  {
+    "code": "FX-SMOKEWISP",
+    "name": "烟雾流丝",
+    "cat": "atmos",
+    "prompt_en": "thin wisps of smoke curling upward through the key light, slow turbulent motion",
+    "prompt_zh": "细烟顺着主光向上卷曲，缓慢湍流",
+    "intensity": "low",
+    "use_case": "压迫感、反派登场",
+    "avoid": "通风良好的户外不成立"
+  },
+  {
+    "code": "FX-HANDSHAKE",
+    "name": "手持呼吸感",
+    "cat": "camera",
+    "prompt_en": "organic handheld micro-shake with a slow breathing drift, no digital stabilization",
+    "prompt_zh": "有机手持微抖伴随缓慢呼吸漂移，不做数字增稳",
+    "intensity": "low",
+    "use_case": "紧张跟随、纪实感",
+    "avoid": "与三脚架稳定镜头冲突，需二选一"
+  },
+  {
+    "code": "FX-HEATHAZE",
+    "name": "热浪扭曲",
+    "cat": "atmos",
+    "prompt_en": "heat haze distortion rising from the ground, edges of distant objects rippling",
+    "prompt_zh": "地面升起热浪扭曲，远处物体边缘波动",
+    "intensity": "medium",
+    "use_case": "夏日、焦躁、对峙",
+    "avoid": "室内冷调场景不成立"
+  },
+  {
+    "code": "FX-TIMELAPSE",
+    "name": "延时压缩",
+    "cat": "time",
+    "prompt_en": "time-lapse compression of passing clouds and shifting shadows while the subject stays still",
+    "prompt_zh": "云影快速流走，主体静止不动，时间被压缩",
+    "intensity": "medium",
+    "use_case": "等待、煎熬、多年以后",
+    "avoid": "对白镜头不可用"
+  }
+]

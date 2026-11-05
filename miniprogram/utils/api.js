@@ -305,4 +305,22 @@ module.exports = {
   // —— 内容安全 ——
   securityCheck: (payload) =>
     request({ url: '/api/security/check', method: 'POST', data: payload, toast: true }),
+
+  // —— 账号体系（V4.4）：验证码 / 手机号密码 / 绑定手机 ——
+  sendSms: (phone) => request({ url: '/api/auth/sms', method: 'POST', data: { phone }, toast: true }),
+  loginByCode: (phone, code, nickname) =>
+    request({ url: '/api/auth/login/code', method: 'POST', data: { phone, code, nickname: nickname || null } }),
+  loginByPassword: (phone, password) =>
+    request({ url: '/api/auth/login/password', method: 'POST', data: { phone, password } }),
+  setPassword: (password) =>
+    request({ url: '/api/auth/password', method: 'POST', data: { password }, toast: true }),
+  bindPhone: (phone, code) =>
+    request({ url: '/api/auth/bind-phone', method: 'POST', data: { phone, code }, toast: true }),
+
+  // —— 收益看板（V4.4） ——
+  revenue: () => request({ url: '/api/me/revenue' }),
+
+  // —— 九大提示词库（V4.4，只读展示） ——
+  prompts: () => request({ url: '/api/prompts' }),
+  promptKind: (kind) => request({ url: `/api/prompts/${enc(kind)}` }),
 };

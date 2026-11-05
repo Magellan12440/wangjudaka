@@ -252,3 +252,42 @@
   background: rgba(255, 255, 255, 0.05);
   border: 1rpx solid rgba(255, 255, 255, 0.1);
 }
+
+/* —— V4.4 账号安全 / 收益入口 —— */
+.login-bar {
+  display: flex; align-items: center; gap: 12rpx;
+  margin: 4rpx 0 18rpx; padding: 16rpx 20rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 138, 138, 0.07);
+  border: 1rpx solid rgba(255, 138, 138, 0.22);
+}
+.login-bar-dot {
+  width: 10rpx; height: 10rpx; border-radius: 50%;
+  background: #FF8E8E; box-shadow: 0 0 10rpx rgba(255, 142, 142, .8);
+}
+.login-bar-text { font-size: 21rpx; color: #E8A9A9; }
+
+.rev-card {
+  display: flex; align-items: center;
+  margin-top: 18rpx; padding: 24rpx 24rpx;
+  border-radius: 24rpx;
+  background: linear-gradient(140deg, rgba(126, 102, 255, 0.14), rgba(255, 255, 255, 0.03));
+  border: 1rpx solid rgba(126, 102, 255, 0.26);
+}
+.rev-left { flex: 1; min-width: 0; }
+.rev-label { font-size: 27rpx; font-weight: 600; color: #E6E1FF; }
+.rev-sub { margin-top: 6rpx; font-size: 20rpx; color: #9C95C6; }
+.rev-right { text-align: right; flex: none; }
+.rev-num { font-size: 34rpx; font-weight: 700; color: #F7E4B4; font-variant-numeric: tabular-nums; }
+.rev-more { margin-top: 4rpx; font-size: 20rpx; color: #C3B6FF; }
+
+.sec-state { display: flex; gap: 16rpx; margin-top: 6rpx; }
+.sec-item {
+  flex: 1; padding: 18rpx 18rpx; border-radius: 18rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid rgba(255, 255, 255, 0.07);
+}
+.sec-k { font-size: 20rpx; color: #8B95A6; }
+.sec-v { margin-top: 6rpx; font-size: 26rpx; color: #E9EEF7; }
+.sec-dev { margin-top: 12rpx; font-size: 20rpx; color: #A99260; }
+.sec-err { margin-top: 16rpx; font-size: 22rpx; color: #FF8E8E; }

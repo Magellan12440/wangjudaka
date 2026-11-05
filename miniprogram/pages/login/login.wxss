@@ -1,0 +1,39 @@
+.login { display: flex; flex-direction: column; justify-content: center; min-height: 100vh; padding: 0 40rpx; }
+.brand { text-align: center; margin-bottom: 56rpx; }
+.brand-mark {
+  width: 108rpx; height: 108rpx; margin: 0 auto 22rpx;
+  border-radius: 30rpx; line-height: 108rpx; text-align: center;
+  font-size: 46rpx; font-weight: 700; color: #241A08;
+  background: linear-gradient(140deg, #FBE3AE, #E4B45B);
+  box-shadow: 0 20rpx 44rpx -22rpx rgba(243, 201, 105, 0.85);
+  animation: markIn .7s cubic-bezier(.2,.9,.2,1) both;
+}
+@keyframes markIn { from { opacity: 0; transform: translate3d(0, 18rpx, 0) scale(.86); } to { opacity: 1; transform: none; } }
+.brand-name { font-size: 44rpx; font-weight: 700; letter-spacing: 2rpx; }
+.brand-slogan { margin-top: 10rpx; font-size: 23rpx; color: #8B95A6; }
+
+.card { padding: 28rpx 26rpx 30rpx; }
+.wx-hint { margin: 26rpx 0 22rpx; font-size: 23rpx; line-height: 1.7; color: #99A3B3; }
+.dev-code {
+  display: flex; align-items: center; gap: 12rpx; flex-wrap: wrap;
+  margin-top: 16rpx; padding: 16rpx 18rpx; border-radius: 16rpx;
+  background: rgba(243, 201, 105, 0.07);
+  border: 1rpx dashed rgba(243, 201, 105, 0.35);
+}
+.dev-num { font-size: 30rpx; font-weight: 700; letter-spacing: 4rpx; color: #F7D793; }
+.dev-note { flex: 1; min-width: 220rpx; font-size: 19rpx; color: #A99260; line-height: 1.5; }
+
+.err { margin-top: 18rpx; font-size: 22rpx; color: #FF8E8E; }
+
+.agree { display: flex; align-items: flex-start; gap: 12rpx; margin-top: 30rpx; padding: 0 6rpx; }
+.checkbox {
+  flex: none; width: 34rpx; height: 34rpx; margin-top: 3rpx;
+  border-radius: 10rpx; text-align: center; line-height: 34rpx;
+  font-size: 22rpx; color: #241A08;
+  border: 1rpx solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  transition: background .2s ease, border-color .2s ease;
+}
+.checkbox.on { background: linear-gradient(135deg, #F7D793, #E8B95D); border-color: transparent; }
+.agree-text { font-size: 21rpx; color: #7E8899; line-height: 1.6; }
+.link { color: #F3C969; }
