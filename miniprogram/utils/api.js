@@ -108,7 +108,12 @@ module.exports = {
   // —— 登录态 ——
   login: (payload) => request({ url: '/api/auth/login', method: 'POST', data: payload, retry: false }),
   me: () => request({ url: '/api/auth/me' }),
+  updateProfile: (payload) =>
+    request({ url: '/api/auth/profile', method: 'POST', data: payload, toast: true }),
   wechatStatus: () => request({ url: '/api/wechat/status' }),
+
+  // —— 用户可选模型目录（每环节最多 5 个，已实测可用才出现） ——
+  catalogModels: (role) => request({ url: '/api/catalog/models', data: role ? { role } : {} }),
 
   // —— 首页 / 项目聚合 ——
   home: (userId) => request({ url: '/api/home', data: { userId } }),
@@ -144,10 +149,51 @@ module.exports = {
   createProject: (payload) => request({ url: '/api/projects', method: 'POST', data: payload, toast: true, timeout: 60000 }),
   projects: (userId) => request({ url: '/api/projects', data: { userId } }),
   project: (id) => request({ url: `/api/projects/${enc(id)}` }),
+  lookupProject: (no) => request({ url: '/api/projects/lookup', data: { no } }),
+  updateProject: (id, payload) =>
+    request({ url: `/api/projects/${enc(id)}/settings`, method: 'POST', data: payload, toast: true }),
   projectPlan: (projectId) => request({ url: `/api/projects/${enc(projectId)}/plan` }),
   buildProjectPlan: (projectId) =>
     request({ url: `/api/projects/${enc(projectId)}/plan`, method: 'POST', data: {}, timeout: 120000 }),
   docsCheck: (projectId) => request({ url: `/api/projects/${enc(projectId)}/docs/check` }),
+
+  // —— 剧壳（片头片尾 / 系列标识） ——
+  projectShell: (projectId) => request({ url: `/api/projects/${enc(projectId)}/shell` }),
+  saveShell: (projectId, payload) =>
+    request({ url: `/api/projects/${enc(projectId)}/shell`, method: 'POST', data: payload, toast: true }),
+  renderShellCard: (projectId, kind) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/shell/card`, method: 'POST',
+      data: { kind: kind || 'intro' }, timeout: 120000,
+    }),
+
+  // —— 剧集生产（单集 / 全自动托管） ——
+  produce: (projectId, payload) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/produce`, method: 'POST',
+      data: payload || {}, toast: true, timeout: 240000,
+    }),
+  projectJobs: (projectId) => request({ url: `/api/projects/${enc(projectId)}/produce` }),
+  produceJob: (jobId) => request({ url: `/api/produce/${enc(jobId)}` }),
+  produceStep: (jobId) =>
+    request({ url: `/api/produce/${enc(jobId)}/step`, method: 'POST', data: {}, timeout: 240000 }),
+  producePause: (jobId) => request({ url: `/api/produce/${enc(jobId)}/pause`, method: 'POST', data: {}, toast: true }),
+  produceResume: (jobId) => request({ url: `/api/produce/${enc(jobId)}/resume`, method: 'POST', data: {}, toast: true }),
+  projectFilms: (projectId) => request({ url: `/api/projects/${enc(projectId)}/films` }),
+  myFilms: () => request({ url: '/api/me/films' }),
+
+  // —— 分发资料包（一键备齐平台审核材料） ——
+  prepareSubmission: (projectId, payload) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/submission/prepare`, method: 'POST',
+      data: payload || {}, toast: true, timeout: 180000,
+    }),
+  submissions: (projectId) => request({ url: `/api/projects/${enc(projectId)}/submission` }),
+  markSubmitted: (packId, distributionId) =>
+    request({
+      url: `/api/submission/${enc(packId)}/submitted`, method: 'POST',
+      data: { distributionId: distributionId || null }, toast: true,
+    }),
 
   // —— 剧本（项目内） ——
   projectScript: (projectId) => request({ url: `/api/projects/${enc(projectId)}/script` }),

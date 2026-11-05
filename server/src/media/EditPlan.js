@@ -299,8 +299,8 @@ export function materialize(plan, { dir = null } = {}) {
   };
 }
 
-/** 生成 ffmpeg 命令（不执行） */
-export function buildCommand(plan, assets) {
+/** 生成 ffmpeg 命令（不执行）；preset 对应剪辑档位（veryfast / medium / slow） */
+export function buildCommand(plan, assets, { preset = 'medium' } = {}) {
   return renderer.buildCommand({
     timeline: plan.timeline,
     audio: {
@@ -313,6 +313,7 @@ export function buildCommand(plan, assets) {
     resolution: plan.video.resolution,
     fps: plan.video.fps,
     output: assets.outputPath,
+    preset,
   });
 }
 
@@ -328,14 +329,14 @@ export function hasFfmpeg() {
 /**
  * 真渲染。成功返回文件信息；失败抛出带 stderr 尾部的原因（绝不返回假成功）。
  */
-export function render(plan, assets, { timeoutMs = 15 * 60 * 1000 } = {}) {
+export function render(plan, assets, { timeoutMs = 15 * 60 * 1000, preset = 'medium' } = {}) {
   return new Promise((resolve, reject) => {
     if (!hasFfmpeg()) {
       const err = new Error('本机未安装 ffmpeg，无法渲染；命令已生成，可在有 ffmpeg 的机器上执行');
       err.code = 'FFMPEG_MISSING';
       return reject(err);
     }
-    const built = buildCommand(plan, assets);
+    const built = buildCommand(plan, assets, { preset });
     const started = Date.now();
     const child = spawn('ffmpeg', built.args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let tail = '';

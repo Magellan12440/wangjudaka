@@ -93,6 +93,30 @@
       </div>
     </div>
 
+    <!-- 充值活动 -->
+    <div class="card" style="margin-top:16px">
+      <h3>充值活动（按档次加赠，小程序实时生效）</h3>
+      <div class="form-grid">
+        <div><label class="fld">活动开关</label>
+          <select id="cpEnabled"><option value="1">开启</option><option value="0">关闭</option></select>
+        </div>
+        <div><label class="fld">开始时间（留空=立即）</label><input type="datetime-local" id="cpStart"></div>
+        <div><label class="fld">结束时间（留空=长期）</label><input type="datetime-local" id="cpEnd"></div>
+        <div><label class="fld">活动说明（展示给用户）</label><input type="text" id="cpNote" maxlength="60" placeholder="如：限时加赠，充得多送得多"></div>
+      </div>
+      <div style="overflow:auto;margin-top:12px">
+        <table>
+          <thead><tr><th>档次</th><th>点数</th><th>自带赠送</th><th>活动加赠（点数）</th></tr></thead>
+          <tbody id="cpRows"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="btnCpSave">保存活动</button>
+        <span class="badge" id="cpState">未加载</span>
+      </div>
+      <p class="hint">活动加赠与档次自带赠送「取较大值」不叠加，避免超发；留空时间表示长期生效。用户端「我的」页会显示加赠提示。</p>
+    </div>
+
     <!-- 兑换码列表 -->
     <div class="card" style="margin-top:16px">
       <h3>兑换码管理</h3>

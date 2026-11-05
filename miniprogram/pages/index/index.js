@@ -110,16 +110,17 @@ Page({
     this.setData({ prompt: e.currentTarget.dataset.text });
   },
 
-  /** 首页只负责收集创意，参数与报价在「创作」tab 完成 */
+  /** 首页收集剧名即可建项目，其余设定在「创作」页补齐 */
   startCreate() {
-    const prompt = (this.data.prompt || '').trim();
-    if (prompt.length < 6) {
-      wx.showToast({ title: '再多写几个字，让 AI 看懂你的故事', icon: 'none' });
+    const title = (this.data.prompt || '').trim();
+    if (title.length < 2) {
+      wx.showToast({ title: '先想个剧名，两个字就行', icon: 'none' });
       return;
     }
     motion.haptic();
     const app = getApp();
-    app.globalData.draftPrompt = prompt;
+    app.globalData.draftTitle = title.slice(0, 30);
+    app.globalData.draftPrompt = '';
     wx.switchTab({ url: '/pages/create/create' });
   },
 

@@ -145,15 +145,72 @@ export class AdminService {
 
   /** 公开视图：只下发前端需要的字段（不含内部备注），只含上架档 */
   publicPackages() {
-    return this.listPackages({ includeOffline: false }).map((p) => ({
-      id: p.id,
-      code: p.code,
-      name: p.name,
-      points: p.points,
-      bonus: p.bonus ?? 0,
-      totalPoints: p.points + (p.bonus ?? 0),
-      priceCny: p.price_cny,
-    }));
+    return this.listPackages({ includeOffline: false }).map((p) => {
+      const bonus = this.effectiveBonus(p);
+      return {
+        id: p.id,
+        code: p.code,
+        name: p.name,
+        points: p.points,
+        bonus,
+        totalPoints: p.points + bonus,
+        priceCny: p.price_cny,
+      };
+    });
+  }
+
+  // ============================================================
+  // 充值活动（V4.3）：按档次设置加赠点数，可设起止时间
+  // ============================================================
+  campaign() {
+    const row = db.findOne('app_settings', (s) => s.key === 'recharge_campaign');
+    return row?.value ?? { enabled: false, startAt: null, endAt: null, bonusByPackage: {}, note: '' };
+  }
+
+  saveCampaign(patch = {}) {
+    const cur = this.campaign();
+    const next = {
+      enabled: patch.enabled === undefined ? cur.enabled : !!patch.enabled,
+      startAt: patch.startAt ?? cur.startAt ?? null,
+      endAt: patch.endAt ?? cur.endAt ?? null,
+      note: String(patch.note ?? cur.note ?? '').slice(0, 60),
+      bonusByPackage: (() => {
+        const src = patch.bonusByPackage ?? cur.bonusByPackage ?? {};
+        const out = {};
+        for (const [k, v] of Object.entries(src)) {
+          const n = Number(v);
+          if (Number.isFinite(n) && n >= 0) out[k] = Math.round(n);
+        }
+        return out;
+      })(),
+    };
+    if (next.startAt && Number.isNaN(new Date(next.startAt).getTime())) fail(ERR.BAD_REQUEST, '活动开始时间格式不正确');
+    if (next.endAt && Number.isNaN(new Date(next.endAt).getTime())) fail(ERR.BAD_REQUEST, '活动结束时间格式不正确');
+    const row = db.findOne('app_settings', (s) => s.key === 'recharge_campaign');
+    if (row) db.update('app_settings', row.id, { value: next, updated_at: nowIso() });
+    else db.insert('app_settings', { id: newId('set'), key: 'recharge_campaign', value: next, updated_at: nowIso() });
+    logger.info('充值活动已更新', { enabled: next.enabled, bonus: Object.keys(next.bonusByPackage).length });
+    return next;
+  }
+
+  /** 活动是否生效（未设起止 = 一直生效） */
+  campaignActive() {
+    const c = this.campaign();
+    if (!c.enabled) return false;
+    const now = Date.now();
+    if (c.startAt && now < new Date(c.startAt).getTime()) return false;
+    if (c.endAt && now > new Date(c.endAt).getTime()) return false;
+    return true;
+  }
+
+  /** 某档次最终赠送点数：活动加赠与档次自带赠送取较大值（不叠加，避免超发） */
+  effectiveBonus(pkg) {
+    const base = pkg.bonus ?? 0;
+    if (!this.campaignActive()) return base;
+    const c = this.campaign();
+    const extra = c.bonusByPackage?.[pkg.id] ?? c.bonusByPackage?.[pkg.code];
+    if (extra === undefined) return base;
+    return Math.max(base, Number(extra) || 0);
   }
 
   // ============================================================

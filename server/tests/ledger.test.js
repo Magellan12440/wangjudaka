@@ -55,7 +55,7 @@ test('报价：上游成本 → 售价点数（含倍率）', () => {
   const q = ledger.quote({ upstreamUsd: 0.55 });
   assert.ok(q.points > 0);
   assert.ok(q.priceCny > q.costCny);
-  assert.equal(q.markup, 1.35);
+  assert.equal(q.markup, 2);
 });
 
 test('幂等键相同则不重复预扣', () => {

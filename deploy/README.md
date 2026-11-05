@@ -220,8 +220,8 @@ systemctl start wangju-daka
 
 ```bash
 # 升级：解新包 → 覆盖代码 → 保留 .env 与 data
-tar -xzf wangju-daka-4.2.0.tar.gz
-rsync -a --exclude 'server/.env' --exclude 'server/data' wangju-daka-4.2.0/ /opt/wangju-daka/
+tar -xzf wangju-daka-4.3.0.tar.gz
+rsync -a --exclude 'server/.env' --exclude 'server/data' wangju-daka-4.3.0/ /opt/wangju-daka/
 systemctl restart wangju-daka
 curl -s http://127.0.0.1:8787/health     # 确认 version 变了
 ```

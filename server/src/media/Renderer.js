@@ -32,7 +32,7 @@ export class Renderer {
    *  timeline, audio: { voice_url, bgm_url, bgm_gain_db, sfx: [{url,t,gain_db,duration}] },
    *  output, cover, subtitlesPath, resolution, fps
    */
-  buildCommand({ timeline, audio = {}, output = 'out/episode.mp4', cover = null, subtitlesPath = null, resolution = null, fps = 30 }) {
+  buildCommand({ timeline, audio = {}, output = 'out/episode.mp4', cover = null, subtitlesPath = null, resolution = null, fps = 30, preset = 'medium' }) {
     const segs = timeline.segments ?? [];
     if (!segs.length) throw new Error('空时间线');
 
@@ -153,7 +153,7 @@ export class Renderer {
       '-filter_complex', filters.join(';'),
       '-map', '[vlabel]',
       ...(audioLabels.length ? ['-map', '[anorm]'] : []),
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p',
+      '-c:v', 'libx264', '-preset', preset, '-crf', '20', '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '192k', '-ar', String(MIX_RULES.sample_rate),
       '-metadata', `comment=${config.compliance.aiLabelEnabled ? config.compliance.aiLabelText : ''}`,
       '-metadata', 'ai_generated=true',

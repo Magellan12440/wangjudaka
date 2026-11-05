@@ -19,6 +19,7 @@ import { shotService } from './ShotService.js';
 import { editService } from './EditService.js';
 import { assetLibrary } from '../assets/AssetLibrary.js';
 import { materialService } from '../assets/MaterialService.js';
+import { ensureProjectPlan } from './PlanBuilder.js';
 import { contentSecurity } from '../security/ContentSecurity.js';
 import ledger from '../ledger/Ledger.js';
 
@@ -118,76 +119,17 @@ export class OneShot {
   // —— 步骤实现 ——
 
   async #runPlan(project, run) {
-    const spec = project.spec ?? {};
-    const prompt = spec.prompt || project.title || '未命名漫剧';
-    const digest = materialService.digest(project.id);
-    if (digest.text) {
-      await contentSecurity.assertText({
-        content: digest.text.slice(0, 2400),
-        openid: contentSecurity.openidOf(project.user_id),
-        bizType: 'material_digest',
-        bizId: project.id,
-        scene: 1,
-      });
-    }
-    const { outline } = await storyEngine.outline({
-      userId: project.user_id,
-      projectId: project.id,
-      prompt,
-      spec,
-      reference: digest.text,
-    });
-    const plan = storyEngine.directorPlan({ outline, spec, projectId: project.id });
-    const script = await storyEngine.script({ outline, plan, spec, userId: project.user_id, projectId: project.id });
-    const storyboard = await storyEngine.storyboard({ outline, spec, plan, script });
-
-    const rec = {
-      project_id: project.id,
-      plan_id: plan.plan_id,
-      plan_version: plan.plan_version,
-      outline,
-      plan,
-      script,
-      storyboard,
-      materials_used: digest.used,
-      reference_chars: digest.chars,
-      created_at: nowIso(),
-    };
-    const old = db.findOne('director_plans', (x) => x.project_id === project.id);
-    if (old) {
-      const patch = { ...rec };
-      delete patch.id;
-      db.update('director_plans', old.id, patch);
-    } else {
-      db.insert('director_plans', rec);
-    }
-
-    let assetCount = db.find('assets', (a) => a.project_id === project.id).length;
-    if (!assetCount) {
-      for (const d of storyEngine.toAssetDrafts(outline).slice(0, 8)) {
-        try {
-          assetLibrary.create({
-            projectId: project.id,
-            assetType: d.asset_type,
-            name: d.name,
-            locks: d.locks,
-            lockValues: d.lock_values,
-            meta: d.meta,
-          });
-          assetCount += 1;
-        } catch (e) {
-          logger.warn('角色资产落库失败', { projectId: project.id, msg: e.message });
-        }
-      }
-    }
-
-    const shotsTotal = storyboard.shots?.length ?? 0;
+    // 与「剧集托管」共用同一份计划构建，避免两条链路的集数/镜数不一致
+    const built = await ensureProjectPlan(project);
+    const shotsTotal = built.storyboard?.shots?.length ?? 0;
+    const assetCount = db.find('assets', (a) => a.project_id === project.id).length;
     return {
-      episodes: script?.episodes?.length ?? 0,
+      episodes: built.script?.episodes?.length ?? 0,
       shots: shotsTotal,
       assets: assetCount,
-      materials_used: digest.used.length,
+      materials_used: (built.materials_used ?? []).length,
       shots_total: shotsTotal,
+      reused: !!built.reused,
     };
   }
 

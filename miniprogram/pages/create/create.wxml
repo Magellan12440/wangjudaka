@@ -5,43 +5,51 @@
   </view>
 
   <view class="layer" style="padding: 20rpx 32rpx 0">
-    <!-- 标题 -->
     <view class="between">
       <view>
         <view class="eyebrow">NEW PRODUCTION</view>
         <view class="h1" style="margin-top:12rpx">新建项目</view>
       </view>
-      <view class="step-count num">0{{step}}<text class="step-total">/03</text></view>
+      <view class="step-count num">0{{step}}<text class="step-total">/02</text></view>
     </view>
 
-    <!-- 步骤条 -->
     <view class="steps">
       <view class="step-node {{step >= 1 ? 'on' : ''}}">
         <view class="step-dot">1</view>
-        <text class="step-name">创意</text>
+        <text class="step-name">剧名</text>
       </view>
       <view class="step-track"><view class="step-track-fill" style="width:{{step >= 2 ? 100 : 0}}%"></view></view>
       <view class="step-node {{step >= 2 ? 'on' : ''}}">
         <view class="step-dot">2</view>
         <text class="step-name">设定</text>
       </view>
-      <view class="step-track"><view class="step-track-fill" style="width:{{step >= 3 ? 100 : 0}}%"></view></view>
-      <view class="step-node {{step >= 3 ? 'on' : ''}}">
-        <view class="step-dot">3</view>
-        <text class="step-name">开机</text>
-      </view>
     </view>
 
-    <!-- STEP 1 -->
+    <!-- STEP 1：只要一个剧名 -->
     <block wx:if="{{step === 1}}">
-      <view class="h2 mt24">先讲一句话</view>
-      <view class="sub mt8">人物、冲突、反转，有一个就够。建好项目后，再把小说、参考图、视频放进去。</view>
+      <view class="h2 mt24">给你的剧起个名字</view>
+      <view class="sub mt8">这是全剧的总开关。有了剧名就能开项目，素材、剧本、模型都可以进去再改。</view>
 
       <view class="card mt24 rise d1">
+        <view class="field-label"><text>剧名</text><text class="opt">必填 · 最多 30 字</text></view>
+        <input
+          class="input {{typing ? 'input-focus' : ''}}"
+          style="font-size:34rpx;height:104rpx;font-weight:600"
+          placeholder="例如：长夜执灯人"
+          placeholder-class="input-ph"
+          value="{{title}}"
+          maxlength="30"
+          bindinput="onTitle"
+          bindfocus="onFocus"
+          bindblur="onBlur"
+          cursor-spacing="140"
+        />
+
+        <view class="field-label mt24"><text>一句话创意</text><text class="opt">选填 · 之后可改</text></view>
         <view class="prompt-wrap">
           <textarea
-            class="textarea prompt-area {{typing ? 'input-focus' : ''}}"
-            placeholder="例如：被家族抛弃的少年，十年后带着一身修为归来复仇，却发现当年救他的是仇人的女儿"
+            class="textarea prompt-area"
+            placeholder="不说也行。上传小说正文或参考图后，系统会按素材来写。"
             placeholder-class="input-ph"
             value="{{prompt}}"
             maxlength="300"
@@ -56,14 +64,7 @@
 
         <view class="field-label mt16"><text>没灵感？点一个开头</text><text class="opt">可直接改</text></view>
         <view class="idea-grid">
-          <view
-            wx:for="{{ideas}}"
-            wx:key="*this"
-            class="idea-card tap"
-            hover-class="tap-on"
-            data-text="{{item}}"
-            bindtap="pickIdea"
-          >
+          <view wx:for="{{ideas}}" wx:key="*this" class="idea-card tap" hover-class="tap-on" data-text="{{item}}" bindtap="pickIdea">
             <text class="idea-no">0{{index + 1}}</text>
             <text class="idea-text">{{item}}</text>
           </view>
@@ -72,326 +73,152 @@
 
       <view class="notice">
         <view class="dot"></view>
-        <view class="flex1">创意会经过内容安全机审。请勿输入违法、暴力、色情或侵犯他人权益的内容。</view>
+        <view class="flex1">剧名与创意会经过内容安全机审。请勿输入违法、暴力、色情或侵犯他人权益的内容。</view>
       </view>
 
-      <view class="btn btn-block mt32 tap" hover-class="tap-on" bindtap="next">下一步：定风格</view>
+      <view class="btn btn-block mt32 {{canCreate ? 'tap' : 'btn-disabled'}}" hover-class="{{canCreate ? 'tap-on' : ''}}" bindtap="next">下一步：选设定</view>
       <view class="footer-note">这一步不产生任何点数消耗</view>
     </block>
 
-    <!-- STEP 2 -->
-    <block wx:if="{{step === 2}}">
-      <view class="h2 mt24">定下这部剧的样子</view>
-      <view class="sub mt8">参数会直接进入导演总谱，决定镜头、光影与成本，之后仍可在项目里重生成。</view>
+    <!-- STEP 2：设定 + 模型 + 剧壳 -->
+    <block wx:else>
+      <view class="between mt24">
+        <view class="h2">《{{title}}》怎么拍</view>
+        <view class="tiny">全部可后改</view>
+      </view>
 
       <view class="card mt24">
-        <view class="field">
-          <view class="field-label">
-            <text>题材风格</text>
-            <text class="opt">已选 {{styleName}}</text>
-          </view>
-          <view class="chips">
-            <block wx:for="{{styles}}" wx:key="code">
-              <view
-                wx:if="{{showAllStyles || index < 12}}"
-                class="chip chip-sm tap"
-                hover-class="tap-on"
-                data-field="styleCode"
-                data-value="{{item.code}}"
-                bindtap="pick"
-              >{{item.name}}</view>
-            </block>
-          </view>
-          <view wx:if="{{styles.length > 12}}" class="expand tap" hover-class="tap-on" bindtap="toggleAllStyles">
-            {{showAllStyles ? '收起' : '展开全部 ' + styles.length + ' 种风格'}}
-          </view>
-          <view wx:if="{{stylesError}}" class="error-text mt8">{{stylesError}}，请下拉重试</view>
-        </view>
-
-        <view class="field">
-          <view class="field-label"><text>画幅</text><text class="opt">决定平台与封面规格</text></view>
-          <view class="opt-grid">
+        <view class="field-label"><text>风格</text><text class="opt">{{styleName}}</text></view>
+        <view class="chips">
+          <block wx:for="{{styles}}" wx:key="code">
             <view
-              wx:for="{{aspectOpts}}"
-              wx:key="key"
-              class="opt-card tap"
-              hover-class="tap-on"
-              data-field="aspect"
-              data-value="{{item.key}}"
-              bindtap="pick"
-            >
-              <view class="opt-main">{{item.label}}</view>
-              <view class="opt-sub">{{item.sub}}</view>
-            </view>
-          </view>
-        </view>
-
-        <view class="field">
-          <view class="field-label"><text>画质</text><text class="opt">1080P 成本约为 720P 的 2.3 倍</text></view>
-          <view class="seg">
-            <view class="seg-ind" style="{{segQualityStyle}}"></view>
-            <view
-              wx:for="{{qualityOpts}}"
-              wx:key="key"
-              class="seg-item {{quality === item.key ? 'on' : ''}}"
-              data-field="quality"
-              data-value="{{item.key}}"
-              bindtap="pick"
-            >{{item.label}}</view>
-          </view>
-        </view>
-
-        <view class="field">
-          <view class="field-label"><text>总时长</text><text class="opt">{{minutes}} 分钟 · 约 {{episodesText}} 集</text></view>
-          <view class="chips">
-            <view
-              wx:for="{{minuteOpts}}"
-              wx:key="*this"
-              class="chip tap"
-              hover-class="tap-on"
-              data-field="minutes"
-              data-value="{{item}}"
-              bindtap="pick"
-            >{{item}} 分钟</view>
-          </view>
-        </view>
-
-        <view class="field">
-          <view class="field-label"><text>单集时长</text><text class="opt">{{episodeSec}} 秒</text></view>
-          <view class="chips">
-            <view
-              wx:for="{{episodeOpts}}"
-              wx:key="*this"
-              class="chip tap"
-              hover-class="tap-on"
-              data-field="episodeSec"
-              data-value="{{item}}"
-              bindtap="pick"
-            >{{item}} 秒</view>
-          </view>
-        </view>
-
-        <view class="field">
-          <view class="field-label"><text>视频类型</text><text class="opt">影响是否逐镜出视频</text></view>
-          <view class="type-list">
-            <view
-              wx:for="{{typeOpts}}"
-              wx:key="key"
-              class="type-card tap"
-              hover-class="tap-on"
-              data-field="videoType"
-              data-value="{{item.key}}"
-              bindtap="pick"
-            >
-              <view class="type-radio {{videoType === item.key ? 'on' : ''}}"></view>
-              <view class="flex1">
-                <view class="type-name">{{item.label}}</view>
-                <view class="type-sub">{{item.sub}}</view>
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <view class="field">
-          <view class="field-label"><text>导演原型</text><text class="opt">{{directorName}}</text></view>
-          <view class="chips">
-            <view
-              class="chip chip-sm tap {{directorCode === '' ? 'on' : ''}}"
-              hover-class="tap-on"
-              data-field="directorCode"
-              data-value=""
-              bindtap="pick"
-            >自动匹配</view>
-            <view
-              wx:for="{{directors}}"
-              wx:key="code"
-              class="chip chip-sm tap {{directorCode === item.code ? 'on' : ''}}"
-              hover-class="tap-on"
-              data-field="directorCode"
+              wx:if="{{showAllStyles || index < 8 || item.code === styleCode}}"
+              class="chip {{styleCode === item.code ? 'on' : ''}}"
+              data-field="styleCode"
               data-value="{{item.code}}"
               bindtap="pick"
             >{{item.name}}</view>
+          </block>
+          <view wx:if="{{styles.length > 8}}" class="chip" data-field="styleCode" data-value="{{styleCode}}" bindtap="toggleAllStyles">{{showAllStyles ? '收起' : '全部 ' + styles.length}}</view>
+        </view>
+        <view wx:if="{{stylesError}}" class="hint mt8">{{stylesError}}</view>
+      </view>
+
+      <view class="card mt16">
+        <view class="field-label"><text>画幅</text><text class="opt">决定发哪个平台</text></view>
+        <view class="opt-grid">
+          <view wx:for="{{aspectOpts}}" wx:key="key" class="opt-card {{aspect === item.key ? 'on' : ''}}" data-field="aspect" data-value="{{item.key}}" bindtap="pick">
+            <view class="opt-main">{{item.label}}</view>
+            <view class="opt-sub">{{item.sub}}</view>
           </view>
         </view>
 
-        <view class="field" style="margin-bottom:0">
-          <view class="field-label"><text>成本策略</text><text class="opt">预览档先行更省</text></view>
-          <view class="opt-grid">
-            <view
-              wx:for="{{presetOpts}}"
-              wx:key="key"
-              class="opt-card tap"
-              hover-class="tap-on"
-              data-field="preset"
-              data-value="{{item.key}}"
-              bindtap="pick"
-            >
-              <view class="opt-main">{{item.label}}</view>
-              <view class="opt-sub">{{item.sub}}</view>
+        <view class="field-label mt24"><text>画质</text><text class="opt">{{quality}}</text></view>
+        <view class="chips">
+          <view wx:for="{{qualityOpts}}" wx:key="key" class="chip {{quality === item.key ? 'on' : ''}}" data-field="quality" data-value="{{item.key}}" bindtap="pick">{{item.label}}</view>
+        </view>
+      </view>
+
+      <view class="card mt16">
+        <view class="field-label"><text>剧集数量</text><text class="opt">共 {{episodeCount}} 集</text></view>
+        <view class="chips">
+          <view wx:for="{{episodeCountOpts}}" wx:key="*this" class="chip {{episodeCount === item ? 'on' : ''}}" data-field="episodeCount" data-value="{{item}}" bindtap="pick">{{item}} 集</view>
+        </view>
+
+        <view class="field-label mt24"><text>单集时长</text><text class="opt">{{episodeSec}} 秒</text></view>
+        <view class="chips">
+          <view wx:for="{{episodeSecOpts}}" wx:key="*this" class="chip {{episodeSec === item ? 'on' : ''}}" data-field="episodeSec" data-value="{{item}}" bindtap="pick">{{item}}s</view>
+        </view>
+
+        <view class="field-label mt24"><text>成片形态</text><text class="opt">影响成本</text></view>
+        <view class="type-list">
+          <view wx:for="{{typeOpts}}" wx:key="key" class="type-card {{videoType === item.key ? 'on' : ''}}" data-field="videoType" data-value="{{item.key}}" bindtap="pick">
+            <view class="type-radio {{videoType === item.key ? 'on' : ''}}"></view>
+            <view class="flex1">
+              <view class="type-name">{{item.label}}</view>
+              <view class="type-sub">{{item.sub}}</view>
             </view>
           </view>
         </view>
       </view>
 
-      <view class="notice notice-dark">
-        <view class="dot"></view>
-        <view class="flex1">风格与导演原型不是“滤镜”：它们决定镜头卡、光影卡与转场配额。选定后仍可在项目详情里重新生成总谱。</view>
-      </view>
-      <view class="gap32"></view>
-    </block>
-
-    <!-- STEP 3 -->
-    <block wx:if="{{step === 3}}">
-      <view class="proposal rise d1">
-        <view class="proposal-top">
-          <view class="proposal-kicker">CREATIVE PROPOSAL</view>
-          <view class="pill pill-gold pill-no-dot">待开机</view>
-        </view>
-        <view class="proposal-title ellipsis2">{{prompt}}</view>
-        <view class="proposal-meta">
-          <text>{{quote.style.name}}</text>
-          <text class="sep">·</text>
-          <text>{{videoTypeText}}</text>
-          <text class="sep">·</text>
-          <text>{{quote.quality}}</text>
-          <text class="sep">·</text>
-          <text>{{quote.aspect}}</text>
-        </view>
-
-        <view class="proposal-stats">
-          <view class="ps">
-            <view class="ps-value num">{{quote.episodes}}</view>
-            <view class="ps-label">集</view>
-          </view>
-          <view class="ps">
-            <view class="ps-value num">{{quote.total_shots}}</view>
-            <view class="ps-label">镜头</view>
-          </view>
-          <view class="ps">
-            <view class="ps-value num">{{quote.episode_sec}}</view>
-            <view class="ps-label">秒 / 集</view>
-          </view>
-          <view class="ps">
-            <view class="ps-value num">{{quote.time_text}}</view>
-            <view class="ps-label">预计耗时</view>
-          </view>
-        </view>
-
-        <view class="price-row">
-          <view>
-            <view class="price-label">预计消耗</view>
-            <view class="price-value"><text class="num">{{quote.est_credits}}</text><text class="price-unit">点</text></view>
-          </view>
-          <view class="price-cny">≈ ¥{{quote.cny_text}}</view>
-        </view>
-        <view class="price-note">1 点 = ¥1；按真实消耗结算，失败全额退回</view>
-      </view>
-
-      <view class="card">
+      <!-- 模型：每环节前五 -->
+      <view class="card mt16">
         <view class="between">
-          <text class="title">成本构成</text>
-          <text class="tiny">{{quote.strategy}}</text>
+          <view class="field-label" style="margin-bottom:0"><text>用哪些模型</text></view>
+          <view class="tiny">仅显示已实测可用</view>
         </view>
-        <view class="cost-bar mt16">
-          <view class="cost-seg seg-image" style="width:{{imagePct}}%"></view>
-          <view class="cost-seg seg-video" style="width:{{videoPct}}%"></view>
-          <view class="cost-seg seg-llm" style="width:{{llmPct}}%"></view>
-        </view>
-        <view class="cost-row">
-          <view class="row"><view class="cost-dot dot-image"></view><text class="cost-label">关键帧（{{quote.total_shots}} 镜）</text></view>
-          <text class="cost-value">{{quote.image_cost}} 点</text>
-        </view>
-        <view class="cost-row">
-          <view class="row"><view class="cost-dot dot-video"></view><text class="cost-label">视频生成</text></view>
-          <text class="cost-value">{{quote.video_cost}} 点</text>
-        </view>
-        <view class="cost-row">
-          <view class="row"><view class="cost-dot dot-llm"></view><text class="cost-label">剧本 / 分镜 / 台词</text></view>
-          <text class="cost-value">{{quote.llm_cost}} 点</text>
-        </view>
-        <view class="hairline"></view>
-        <view class="hint">{{quote.note}}</view>
-      </view>
-
-      <view class="card prep-card">
-        <view class="between">
-          <text class="title">开机后先做两件事</text>
-          <text class="pill pill-violet pill-no-dot">项目内</text>
-        </view>
-        <view class="prep-row">
-          <view class="prep-no">01</view>
-          <view class="flex1">
-            <view class="prep-title">上传素材（可选）</view>
-            <view class="prep-sub">小说正文、参考图、参考视频，都会作为本剧的创作输入</view>
+        <view wx:for="{{modelRoles}}" wx:key="key" class="mt24">
+          <view class="field-label" style="margin-bottom:10rpx">
+            <text>{{item.name}}</text>
+            <text class="opt">{{item.hint}}</text>
+          </view>
+          <view class="chips">
+            <view
+              wx:for="{{item.items}}"
+              wx:for-item="m"
+              wx:key="code"
+              class="chip {{m.on ? 'on' : ''}}"
+              data-role="{{item.key}}"
+              data-code="{{m.code}}"
+              bindtap="pickModel"
+            >{{m.label}}</view>
           </view>
         </view>
-        <view class="prep-row">
-          <view class="prep-no">02</view>
-          <view class="flex1">
-            <view class="prep-title">生成剧本与分镜</view>
-            <view class="prep-sub">素材摘要会进入大纲，再产出分镜表与角色资产</view>
-          </view>
+
+        <view wx:if="{{editProfiles.length}}" class="field-label mt24"><text>剪辑成片</text><text class="opt">字幕/混音/编码档位</text></view>
+        <view class="chips">
+          <view wx:for="{{editProfiles}}" wx:key="code" class="chip {{editProfile === item.code ? 'on' : ''}}" data-code="{{item.code}}" bindtap="pickEditProfile">{{item.label}}</view>
         </view>
+        <view class="hint mt8">全站统一计费：实际算力消耗 ×{{billingMultiplier}} 扣点，先预扣、按实际结算多退少补。</view>
       </view>
 
-      <view class="notice">
-        <view class="dot"></view>
-        <view class="flex1">确认后只创建项目并建立流水线，不自动扣费生成。剧本、关键帧、视频都由你在项目内逐步触发。</view>
-      </view>
-
-      <view class="auto-row tap" hover-class="tap-on" bindtap="toggleAuto">
-        <view class="auto-box {{autoMode ? 'on' : ''}}">{{autoMode ? '✓' : ''}}</view>
+      <!-- 剧壳 -->
+      <view class="auto-row tap" hover-class="tap-on" bindtap="toggleShell">
+        <view class="auto-box {{shellEnabled ? 'on' : ''}}">{{shellEnabled ? '✓' : ''}}</view>
         <view class="flex1">
-          <view class="auto-title">一句话直出：创建后自动跑到成片</view>
-          <view class="auto-sub">剧本 → 导演总谱 → 分镜 → 逐镜出片 → 剪辑成片，一步不停。余额不足会自动暂停，充值后可从断点续跑，不重花已生成的镜。</view>
+          <view class="auto-title">生成剧壳（片头 + 片尾）</view>
+          <view class="auto-sub">系列剧的独特标识：片名卡、片尾引导。进项目后可改文案并单独生成。</view>
         </view>
       </view>
 
-      <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="create">{{autoMode ? '一键成剧' : '确认开机'}}</view>
-      <view class="btn btn-block btn-ghost mt16 tap" hover-class="tap-on" bindtap="back">返回调整</view>
-      <view class="balance-line">当前余额 <text class="gold num">{{balance}}</text> 点</view>
+      <view class="proposal" wx:if="{{quote}}">
+        <view class="proposal-top">
+          <text class="proposal-kicker">ESTIMATE</text>
+          <text class="pill pill-gold">{{episodeCount}} 集</text>
+        </view>
+        <view class="proposal-title">按当前设定，整部剧预估消耗</view>
+        <view class="price-row">
+          <view class="price-value num">{{quote.credits_text}}<text class="price-unit">点</text></view>
+          <view class="price-cny">≈ ¥{{quote.cny_text || quote.credits_text}}</view>
+        </view>
+        <view class="price-note">预估 {{quote.time_text || '—'}} · 实际按每集真实消耗结算，余额不足会暂停在当前集</view>
+      </view>
+      <view wx:elif="{{quoteLoading}}" class="hint mt16">正在估算点数…</view>
+
+      <view class="notice mt24">
+        <view class="dot"></view>
+        <view class="flex1">建组后先上传素材（小说/参考图/视频），再生成剧本；每集可单独出片，也可以开托管自动逐集生成。</view>
+      </view>
+
+      <view class="btn btn-block mt24 {{creating ? 'btn-disabled' : 'tap'}}" hover-class="{{creating ? '' : 'tap-on'}}" bindtap="create">
+        {{creating ? '正在创建…' : '开机，进入剧组'}}
+      </view>
+      <view class="btn btn-block btn-ghost mt16 tap" hover-class="tap-on" bindtap="back">返回改剧名</view>
+      <view class="balance-line">当前余额 {{balance}} 点</view>
+      <view class="footer-note">创建项目本身不扣点；生成剧本与画面时才按实际消耗计费</view>
     </block>
   </view>
 
-  <!-- 步骤 2 底部报价条 -->
-  <view wx:if="{{step === 2}}" class="bottom-bar">
-    <view class="bottom-info">
-      <view class="bottom-price">
-        <block wx:if="{{quoteLoading}}"><text class="tiny">报价计算中…</text></block>
-        <block wx:elif="{{quote}}"><text class="num gold">{{quote.est_credits}}</text><text class="bottom-unit"> 点</text></block>
-        <block wx:else><text class="tiny">—</text></block>
-      </view>
-      <view class="tiny" wx:if="{{quote}}">{{quote.episodes}} 集 · {{quote.total_shots}} 镜 · {{quote.time_text}}</view>
-      <view class="tiny" wx:else>选择参数后自动报价</view>
-    </view>
-    <view class="btn btn-sm tap" hover-class="tap-on" bindtap="toQuote">看提案卡</view>
-  </view>
-
-  <!-- 创建中 -->
   <view wx:if="{{creating}}" class="creating-mask">
     <view class="creating-card">
       <view class="creating-orbit">
         <view class="orbit-ring orbit-1"></view>
         <view class="orbit-ring orbit-2"></view>
-        <view class="orbit-core">咖</view>
+        <view class="orbit-core">剧</view>
       </view>
-      <view class="h2 mt32">正在建组</view>
-      <view class="sub mt8">{{createPhase}} · 已用 {{elapsed}} 秒</view>
-      <view class="creating-list">
-        <view class="creating-item {{createPhase === '创建项目' ? 'on' : ''}}">
-          <view class="ci-dot"></view>
-          <text>创建项目与规格</text>
-        </view>
-        <view class="creating-item {{createPhase === '建立流水线' ? 'on' : ''}}">
-          <view class="ci-dot"></view>
-          <text>建立 12 节点流水线</text>
-        </view>
-        <view class="creating-item {{createPhase === '进入剧组' ? 'on' : ''}}">
-          <view class="ci-dot"></view>
-          <text>进入剧组，准备素材</text>
-        </view>
-      </view>
-      <view class="hint mt24">请保持小程序在前台，退出会中断本次创建</view>
+      <view class="h3 mt24">正在建组</view>
+      <view class="hint mt8">{{createPhase}}… {{elapsed}}s</view>
     </view>
   </view>
 </view>

@@ -117,7 +117,12 @@ export const config = {
   },
   credit: {
     cnyPerPoint: num('CREDIT_CNY_PER_POINT', 1.0),
-    markup: num('CREDIT_MARKUP', 1.35),
+    /**
+     * 统一计费倍率（V4.3 定价规则）：
+     * 全系统一律「实际消耗 × 2」扣点数 —— 聊天推理、出图、视频、配音、剪辑全部同一口径。
+     * 改动只允许动这一个值，禁止在各业务里各自乘系数，否则对账必炸。
+     */
+    markup: num('CREDIT_MARKUP', 2),
     usdCnyRate: num('USD_CNY_RATE', 7.1),
     /** 中转站算力与人民币换算（代理商合同口径，默认 1 算力 ≈ 1 元） */
     suanliCnyRate: num('SUANLI_CNY_RATE', 1.0),
@@ -192,6 +197,9 @@ export function publicConfig() {
   return {
     credit: {
       cnyPerPoint: config.credit.cnyPerPoint,
+      /** 前端展示「实际消耗 × N」用；不暴露任何上游单价 */
+      billing_multiplier: config.credit.markup,
+      billing_note: `按实际算力消耗 ×${config.credit.markup} 扣点，生成前预扣、按实际结算多退少补`,
       // 前端展示用的点数包（真实价格在 admin 后台配，这里给默认档）
       packages: [
         { id: 'PKG-100', points: 100, priceCny: 100 },

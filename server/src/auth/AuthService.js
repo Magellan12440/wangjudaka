@@ -112,8 +112,32 @@ class AuthService {
       nickname: user.nickname,
       avatar: user.avatar,
       balance_points: ledger.balance(user.id),
+      // 新用户默认昵称是「创作者_xxxxxx」，头像为空 —— 前端据此提示补全资料
+      profile_complete: Boolean(user.avatar) && !/^创作者_/.test(String(user.nickname ?? '')),
       created_at: user.created_at,
     };
+  }
+
+  /** 补全资料（昵称 / 头像）：只允许改自己的，长度做硬限制 */
+  updateProfile(userId, { nickname = null, avatar = null } = {}) {
+    const user = db.findOne(USERS, (u) => u.id === userId);
+    if (!user) fail(ERR.AUTH_TOKEN_INVALID, '用户不存在');
+    const patch = {};
+    if (nickname !== null && nickname !== undefined) {
+      const n = String(nickname).trim();
+      if (!n) fail(ERR.BAD_REQUEST, '昵称不能为空');
+      patch.nickname = n.slice(0, 20);
+    }
+    if (avatar !== null && avatar !== undefined) {
+      const a = String(avatar).trim();
+      if (a && !/^(https?:\/\/|wxfile:\/\/|cloud:\/\/|\/media\/)/.test(a)) {
+        fail(ERR.BAD_REQUEST, '头像地址不合法');
+      }
+      patch.avatar = a.slice(0, 512) || null;
+    }
+    if (!Object.keys(patch).length) fail(ERR.BAD_REQUEST, '没有要更新的资料');
+    db.update(USERS, userId, { ...patch, profile_updated_at: nowIso() });
+    return this.publicUser(db.findOne(USERS, (u) => u.id === userId));
   }
 }
 
