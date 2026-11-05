@@ -129,6 +129,7 @@ Page({
     const app = getApp();
     app.globalData.draftTitle = title.slice(0, 30);
     app.globalData.draftPrompt = '';
+    app.globalData.startNew = true;
     wx.switchTab({ url: '/pages/create/create' });
   },
 
@@ -144,6 +145,9 @@ Page({
 
   goCreate() {
     motion.haptic();
+    // 从「新建 +」进来：不管创作页上次停在哪一步，都复位成新建
+    getApp().globalData.startNew = true;
+    getApp().globalData.draftTitle = '';
     wx.switchTab({ url: '/pages/create/create' });
   },
 

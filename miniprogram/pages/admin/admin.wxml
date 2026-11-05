@@ -1,0 +1,249 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-a"></view>
+    <view class="aurora-b"></view>
+  </view>
+
+  <view class="nav" style="padding-top:{{navStatus}}px">
+    <view class="nav-inner">
+      <view class="adm-back tap" hover-class="tap-on" bindtap="back">‹ 返回</view>
+      <view class="adm-title">管理后台</view>
+      <view class="adm-badge" wx:if="{{phase === 'console'}}">ADMIN</view>
+    </view>
+  </view>
+
+  <!-- 加载 -->
+  <view wx:if="{{phase === 'loading'}}" class="layer" style="padding:160rpx 32rpx 0">
+    <view class="skeleton sk-block" style="height:180rpx"></view>
+    <view class="skeleton sk-line" style="width:70%;margin-top:24rpx"></view>
+    <view class="skeleton sk-line" style="width:50%"></view>
+  </view>
+
+  <!-- 激活第一个管理员 -->
+  <view wx:elif="{{phase === 'boot'}}" class="layer pad">
+    <view class="adm-hero">
+      <view class="adm-kicker">FIRST RUN</view>
+      <view class="adm-h1">创建你的管理员账号</view>
+      <view class="adm-sub">系统里还没有管理员。激活码只在服务端启动日志里出现一次，复制过来就能建号。</view>
+    </view>
+
+    <view class="card mt24">
+      <view class="field-label"><text>激活码</text><text class="opt">服务端日志里搜「管理员激活码」</text></view>
+      <input class="input" placeholder="XXXXX-XXXXX" placeholder-class="input-ph" value="{{code}}" maxlength="20"
+        data-field="code" bindinput="onField" />
+
+      <view class="field-label mt24"><text>管理员手机号</text><text class="opt">用于以后登录</text></view>
+      <input class="input" type="number" placeholder="11 位手机号" placeholder-class="input-ph" value="{{phone}}"
+        maxlength="11" data-field="phone" bindinput="onField" />
+
+      <view class="field-label mt24"><text>登录密码</text><text class="opt">至少 6 位</text></view>
+      <input class="input" password placeholder="设置一个密码" placeholder-class="input-ph" value="{{password}}"
+        maxlength="64" data-field="password" bindinput="onField" />
+
+      <view class="field-label mt24"><text>称呼</text><text class="opt">选填</text></view>
+      <input class="input" placeholder="管理员" placeholder-class="input-ph" value="{{nickname}}"
+        maxlength="20" data-field="nickname" bindinput="onField" />
+    </view>
+
+    <view wx:if="{{error}}" class="err mt16">{{error}}</view>
+    <view class="btn btn-block mt24 {{busy ? 'btn-disabled' : 'tap'}}" hover-class="{{busy ? '' : 'tap-on'}}" bindtap="bootstrapAdmin">
+      {{busy ? '创建中…' : '创建管理员并进入'}}
+    </view>
+    <view class="adm-note">激活码一次性有效。创建成功后这条记录作废，以后用手机号 + 密码登录。</view>
+  </view>
+
+  <!-- 管理员登录 -->
+  <view wx:elif="{{phase === 'login'}}" class="layer pad">
+    <view class="adm-hero">
+      <view class="adm-kicker">ADMIN ONLY</view>
+      <view class="adm-h1">管理员登录</view>
+      <view class="adm-sub">这里只给管理员用。普通用户直接用微信登录即可，看不到这个入口。</view>
+    </view>
+
+    <view class="card mt24">
+      <view class="field-label"><text>管理员手机号</text></view>
+      <input class="input" type="number" placeholder="11 位手机号" placeholder-class="input-ph" value="{{phone}}"
+        maxlength="11" data-field="phone" bindinput="onField" />
+
+      <view class="field-label mt24"><text>密码</text></view>
+      <input class="input" password placeholder="登录密码" placeholder-class="input-ph" value="{{password}}"
+        maxlength="64" data-field="password" bindinput="onField" />
+    </view>
+
+    <view wx:if="{{error}}" class="err mt16">{{error}}</view>
+    <view class="btn btn-block mt24 {{busy ? 'btn-disabled' : 'tap'}}" hover-class="{{busy ? '' : 'tap-on'}}" bindtap="login">
+      {{busy ? '登录中…' : '进入管理后台'}}
+    </view>
+    <view class="adm-note">忘了密码？用服务端 ADMIN_TOKEN 走网页控制台，或让另一个管理员重置。</view>
+  </view>
+
+  <!-- 后台主体 -->
+  <block wx:else>
+    <view class="layer pad">
+      <view class="seg mt8">
+        <view class="seg-ind" style="{{segStyle}}"></view>
+        <view wx:for="{{tabs}}" wx:key="key" class="seg-item {{tab === item.key ? 'on' : ''}}"
+          data-key="{{item.key}}" bindtap="switchTab">{{item.label}}</view>
+      </view>
+
+      <!-- 概览 -->
+      <block wx:if="{{tab === 'stats'}}">
+        <view wx:if="{{statsError}}" class="err mt24">{{statsError}}</view>
+        <block wx:elif="{{stats}}">
+          <view class="adm-grid mt24">
+            <view class="adm-cell">
+              <view class="adm-num num">{{stats.users.total}}</view>
+              <view class="adm-lab">用户</view>
+              <view class="adm-hint">今日 +{{stats.users.today}} · 管理员 {{stats.users.admins}}</view>
+            </view>
+            <view class="adm-cell">
+              <view class="adm-num num">{{stats.projects.total}}</view>
+              <view class="adm-lab">项目</view>
+              <view class="adm-hint">今日 +{{stats.projects.today}}</view>
+            </view>
+            <view class="adm-cell">
+              <view class="adm-num num">{{stats.credits.balance_total}}</view>
+              <view class="adm-lab">在账点数</view>
+              <view class="adm-hint">累计充值 {{stats.credits.recharged_total}}</view>
+            </view>
+            <view class="adm-cell">
+              <view class="adm-num num">{{stats.credits.spent_total}}</view>
+              <view class="adm-lab">已消耗</view>
+              <view class="adm-hint">生成 {{stats.credits.generations}} 次</view>
+            </view>
+          </view>
+
+          <view class="card mt24">
+            <view class="card-title">这一屏能做什么</view>
+            <view class="adm-li">· 用户：搜人、看余额与作品、加/扣点数、停用账号、给管理员</view>
+            <view class="adm-li">· 兑换码：批量生成、复制发给用户</view>
+            <view class="adm-li">· 工具：模型探活、算力网关状态（密钥只显示脱敏值）</view>
+            <view class="adm-li dim">· 所有金额与点数变更都会落流水，可在用户详情里追</view>
+          </view>
+
+          <view class="btn btn-block btn-ghost mt24 tap" hover-class="tap-on" bindtap="loadStats">刷新</view>
+        </block>
+        <view wx:else class="skeleton sk-block mt24" style="height:220rpx"></view>
+      </block>
+
+      <!-- 用户 -->
+      <block wx:elif="{{tab === 'users'}}">
+        <view class="adm-search mt24">
+          <input class="adm-search-input" placeholder="搜昵称 / 手机号 / ID" placeholder-class="input-ph"
+            value="{{keyword}}" bindinput="onKeyword" bindconfirm="searchUsers" confirm-type="search" />
+          <view class="adm-search-btn tap" hover-class="tap-on" bindtap="searchUsers">搜索</view>
+        </view>
+        <view class="tiny mt16">共 {{userTotal}} 个账号</view>
+
+        <view wx:if="{{usersLoading}}" class="skeleton sk-block mt16" style="height:160rpx"></view>
+        <block wx:else>
+          <view wx:for="{{users}}" wx:key="id" class="card adm-u tap" hover-class="tap-on" data-id="{{item.id}}" bindtap="act">
+            <view class="between">
+              <view class="row flex1" style="min-width:0">
+                <text class="adm-role {{item.role === 'admin' ? 'on' : ''}}">{{item.role === 'admin' ? '管理员' : '用户'}}</text>
+                <text class="adm-uname ellipsis">{{item.nickname || item.id}}</text>
+              </view>
+              <text class="adm-bal num">{{item.balance_points}}</text>
+            </view>
+            <view class="between mt8">
+              <text class="tiny">{{item.phone_masked || '未绑手机'}} · {{item.projects}} 部剧</text>
+              <text wx:if="{{item.status === 'banned'}}" class="adm-warn">已停用</text>
+            </view>
+          </view>
+          <view wx:if="{{!users.length}}" class="hint mt24" style="text-align:center">没有匹配的账号</view>
+        </block>
+      </block>
+
+      <!-- 兑换码 -->
+      <block wx:elif="{{tab === 'codes'}}">
+        <view class="card mt24">
+          <view class="card-title">批量生成</view>
+          <view class="row mt16" style="gap:16rpx">
+            <view class="flex1">
+              <view class="field-label"><text>面额</text></view>
+              <input class="input" type="number" placeholder="如 100" placeholder-class="input-ph"
+                value="{{newPoints}}" bindinput="onNewPoints" />
+            </view>
+            <view class="flex1">
+              <view class="field-label"><text>数量</text></view>
+              <input class="input" type="number" placeholder="1~100" placeholder-class="input-ph"
+                value="{{newCount}}" bindinput="onNewCount" />
+            </view>
+          </view>
+          <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="createCodes">生成</view>
+          <view class="tiny mt12">生成的码可点一下复制。用户在小程序「我的 → 兑换码」里兑换。</view>
+        </view>
+
+        <view class="section-title mt24">最近生成</view>
+        <view wx:if="{{codesLoading}}" class="skeleton sk-block mt16" style="height:120rpx"></view>
+        <block wx:else>
+          <view wx:for="{{codes}}" wx:key="id" class="lrow tap" hover-class="tap-on" data-code="{{item.code}}" bindtap="copyCode">
+            <view class="lrow-main">
+              <view class="lrow-title num">{{item.code}}</view>
+              <view class="lrow-sub">{{item.points}} 点 · {{item.status || 'active'}} · 复制</view>
+            </view>
+            <text class="lrow-arrow">⧉</text>
+          </view>
+          <view wx:if="{{!codes.length}}" class="hint mt24" style="text-align:center">还没生成过</view>
+        </block>
+      </block>
+
+      <!-- 工具 -->
+      <block wx:elif="{{tab === 'tools'}}">
+        <view class="card mt24">
+          <view class="card-title">模型探活</view>
+          <view class="tiny mt8">实测上游是否可用。探活只发最小请求，不扣用户点数。</view>
+          <view class="btn btn-block mt24 {{probing ? 'btn-disabled' : 'tap'}}" hover-class="{{probing ? '' : 'tap-on'}}" bindtap="probeModels">
+            {{probing ? '探活中…' : '开始探活'}}
+          </view>
+          <block wx:if="{{probe}}">
+            <view class="adm-li mt16">可用 {{probe.alive || 0}} · 不可用 {{probe.dead || 0}}</view>
+            <view wx:for="{{probe.models}}" wx:key="code" class="lrow">
+              <view class="lrow-main">
+                <view class="lrow-title">{{item.label || item.code}}</view>
+                <view class="lrow-sub">{{item.note || ''}}</view>
+              </view>
+              <text class="adm-dot {{item.status === 'up' ? 'on' : ''}}">{{item.status === 'up' ? '可用' : '不可用'}}</text>
+            </view>
+          </block>
+        </view>
+
+        <view class="card mt24">
+          <view class="card-title">算力网关</view>
+          <block wx:if="{{relay}}">
+            <view class="adm-li mt12">网关 {{relay.gateway || relay.base_url || '—'}}</view>
+            <view class="adm-li">密钥 {{relay.api_key_masked || relay.apiKeyMasked || '未配置'}}</view>
+            <view class="adm-li">模式 {{relay.mock ? '演练（不消耗真实算力）' : '真实'}}</view>
+          </block>
+          <view wx:else class="hint mt12">读取中…</view>
+          <view class="tiny mt12">换密钥请走网页控制台 admin.html，小程序只读，避免密钥在手机上被截屏带走。</view>
+        </view>
+      </block>
+    </view>
+  </block>
+
+  <!-- 用户操作抽屉 -->
+  <view wx:if="{{sheetOpen}}" class="sheet-mask" bindtap="closeSheet"></view>
+  <view wx:if="{{sheetOpen}}" class="sheet">
+    <view class="sheet-bar"></view>
+    <view class="sheet-title">{{acting.nickname || acting.id}}</view>
+    <view class="tiny mt8">余额 {{acting.balance_points}} 点 · {{acting.phone_masked || '未绑手机'}}</view>
+
+    <view class="field-label mt24"><text>调整点数</text><text class="opt">正数加，负数扣</text></view>
+    <input class="input" type="number" placeholder="比如 100 或 -50" placeholder-class="input-ph"
+      value="{{deltaInput}}" bindinput="onDelta" />
+    <input class="input mt16" placeholder="备注（可选，会记进流水）" placeholder-class="input-ph"
+      value="{{deltaNote}}" bindinput="onDeltaNote" />
+    <view class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="submitDelta">确认调账</view>
+
+    <view class="row mt24" style="gap:16rpx">
+      <view class="btn btn-ghost flex1 tap" hover-class="tap-on" bindtap="toggleStatus">
+        {{acting.status === 'banned' ? '恢复账号' : '停用账号'}}
+      </view>
+      <view class="btn btn-ghost flex1 tap" hover-class="tap-on" bindtap="toggleRole">
+        {{acting.role === 'admin' ? '取消管理员' : '设为管理员'}}
+      </view>
+    </view>
+    <view class="sheet-cancel tap" hover-class="tap-on" bindtap="closeSheet">取消</view>
+  </view>
+</view>

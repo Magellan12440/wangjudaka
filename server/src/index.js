@@ -10,6 +10,7 @@ import { logger } from './core/redact.js';
 import { db } from './store/db.js';
 import assetLibrary from './assets/AssetLibrary.js';
 import adminService from './admin/AdminService.js';
+import adminConsole from './admin/AdminConsole.js';
 import productionService from './pipeline/ProductionService.js';
 import { loadRelayRuntime } from './relay/RelayRuntime.js';
 
@@ -18,6 +19,14 @@ globalThis.__lingwuAssetLibrary = assetLibrary;
 
 // V3.6：充值档次默认播种（幂等，集合非空时不动）
 adminService.seedDefaultPackages();
+
+// V4.7：管理员账号引导。配了 ADMIN_PHONE/ADMIN_PASSWORD 就直接建；
+// 否则一个管理员都没有时生成一次性激活码，只打在启动日志里。
+try {
+  adminConsole.ensureBootstrap();
+} catch (e) {
+  logger.warn('管理员账号初始化失败（可在管理台稍后激活）', { msg: e.message });
+}
 
 // V4.3.1：管理台保存过的算力网关配置优先于环境变量（密钥不进 git，轮换不用发版）
 try {

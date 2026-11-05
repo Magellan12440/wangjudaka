@@ -383,3 +383,25 @@
   border-top: 1rpx solid rgba(255, 255, 255, 0.07);
   font-size: 21rpx; line-height: 1.55; color: #A9B3C5;
 }
+
+/* —— 多项目切换（V4.7）—— */
+.p-top { display: flex; gap: 14rpx; margin-bottom: 18rpx; }
+.p-top-btn {
+  padding: 10rpx 22rpx;
+  border-radius: 999rpx;
+  font-size: 21rpx;
+  color: #FFE9C0;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1rpx solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8rpx);
+}
+.p-list { max-height: 52vh; margin-top: 8rpx; }
+.lrow.on { background: rgba(243, 201, 105, 0.08); border-radius: 16rpx; }
+.p-idx {
+  display: inline-block; margin-right: 10rpx; padding: 0 10rpx;
+  border-radius: 8rpx; font-size: 19rpx; line-height: 30rpx;
+  color: #F3C969; background: rgba(243, 201, 105, 0.12);
+  font-variant-numeric: tabular-nums;
+}
+.p-cur { font-size: 20rpx; color: #F3C969; margin-left: 14rpx; flex: none; }
+.sheet-cancel { margin-top: 18rpx; text-align: center; font-size: 24rpx; color: #7C8699; padding: 14rpx 0; }

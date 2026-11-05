@@ -291,3 +291,28 @@
 .sec-v { margin-top: 6rpx; font-size: 26rpx; color: #E9EEF7; }
 .sec-dev { margin-top: 12rpx; font-size: 20rpx; color: #A99260; }
 .sec-err { margin-top: 16rpx; font-size: 22rpx; color: #FF8E8E; }
+
+/* —— 管理后台入口（V4.7）—— */
+.adm-entry {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 24rpx;
+  padding: 24rpx 26rpx;
+  border-radius: 24rpx;
+  background:
+    radial-gradient(120% 100% at 100% 0%, rgba(243, 201, 105, 0.16), rgba(243, 201, 105, 0) 62%),
+    rgba(255, 255, 255, 0.05);
+  border: 1rpx solid rgba(243, 201, 105, 0.26);
+}
+.adm-entry-left { display: flex; align-items: center; gap: 18rpx; flex: 1; min-width: 0; }
+.adm-entry-tag {
+  flex: none;
+  padding: 6rpx 12rpx;
+  border-radius: 8rpx;
+  font-size: 17rpx;
+  letter-spacing: 2rpx;
+  color: #241705;
+  background: linear-gradient(140deg, #FFE2A6, #E9AC4C);
+}
+.adm-entry-title { font-size: 29rpx; font-weight: 700; color: #FFE9C0; }
+.adm-entry-sub { margin-top: 6rpx; font-size: 21rpx; color: #97A1B3; }
+.adm-entry-arrow { font-size: 34rpx; color: #F3C969; margin-left: 12rpx; }

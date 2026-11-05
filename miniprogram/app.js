@@ -19,6 +19,8 @@ App({
     // 跨 tab 传参：首页输入的剧名、分发页选中的项目与平台
     draftTitle: '',
     draftPrompt: '',
+    // V4.7：多项目 —— 任何「新建」入口置 true，创作页 onShow 见到就复位成空表单
+    startNew: false,
     selectedProjectId: '',
     selectedPlatform: '',
     profileComplete: false,

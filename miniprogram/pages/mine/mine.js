@@ -61,6 +61,8 @@ Page({
     secError: '',
     // 收益看板（V4.4）
     revenueTotal: 0,
+    // 管理后台（V4.7）：只看服务端给的 is_admin，不在本地猜
+    isAdmin: false,
   },
 
   onShow() {
@@ -96,6 +98,12 @@ Page({
   openRevenue() {
     motion.haptic();
     wx.navigateTo({ url: '/pages/revenue/revenue' });
+  },
+
+  /** 管理后台（V4.7）：入口只对管理员渲染，进来后服务端还会再校验一次角色 */
+  goAdmin() {
+    motion.haptic();
+    wx.navigateTo({ url: '/pages/admin/admin' });
   },
 
   // —— 账号安全（V4.4）：绑手机 / 设密码 ——
@@ -263,6 +271,7 @@ Page({
           hasPhone: !!d.user.has_phone,
           phoneMasked: d.user.phone_masked || '',
           hasPassword: !!d.user.has_password,
+          isAdmin: d.user.is_admin === true || d.user.role === 'admin',
         });
         motion.countUp(this, 'balanceShow', d.user.balance_points || 0, { duration: 700 });
       })

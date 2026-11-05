@@ -93,6 +93,9 @@ Page({
     stylesError: '',
     showAllStyles: false,
     canCreate: false,
+    // —— 多项目（V4.7）：一个人可以同时有几部剧在跑 ——
+    myProjects: [],
+    switcherOpen: false,
     // —— 创作来源（V4.6）——
     origins: ORIGINS,
     origin: 'idea',
@@ -112,15 +115,102 @@ Page({
     const app = getApp();
     motion.enter(this);
     this.setData({ balance: app.globalData.balance || 0 });
+
+    /**
+     * 「另开一部」（V4.7）。
+     *
+     * 以前的坑：创作页是 tabBar 页，切走再切回来还是上次那一步，
+     * 用户想开第二部剧只能反复点返回、手动清空，很容易以为「系统只允许一个项目」。
+     * 现在任何入口（首页「新建 +」、项目页「另开一部」、我的剧组）都带这个标记，
+     * 一进来就把表单复位，落到第 1 步。
+     */
+    const draft = app.globalData.draftTitle;
+    if (app.globalData.startNew) {
+      app.globalData.startNew = false;
+      this.resetNew({ keepCatalog: true });
+    }
+    // 首页带过来的剧名优先：复位后再填，否则会被 reset 冲掉
+    if (draft) {
+      app.globalData.draftTitle = '';
+      this.setData({ title: draft.slice(0, 30) }, () => this.syncMeta());
+    } else if (!this.data.title && app.globalData.draftTitle) {
+      this.setData({ title: app.globalData.draftTitle }, () => this.syncMeta());
+    }
+
     app.ready().then(() => {
       this.setData({ balance: app.globalData.balance || 0 });
       if (!this.data.styles.length) this.loadCatalog();
       if (!this.data.modelRoles.length) this.loadModels();
-      if (app.globalData.draftTitle && !this.data.title) {
-        this.setData({ title: app.globalData.draftTitle }, () => this.syncMeta());
-      }
+      this.loadMyProjects();
     });
     this.syncMeta();
+  },
+
+  /** 拉一次自己有多少部剧，用于「我的剧组」切换 */
+  loadMyProjects() {
+    const app = getApp();
+    if (!app.globalData.userId) return;
+    api.projects(app.globalData.userId)
+      .then((list) => {
+        const arr = Array.isArray(list) ? list : [];
+        this.setData({ myProjects: arr.slice(0, 30).map((p) => ({ id: p.id, title: p.title, label: p.index_label || '' })) });
+      })
+      .catch(() => {});
+  },
+
+  /**
+   * 复位成「新建一部」的干净状态。
+   * keepCatalog：保留已加载的风格/模型目录，避免复位后又白屏一次。
+   */
+  resetNew(opts = {}) {
+    const app = getApp();
+    app.globalData.draftTitle = '';
+    this.setData({
+      step: 1,
+      title: '',
+      prompt: '',
+      origin: 'idea',
+      adaptMode: 'remix',
+      scriptText: '',
+      scriptChars: 0,
+      scriptName: '',
+      quote: null,
+      quoteLoading: false,
+      creating: false,
+      createPhase: '',
+      stylesError: '',
+    });
+    if (!opts.keepCatalog) {
+      this.setData({ styles: [], modelRoles: [], editProfiles: [] });
+      this.loadCatalog();
+      this.loadModels();
+    }
+    this.syncMeta();
+    wx.pageScrollTo({ scrollTop: 0, duration: 200 });
+  },
+
+  /** 顶栏「另开一部」：已经有了剧，仍要能再开一部 */
+  newProject() {
+    motion.haptic();
+    this.resetNew({ keepCatalog: true });
+    wx.showToast({ title: '已清空，填写新剧名即可', icon: 'none' });
+  },
+
+  openSwitcher() {
+    motion.haptic();
+    this.loadMyProjects();
+    this.setData({ switcherOpen: true });
+  },
+
+  closeSwitcher() {
+    this.setData({ switcherOpen: false });
+  },
+
+  pickProject(e) {
+    const id = e.currentTarget.dataset.id;
+    motion.haptic();
+    this.setData({ switcherOpen: false });
+    wx.navigateTo({ url: `/pages/project/project?id=${id}` });
   },
 
   onHide() {
@@ -444,6 +534,8 @@ Page({
           quote: null, scriptText: '', scriptChars: 0, scriptName: '', origin: 'idea',
         });
         app.globalData.draftTitle = '';
+        // 新剧建好就把它设为分发页的默认项目，省一次手选
+        app.globalData.selectedProjectId = proj.id;
         // 改编路线直接落在素材 tab：下一步就是点「用这些素材生成剧本」
         const adapt = wasMaterial ? '&tab=material&adapt=1' : '';
         wx.navigateTo({ url: `/pages/project/project?id=${proj.id}&fresh=1&setup=1${adapt}` });

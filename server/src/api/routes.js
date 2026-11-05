@@ -46,6 +46,7 @@ import contentSecurity from '../security/ContentSecurity.js';
 import virtualPay from '../pay/VirtualPay.js';
 import wechatClient from '../wechat/WechatClient.js';
 import adminService from '../admin/AdminService.js';
+import adminConsole from '../admin/AdminConsole.js';
 import inviteService from '../growth/InviteService.js';
 import seriesService from '../pipeline/SeriesService.js';
 import { modelCatalog } from '../relay/ModelCatalog.js';
@@ -1523,14 +1524,55 @@ export const routes = [
     return { items: adminService.myRedeems(userId, { limit: +(query.limit ?? 50) }) };
   }],
 
-  // —— 管理员后台（V3.6）：一律 X-Admin-Token 鉴权，未配置 ADMIN_TOKEN 全部 403 ——
+  // —— 管理员账号（V4.7）：小程序内也能进后台 ——
+  // 这三个是公开接口（否则没人能建第一个管理员），但都不回吐激活码本身。
+  ['GET', '/api/admin/bootstrap', async () => adminConsole.bootstrapStatus()],
+  ['POST', '/api/admin/bootstrap', async ({ body }) => adminConsole.bootstrap(body ?? {})],
+  ['POST', '/api/admin/login', async ({ body }) => adminConsole.login(body ?? {})],
+
+  // —— 管理员后台（V3.6）：X-Admin-Token 或 role=admin 的登录态，二者其一 ——
+  ['GET', '/api/admin/stats', async ({ req }) => {
+    adminConsole.assertAdmin(req);
+    return adminConsole.stats();
+  }],
+  ['GET', '/api/admin/users', async ({ query, req }) => {
+    adminConsole.assertAdmin(req);
+    return adminConsole.listUsers({
+      q: query.q ?? '',
+      role: query.role ?? '',
+      limit: query.limit ?? 30,
+      offset: query.offset ?? 0,
+    });
+  }],
+  ['GET', '/api/admin/users/:id', async ({ params, req }) => {
+    adminConsole.assertAdmin(req);
+    return adminConsole.userDetail(params.id);
+  }],
+  ['POST', '/api/admin/users/:id/points', async ({ params, body, req }) => {
+    adminConsole.assertAdmin(req);
+    return adminConsole.adjustPoints({
+      userId: params.id,
+      delta: body?.delta,
+      note: body?.note ?? null,
+      idemKey: body?.idemKey ?? null,
+    });
+  }],
+  ['POST', '/api/admin/users/:id/status', async ({ params, body, req }) => {
+    const actor = adminConsole.assertAdmin(req);
+    return adminConsole.setUserStatus({ userId: params.id, status: body?.status, actorId: actor.userId });
+  }],
+  ['POST', '/api/admin/users/:id/role', async ({ params, body, req }) => {
+    const actor = adminConsole.assertAdmin(req);
+    return adminConsole.setUserRole({ userId: params.id, role: body?.role, actorId: actor.userId });
+  }],
+
   // 算力网关：读脱敏状态 / 写新密钥（存数据盘，立即生效，不进 git）
   ['GET', '/api/admin/relay', async ({ req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return relayRuntime.view();
   }],
   ['POST', '/api/admin/relay', async ({ body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return relayRuntime.saveRelayRuntime({
       apiKey: body.apiKey,
       gateway: body.gateway,
@@ -1539,97 +1581,97 @@ export const routes = [
   }],
   // 立即按新密钥探活，避免「填完不知道通不通」
   ['POST', '/api/admin/relay/probe', async ({ req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     const r = await probeModels({ deep: true });
     return { ...relayRuntime.view(), probe: r };
   }],
   ['GET', '/api/admin/overview', async ({ req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return adminService.overview();
   }],
   ['GET', '/api/admin/packages', async ({ req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return { items: adminService.listPackages({ includeOffline: true }) };
   }],
   ['POST', '/api/admin/packages', async ({ body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return adminService.createPackage(body);
   }],
   ['POST', '/api/admin/packages/:id', async ({ params, body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return adminService.updatePackage(params.id, body);
   }],
   ['POST', '/api/admin/packages/:id/status', async ({ params, body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return adminService.setPackageStatus(params.id, body.status);
   }],
   ['POST', '/api/admin/redeem-codes', async ({ body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return adminService.generateCodes(body);
   }],
   ['GET', '/api/admin/redeem-codes', async ({ query, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return adminService.listCodes({
       status: query.status ?? null, batchId: query.batchId ?? null,
       limit: +(query.limit ?? 100), offset: +(query.offset ?? 0),
     });
   }],
   ['GET', '/api/admin/redeem-codes/stats', async ({ req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return adminService.codeStats();
   }],
   ['POST', '/api/admin/redeem-codes/revoke', async ({ body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return adminService.revokeCode(body.code);
   }],
 
   // —— 管理端：邀请裂变（V4.1）——
   ['GET', '/api/admin/invites', async ({ query, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return inviteService.adminList({
       status: query.status || null, limit: +(query.limit ?? 100), offset: +(query.offset ?? 0),
     });
   }],
   ['GET', '/api/admin/invites/stats', async ({ req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return inviteService.adminStats();
   }],
   ['POST', '/api/admin/invites/reject', async ({ body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return inviteService.adminReject(body.inviteId, body.reason ?? 'manual');
   }],
   ['GET', '/api/admin/invite-settings', async ({ req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return inviteService.settings();
   }],
   ['POST', '/api/admin/invite-settings', async ({ body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return inviteService.updateSettings(body);
   }],
   ['GET', '/api/admin/redeem-codes/:code/usages', async ({ params, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return { items: adminService.codeUsages(params.code) };
   }],
 
   // —— 管理端：充值活动（按档次加赠） ——
   ['GET', '/api/admin/campaign', async ({ req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     const c = adminService.campaign();
     return { ...c, active: adminService.campaignActive() };
   }],
   ['POST', '/api/admin/campaign', async ({ body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     const c = adminService.saveCampaign(body ?? {});
     return { ...c, active: adminService.campaignActive() };
   }],
 
   // —— 管理端：模型目录与探活（实测不可用的模型自动从用户列表消失） ——
   ['GET', '/api/admin/models/catalog', async ({ req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     return { catalog: modelCatalog.all(), health: modelCatalog.health() };
   }],
   ['POST', '/api/admin/models/probe', async ({ body, req }) => {
-    adminService.assertAdmin(req.headers['x-admin-token']);
+    adminConsole.assertAdmin(req);
     const { probeModels } = await import('../relay/probeModels.js');
     return probeModels({ deep: body.deep === true });
   }],

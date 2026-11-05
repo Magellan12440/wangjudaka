@@ -42,6 +42,29 @@ function sha256(s) {
   return crypto.createHash('sha256').update(String(s)).digest('hex');
 }
 
+/**
+ * 密码哈希（scrypt + 16 字节随机盐）。
+ *
+ * 抽成独立函数是因为「内置管理员账号」也要走同一套口径——
+ * 管理员密码不能是明文、也不能换一种弱算法，否则管理后台就是整个系统最软的入口。
+ */
+export function hashPassword(password) {
+  const pw = String(password ?? '');
+  if (pw.length < 6) fail('PASSWORD_TOO_SHORT', '密码至少 6 位');
+  if (pw.length > 64) fail('PASSWORD_TOO_LONG', '密码最长 64 位');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(pw, salt, 32).toString('hex');
+  return { password_hash: hash, password_salt: salt };
+}
+
+/** 校验密码：常量时间比较，避免按字节提前返回泄露长度信息 */
+export function verifyPassword(password, hash, salt) {
+  if (!hash || !salt) return false;
+  const a = Buffer.from(crypto.scryptSync(String(password ?? ''), salt, 32).toString('hex'), 'hex');
+  const b = Buffer.from(String(hash), 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 class AuthService {
   /**
    * 登录/注册（幂等）。
@@ -114,6 +137,8 @@ class AuthService {
     if (!v) fail(ERR.AUTH_TOKEN_INVALID, '登录态无效或已过期，请重新登录');
     const user = db.findOne(USERS, (u) => u.id === v.userId);
     if (!user) fail(ERR.AUTH_TOKEN_INVALID, '用户不存在');
+    // V4.7：被停用的账号立刻失效，不等 token 过期
+    if (user.status === 'banned') fail(ERR.AUTH_TOKEN_INVALID, '账号已停用，请联系管理员');
     return user;
   }
 
@@ -189,14 +214,10 @@ class AuthService {
 
   /** 设置/修改密码（需已登录；旧密码不强制，因为微信用户本来就没密码） */
   setPassword(userId, { password } = {}) {
-    const pw = String(password ?? '');
-    if (pw.length < 6) fail('PASSWORD_TOO_SHORT', '密码至少 6 位');
-    if (pw.length > 64) fail('PASSWORD_TOO_LONG', '密码最长 64 位');
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.scryptSync(pw, salt, 32).toString('hex');
+    const h = hashPassword(password);
     const user = db.findOne(USERS, (u) => u.id === userId);
     if (!user) fail(ERR.NOT_FOUND, '用户不存在');
-    db.update(USERS, userId, { password_hash: hash, password_salt: salt, password_updated_at: nowIso() });
+    db.update(USERS, userId, { ...h, password_updated_at: nowIso() });
     return this.publicUser(db.findOne(USERS, (u) => u.id === userId));
   }
 
@@ -206,10 +227,9 @@ class AuthService {
     const user = db.findOne(USERS, (u) => u.phone === p);
     // 不区分「没这个号」和「密码错」，避免被用来探测手机号是否注册
     if (!user?.password_hash) fail('LOGIN_FAILED', '手机号或密码不对');
-    const hash = crypto.scryptSync(String(password ?? ''), user.password_salt, 32).toString('hex');
-    const a = Buffer.from(hash, 'hex');
-    const b = Buffer.from(user.password_hash, 'hex');
-    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) fail('LOGIN_FAILED', '手机号或密码不对');
+    if (!verifyPassword(password, user.password_hash, user.password_salt)) {
+      fail('LOGIN_FAILED', '手机号或密码不对');
+    }
     db.update(USERS, user.id, { last_login_at: nowIso() });
     return { token: this.#sign(user.id), user: this.publicUser(user), mode: 'password', isNewUser: false };
   }
@@ -229,6 +249,37 @@ class AuthService {
     if (occupied) fail('PHONE_TAKEN', '该手机号已绑定其他账号');
     db.update(SMS, row.id, { used: true, used_at: nowIso() });
     db.update(USERS, userId, { phone: p, phone_bound_at: nowIso() });
+    return this.publicUser(db.findOne(USERS, (u) => u.id === userId));
+  }
+
+  /**
+   * 直接建一个「手机号 + 密码」账号（管理后台激活内置管理员时用）。
+   * 与短信登录的区别：不经过验证码，因为没有可用的短信通道，也不该为了让站长进来而伪造验证码。
+   */
+  createAccount({ phone, password, nickname = null, role = 'user' } = {}) {
+    const p = normalizePhone(phone);
+    if (db.findOne(USERS, (u) => u.phone === p)) fail('PHONE_TAKEN', '该手机号已被占用');
+    const h = hashPassword(password);
+    const user = db.insert(USERS, {
+      id: newId('user'),
+      openid: `phone_${sha256(p).slice(0, 20)}`,
+      phone: p,
+      nickname: nickname ?? (role === 'admin' ? '管理员' : `创作者${p.slice(-4)}`),
+      avatar: null,
+      role: role === 'admin' ? 'admin' : 'user',
+      ...h,
+      created_at: nowIso(),
+      last_login_at: nowIso(),
+    });
+    ledger.ensureAccount(user.id);
+    return this.publicUser(user);
+  }
+
+  /** 设定角色（提升/取消管理员）；至少保留一个管理员由调用方保证 */
+  setRole(userId, role) {
+    const user = db.findOne(USERS, (u) => u.id === userId);
+    if (!user) fail(ERR.NOT_FOUND, '用户不存在');
+    db.update(USERS, userId, { role: role === 'admin' ? 'admin' : 'user', role_updated_at: nowIso() });
     return this.publicUser(db.findOne(USERS, (u) => u.id === userId));
   }
 
@@ -266,6 +317,9 @@ class AuthService {
       phone_masked: maskPhone(user.phone),
       has_password: Boolean(user.password_hash),
       has_phone: Boolean(user.phone),
+      // V4.7：管理员与普通用户的唯一区别就是这一位，前端据此决定是否显示「管理后台」
+      role: user.role === 'admin' ? 'admin' : 'user',
+      is_admin: user.role === 'admin',
       created_at: user.created_at,
     };
   }

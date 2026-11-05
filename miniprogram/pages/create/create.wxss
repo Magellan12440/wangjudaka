@@ -280,3 +280,36 @@
 }
 .auto-title { font-size: 25rpx; color: #FFE9C0; font-weight: 600; }
 .auto-sub { font-size: 21rpx; color: #8B95A7; line-height: 1.6; margin-top: 8rpx; }
+
+/* —— 多项目（V4.7）—— */
+.mp-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 18rpx; padding: 14rpx 20rpx;
+  border-radius: 18rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid rgba(255, 255, 255, 0.07);
+}
+.mp-left { display: flex; align-items: baseline; gap: 8rpx; }
+.mp-num { font-size: 28rpx; font-weight: 700; color: #F3C969; font-variant-numeric: tabular-nums; }
+.mp-text { font-size: 21rpx; color: #8D97A9; }
+.mp-new {
+  padding: 8rpx 20rpx; border-radius: 999rpx;
+  font-size: 21rpx; color: #FFE4AC;
+  background: rgba(243, 201, 105, 0.14);
+  border: 1rpx solid rgba(243, 201, 105, 0.28);
+}
+.mp-list { max-height: 50vh; margin-top: 8rpx; }
+.mp-list .lrow-title { font-size: 27rpx; }
+.lrow-arrow { font-size: 32rpx; color: #5E6879; margin-left: 16rpx; }
+.sheet-cancel { margin-top: 18rpx; text-align: center; font-size: 24rpx; color: #7C8699; padding: 14rpx 0; }
+.idx-tag {
+  display: inline-block;
+  margin-right: 10rpx;
+  padding: 0 10rpx;
+  border-radius: 8rpx;
+  font-size: 19rpx;
+  line-height: 30rpx;
+  color: #F3C969;
+  background: rgba(243, 201, 105, 0.12);
+  font-variant-numeric: tabular-nums;
+}
