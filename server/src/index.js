@@ -11,12 +11,20 @@ import { db } from './store/db.js';
 import assetLibrary from './assets/AssetLibrary.js';
 import adminService from './admin/AdminService.js';
 import productionService from './pipeline/ProductionService.js';
+import { loadRelayRuntime } from './relay/RelayRuntime.js';
 
 // 导演总谱在规划阶段需要读角色情绪档案；用全局只读句柄避免启动期循环依赖
 globalThis.__lingwuAssetLibrary = assetLibrary;
 
 // V3.6：充值档次默认播种（幂等，集合非空时不动）
 adminService.seedDefaultPackages();
+
+// V4.3.1：管理台保存过的算力网关配置优先于环境变量（密钥不进 git，轮换不用发版）
+try {
+  loadRelayRuntime();
+} catch (e) {
+  logger.warn('算力网关运行时配置加载失败，回退到环境变量', { msg: e.message });
+}
 
 const v = seeds.validate();
 if (!v.ok) {

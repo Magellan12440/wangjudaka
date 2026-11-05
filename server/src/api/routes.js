@@ -39,6 +39,8 @@ import { parseMultipart, readRawBody } from './multipart.js';
 import materialService from '../assets/MaterialService.js';
 import authService from '../auth/AuthService.js';
 import { resolveScope, resolveOwnership } from '../auth/scope.js';
+import * as relayRuntime from '../relay/RelayRuntime.js';
+import { probeModels } from '../relay/probeModels.js';
 import contentSecurity from '../security/ContentSecurity.js';
 import virtualPay from '../pay/VirtualPay.js';
 import wechatClient from '../wechat/WechatClient.js';
@@ -1214,6 +1216,25 @@ export const routes = [
   }],
 
   // —— 管理员后台（V3.6）：一律 X-Admin-Token 鉴权，未配置 ADMIN_TOKEN 全部 403 ——
+  // 算力网关：读脱敏状态 / 写新密钥（存数据盘，立即生效，不进 git）
+  ['GET', '/api/admin/relay', async ({ req }) => {
+    adminService.assertAdmin(req.headers['x-admin-token']);
+    return relayRuntime.view();
+  }],
+  ['POST', '/api/admin/relay', async ({ body, req }) => {
+    adminService.assertAdmin(req.headers['x-admin-token']);
+    return relayRuntime.saveRelayRuntime({
+      apiKey: body.apiKey,
+      gateway: body.gateway,
+      mock: body.mock,
+    });
+  }],
+  // 立即按新密钥探活，避免「填完不知道通不通」
+  ['POST', '/api/admin/relay/probe', async ({ req }) => {
+    adminService.assertAdmin(req.headers['x-admin-token']);
+    const r = await probeModels({ deep: true });
+    return { ...relayRuntime.view(), probe: r };
+  }],
   ['GET', '/api/admin/overview', async ({ req }) => {
     adminService.assertAdmin(req.headers['x-admin-token']);
     return adminService.overview();
