@@ -67,6 +67,12 @@ function shapeEdit(p) {
     advisory: errs.filter((e) => !e.fatal),
     segments: segs,
     segLimit: 8,
+    // 分镜还没生成时后端返回结构化的空剪辑单（station=need_storyboard），
+    // UI 要引导去「流程」页，而不是显示「还差 0 个片段」这种莫名其妙的话
+    station: p.station || null,
+    noStoryboard: p.station === 'need_storyboard',
+    nextAction: p.next_action || null,
+    hasClips: segs.length > 0,
   };
 }
 
@@ -403,8 +409,15 @@ Page({
     if (tab === 'deliver') this.loadEdit();
   },
 
-  toggleShots() {
+  /** 剪辑单提示「还没分镜」时，一键跳回流程页去生成 */
+  goFlow() {
     motion.haptic();
+    const idx = TABS.findIndex((t) => t.key === 'flow');
+    this.setData({ tab: 'flow', tabIndex: idx < 0 ? 2 : idx, segTabsStyle: motion.segStyle(idx < 0 ? 2 : idx, TABS.length) });
+    wx.pageScrollTo({ scrollTop: 0, duration: 180 });
+  },
+
+  toggleShots() {    motion.haptic();
     this.setData({ shotLimit: this.data.shotLimit >= this.data.shots.length ? 12 : this.data.shots.length });
   },
 

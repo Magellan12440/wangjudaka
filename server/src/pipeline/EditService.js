@@ -94,6 +94,33 @@ export class EditService {
   plan(projectId, episodeNo = null) {
     const project = db.findOne('projects', (x) => x.id === projectId);
     if (!project) fail(ERR.NOT_FOUND, '项目不存在');
+    // 还没有分镜属于「流程未走到这一步」，不是错误请求：
+    // 抛 428 会让前端只能弹一个红框，用户看不到「下一步该点哪」。
+    // 所以这里返回结构化的空剪辑单，把引导交给 UI。
+    const planRec = db.findOne('director_plans', (x) => x.project_id === projectId);
+    if (!planRec?.storyboard?.shots?.length) {
+      return {
+        ok: false,
+        station: 'need_storyboard',
+        blocking: 1,
+        advisories: 0,
+        errors: [{
+          code: 'NO_STORYBOARD',
+          severity: 'fatal',
+          issue: '还没有分镜，无法剪辑',
+          message: '还没有分镜，无法剪辑；请先在「流程」里生成剧本与总谱',
+        }],
+        warnings: [],
+        next_action: { label: '去生成剧本与分镜', tab: 'flow' },
+        missing_shots: [],
+        coverage: 0,
+        segments: [],
+        timeline: { clips: 0, total_sec: 0, items: [] },
+        subtitles: { total: 0, cues: [] },
+        sound: { cues: [], bgm: null },
+        deliverables: [],
+      };
+    }
     const { shots, missing, episode } = this.collectShots(projectId, episodeNo);
     const style = seeds.style(project.spec?.style_code) ?? null;
     const director = seeds.director(project.spec?.director_code ?? style?.director_profile_default) ?? null;
