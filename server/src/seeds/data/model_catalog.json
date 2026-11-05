@@ -1,0 +1,115 @@
+{
+  "_note": "V4.3 用户可选模型目录：每个环节最多展示 5 个，按热度/效果人工排序。只展示通过实测（probe）且可商用的模型；上游下架、实测失败、许可证不允许商用的条目会被服务端自动隐藏，前端不需要自己判断。",
+  "_updated_at": "2026-11-05",
+  "roles": {
+    "chat": {
+      "name": "剧本与推理",
+      "hint": "写大纲、剧本、分镜与改稿都用这里的模型",
+      "items": [
+        {
+          "model": "AUTO-DEEPSEEK-V4_1-FLASH",
+          "label": "DeepSeek V4.1",
+          "desc": "默认推荐：长剧本结构稳，中文对白最像人写的",
+          "recommended": true
+        },
+        {
+          "model": "LLM-PLOT-PRO",
+          "label": "DeepSeek V4 Pro",
+          "desc": "高质量档：复杂多线剧情与反转更擅长，耗时更长"
+        },
+        {
+          "model": "LLM-PLOT",
+          "label": "GLM-5.3 Flash",
+          "desc": "极速档：改一句台词、补一段过场，秒回"
+        }
+      ]
+    },
+    "image": {
+      "name": "分镜画面",
+      "hint": "关键帧、角色定妆、封面都走这里",
+      "items": [
+        {
+          "model": "IMG-DEFAULT",
+          "label": "即梦 4.5",
+          "desc": "默认推荐：人物一致性最好，竖屏构图稳",
+          "recommended": true
+        },
+        {
+          "model": "IMG-FAST",
+          "label": "TT Image 2.5",
+          "desc": "预览档：单张成本约为默认档的 1/15，审稿够用"
+        }
+      ]
+    },
+    "video": {
+      "name": "镜头视频",
+      "hint": "图生视频，把关键帧变成会动的镜头",
+      "items": [
+        {
+          "model": "VID-DEFAULT",
+          "label": "Seedance 2.0 动漫",
+          "desc": "默认推荐：运镜自然，漫剧画风不崩",
+          "recommended": true
+        },
+        {
+          "model": "VID-CHEAP",
+          "label": "万相 3.0",
+          "desc": "预览档：480P 快速出片，适合先看节奏"
+        }
+      ]
+    },
+    "audio": {
+      "name": "配音与配乐",
+      "hint": "角色配音、旁白、BGM 都归这一档",
+      "items": [
+        {
+          "model": "TTS-DEFAULT",
+          "label": "豆包 TTS 2.0",
+          "desc": "默认推荐：情绪跟着表演走，无需自己调参数",
+          "recommended": true
+        },
+        {
+          "model": "TTS-CLONE",
+          "label": "MiniMax 2.8 克隆",
+          "desc": "音色克隆：适合固定角色声线做系列剧"
+        },
+        {
+          "model": "MUS-DEFAULT",
+          "label": "海螺音乐 2.5",
+          "desc": "整段配乐：按情绪自动铺 BGM"
+        }
+      ]
+    },
+    "edit": {
+      "name": "剪辑成片",
+      "hint": "把镜头、字幕、配乐混成可交付的 MP4",
+      "items": [
+        {
+          "code": "ED-STD",
+          "label": "标准成片",
+          "desc": "1080P 烧字幕 + 混音，平台审核通用档",
+          "preset": "medium",
+          "recommended": true
+        },
+        {
+          "code": "ED-FAST",
+          "label": "快速审片",
+          "desc": "更快的编码档，先看整体节奏",
+          "preset": "veryfast"
+        },
+        {
+          "code": "ED-HQ",
+          "label": "高质成片",
+          "desc": "慢编码、码率更高，适合定稿归档",
+          "preset": "slow"
+        },
+        {
+          "code": "ED-EDL",
+          "label": "仅导出剪辑单",
+          "desc": "不下合成，导出字幕/剪辑单到本地自己剪",
+          "preset": null
+        }
+      ]
+    }
+  }
+}

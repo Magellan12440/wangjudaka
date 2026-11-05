@@ -44,6 +44,11 @@ import wechatClient from '../wechat/WechatClient.js';
 import adminService from '../admin/AdminService.js';
 import inviteService from '../growth/InviteService.js';
 import seriesService from '../pipeline/SeriesService.js';
+import { modelCatalog } from '../relay/ModelCatalog.js';
+import { projectIndex } from '../projects/ProjectIndex.js';
+import { shellService } from '../shell/ShellService.js';
+import { productionService } from '../pipeline/ProductionService.js';
+import { submissionPack } from '../distribution/SubmissionPack.js';
 import { logger, redact } from '../core/redact.js';
 import { AppError } from '../core/errors.js';
 import { newId, nowIso } from '../core/util.js';
@@ -134,6 +139,11 @@ export const routes = [
 
   // —— 模型（前端只见展示名与点数价） ——
   ['GET', '/api/models', async ({ query }) => modelRegistry.listForClient(query.role || null)],
+  // V4.3：用户可选模型目录（每个环节最多 5 个，已实测可用才出现）
+  ['GET', '/api/catalog/models', async ({ query }) => {
+    if (query.role) return modelCatalog.list(query.role);
+    return modelCatalog.publicRoles();
+  }],
 
   // —— 账户与点数 ——
   ['GET', '/api/account/balance', async ({ query }) => {
@@ -160,6 +170,8 @@ export const routes = [
     const user = authService.optionalUser(req);
     const userId = user?.id ?? query.userId;
     if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录');
+    // 历史项目补序号（幂等），保证列表里的 #编号 稳定且不重复
+    projectIndex.ensure(userId);
     const all = db.find(PROJECTS, (p) => p.user_id === userId && (query.includeArchived === '1' || p.archived !== true))
       .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
     const styleNames = new Map(seeds.stylePresets.map((s) => [s.code, s.name]));
@@ -189,6 +201,7 @@ export const routes = [
 
       return {
         ...p,
+        ...projectIndex.view(p),
         style_name: styleNames.get(spec.style_code) ?? spec.style_code ?? '都市',
         episodes,
         shots,
@@ -224,9 +237,18 @@ export const routes = [
     if (actor && body.userId && actor.id !== body.userId) {
       throw new AppError('OBJECT_FORBIDDEN', '不能替其他用户创建项目');
     }
+    const userId = actor?.id ?? body.userId;
+    if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录再新建项目');
+
+    // V4.3：新建项目只需要一个剧名。创意、素材、风格都可以后置，
+    // 但剧名是「一部剧」的身份，必须先有 —— 没有剧名的项目在列表里等于垃圾数据。
+    const title = String(body.title ?? '').trim();
+    if (!title) throw new AppError('TITLE_REQUIRED', '请先给这部剧起个名字');
+    if (title.length > 30) throw new AppError('TITLE_TOO_LONG', '剧名最多 30 个字');
+
     await contentSecurity.assertText({
-      content: [body.title, body.prompt].filter(Boolean).join('\n'),
-      openid: contentSecurity.openidOf(actor?.id ?? body.userId),
+      content: [title, body.prompt].filter(Boolean).join('\n'),
+      openid: contentSecurity.openidOf(userId),
       bizType: 'project_create', scene: 1,
     });
 
@@ -234,17 +256,24 @@ export const routes = [
     if (body.fromProjectId) {
       const r = seriesService.createSeason({
         projectId: body.fromProjectId,
-        title: body.title ?? null,
+        title: title ?? null,
         prompt: body.prompt ?? null,
       });
+      const patch = projectIndex.assignPatch(r.project.user_id);
+      db.update(PROJECTS, r.project.id, patch);
+      // 剧壳：续集默认继承上一季的系列标识（片名卡/片尾文案），但重新生成片头视频
+      try { shellService.inherit(body.fromProjectId, r.project.id); } catch { /* 剧壳缺失不阻塞开剧 */ }
       inviteService.markMilestone({ userId: r.project.user_id, milestone: 'project_created' });
-      return r.project;
+      return db.findOne(PROJECTS, (x) => x.id === r.project.id);
     }
 
+    const idx = projectIndex.assignPatch(userId);
     const proj = db.insert(PROJECTS, {
       id: newId('proj'),
-      user_id: body.userId,
-      title: body.title ?? '未命名漫剧',
+      user_id: userId,
+      title,
+      ...idx,
+      series_title: body.seriesTitle ? String(body.seriesTitle).slice(0, 30) : title,
       spec: {
         style_code: body.styleCode ?? 'STY-DUSHI',
         director_code: body.directorCode ?? null,
@@ -252,11 +281,21 @@ export const routes = [
         quality: body.quality ?? '1080p',
         total_minutes: body.totalMinutes ?? 10,
         episode_sec: body.episodeSec ?? 90,
+        episode_count: body.episodeCount ?? null,
         preset: body.preset ?? 'balanced',
         video_type: body.videoType ?? 'dynamic',
         language: body.language ?? 'zh',
         prompt: body.prompt ?? null,
+        models: body.models ?? {},
+        edit_profile: body.editProfile ?? 'ED-STD',
         ...(body.continuityFrom ? { continuity_from: body.continuityFrom } : {}),
+      },
+      shell: {
+        enabled: body.shellEnabled !== false,
+        series_title: body.seriesTitle ? String(body.seriesTitle).slice(0, 30) : title,
+        tagline: String(body.tagline ?? '').slice(0, 40),
+        opening: { enabled: true, sec: 3, text: title },
+        ending: { enabled: true, sec: 4, text: '下集更精彩 · 关注不迷路' },
       },
       status: 'draft',
       created_at: nowIso(),
@@ -265,10 +304,58 @@ export const routes = [
     inviteService.markMilestone({ userId: proj.user_id, milestone: 'project_created' });
     return proj;
   }],
-  ['GET', '/api/projects/:id', async ({ params }) => {
-    const p = db.findOne(PROJECTS, (x) => x.id === params.id);
-    if (!p) throw new AppError('NOT_FOUND', '项目不存在');
-    return p;
+  // 按编号找项目：项目多了以后「第 7 部」比标题更好用（只在本用户内查）
+  ['GET', '/api/projects/lookup', async ({ query, req }) => {
+    const user = authService.optionalUser(req);
+    const userId = user?.id ?? query.userId;
+    if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录');
+    projectIndex.ensure(userId);
+    const p = projectIndex.findByNo(userId, query.no);
+    if (!p) throw new AppError('NOT_FOUND', '没有这个编号的项目');
+    return { ...p, ...projectIndex.view(p) };
+  }],
+  ['GET', '/api/projects/:id', async ({ params, req }) => {
+    const p = projectOf(req, params.id);
+    return { ...p, ...projectIndex.view(p) };
+  }],
+  // 项目设置（V4.3）：剧名/风格/集数/时长/画质/模型/剪辑档位都可改，改完再生成
+  ['POST', '/api/projects/:id/settings', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const spec = { ...(p.spec ?? {}) };
+    const num = (v, min, max, d) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d;
+    };
+    if (body.title !== undefined) {
+      const t = String(body.title).trim();
+      if (!t) throw new AppError('TITLE_REQUIRED', '剧名不能为空');
+      db.update(PROJECTS, p.id, { title: t.slice(0, 30) });
+    }
+    if (body.styleCode) spec.style_code = String(body.styleCode).slice(0, 40);
+    if (body.directorCode !== undefined) spec.director_code = body.directorCode || null;
+    if (body.aspect) spec.aspect = ['9:16', '16:9', '4:3', '1:1'].includes(body.aspect) ? body.aspect : spec.aspect;
+    if (body.quality) spec.quality = ['720p', '1080p', '2k'].includes(body.quality) ? body.quality : spec.quality;
+    if (body.totalMinutes !== undefined) spec.total_minutes = num(body.totalMinutes, 1, 600, spec.total_minutes ?? 10);
+    if (body.episodeSec !== undefined) spec.episode_sec = num(body.episodeSec, 15, 600, spec.episode_sec ?? 90);
+    if (body.episodeCount !== undefined) spec.episode_count = num(body.episodeCount, 1, 200, null);
+    if (body.videoType) spec.video_type = ['dynamic', 'static', 'narration'].includes(body.videoType) ? body.videoType : spec.video_type;
+    if (body.prompt !== undefined) spec.prompt = String(body.prompt ?? '').slice(0, 4000) || null;
+    if (body.models && typeof body.models === 'object') {
+      const next = { ...(spec.models ?? {}) };
+      for (const role of ['chat', 'image', 'video', 'audio']) {
+        if (body.models[role]) next[role] = modelCatalog.resolve(role, body.models[role]);
+      }
+      spec.models = next;
+    }
+    if (body.editProfile) {
+      const ok = modelCatalog.list('edit').items.some((x) => x.code === body.editProfile);
+      if (ok) spec.edit_profile = body.editProfile;
+    }
+    if (body.seriesTitle !== undefined) {
+      db.update(PROJECTS, p.id, { series_title: String(body.seriesTitle ?? '').slice(0, 30) || p.title });
+    }
+    const updated = db.update(PROJECTS, p.id, { spec });
+    return { ...updated, ...projectIndex.view(updated) };
   }],
 
   // —— 项目详情聚合（V4.0）：一次请求渲染小程序详情页 ——
@@ -316,11 +403,42 @@ export const routes = [
       speaker: s.speaker ?? '',
     }));
 
+    const jobs = productionService.list(p.id);
+    const films = editService.films(p.id);
+    const packs = submissionPack.list(p.id);
+
+    // 面向用户的「制作进度」：按真实产物统计。
+    // 内部画布节点（12 步泳道）属于后端实现，不再作为用户可见口径。
+    const progress = (() => {
+      const hasScript = Boolean(planRec?.script?.episodes?.length);
+      const hasShots = Boolean((planRec?.storyboard?.shots ?? []).length);
+      const hasFrames = gens.some((g) => g.kind === 'image' && (g.url || g.status === 'done' || g.status === 'success'));
+      const steps = [
+        { key: 'script', name: '剧本', ok: hasScript },
+        { key: 'shots', name: '分镜', ok: hasShots },
+        { key: 'frames', name: '画面', ok: hasFrames || assets.some((a) => a.image_url) },
+        { key: 'film', name: '成片', ok: films.length > 0 },
+      ];
+      const done = steps.filter((x) => x.ok).length;
+      return {
+        done,
+        total: steps.length,
+        percent: Math.round((done / steps.length) * 100),
+        next: steps.find((x) => !x.ok) ?? null,
+        steps,
+      };
+    })();
+
     return {
-      project: p,
+      project: { ...p, ...projectIndex.view(p) },
+      index: projectIndex.view(p),
+      shell: shellService.get(p.id),
+      jobs: jobs.slice(0, 3),
+      films: films.slice(0, 20),
+      submissions: packs.slice(0, 3),
       style: style ? { code: style.code, name: style.name, art_prompt_zh: style.art_prompt_zh } : null,
       run,
-      progress: runProgress(run),
+      progress,
       plan: planRec ? {
         plan_id: planRec.plan_id,
         version: planRec.plan_version,
@@ -435,6 +553,7 @@ export const routes = [
     }
     const { outline } = await storyEngine.outline({
       userId: p.user_id, projectId: p.id, prompt, spec, reference: digest.text,
+      model: modelCatalog.resolve('chat', spec.models?.chat ?? null),
     });
     const plan = storyEngine.directorPlan({ outline, spec, projectId: p.id });
     const script = await storyEngine.script({ outline, plan, spec, userId: p.user_id, projectId: p.id });
@@ -552,7 +671,10 @@ export const routes = [
     projectId: params.id, assetType: body.assetType, name: body.name,
     locks: body.locks ?? [], lockValues: body.lockValues ?? {}, imageUrl: body.imageUrl ?? null, meta: body.meta ?? {},
   })],
-  ['GET', '/api/projects/:id/assets', async ({ params, query }) => assetLibrary.list(params.id, query.type || null)],
+  ['GET', '/api/projects/:id/assets', async ({ params, query, req }) => {
+    projectOf(req, params.id);
+    return assetLibrary.list(params.id, query.type || null);
+  }],
   ['POST', '/api/projects/:id/assets/impact', async ({ params, body }) => assetLibrary.impactOfUpdate({
     projectId: params.id, assetCode: body.assetCode, newVersion: body.newVersion, costPerShot: body.costPerShot ?? 6,
   })],
@@ -561,8 +683,10 @@ export const routes = [
     projectId: params.id, emotionCode: body.emotionCode, characterCode: body.characterCode ?? null,
     name: body.name ?? null, lockValues: body.lockValues ?? {}, intensity: body.intensity ?? null,
   })],
-  ['GET', '/api/projects/:id/assets/emotion', async ({ params, query }) =>
-    assetLibrary.emotionsOf(params.id, query.characterCode || null)],
+  ['GET', '/api/projects/:id/assets/emotion', async ({ params, query, req }) => {
+    projectOf(req, params.id);
+    return assetLibrary.emotionsOf(params.id, query.characterCode || null);
+  }],
   ['POST', '/api/projects/:id/assets/:code/emotion-palette', async ({ params, body }) => assetLibrary.setEmotionPalette(
     params.id, params.code, { baseline: body.baseline ?? null, palette: body.palette ?? [], forbid: body.forbid ?? [] }
   )],
@@ -645,8 +769,68 @@ export const routes = [
   }],
   ['POST', '/api/projects/:id/edit/render', async ({ params, body, req }) => {
     projectOf(req, params.id);
-    return editService.render(params.id, body.episode || null);
+    return editService.render(params.id, body.episode || null, { preset: body.preset || null });
   }],
+  ['GET', '/api/projects/:id/films', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return { items: editService.films(params.id) };
+  }],
+
+  // —— 剧壳（V4.3）：系列标识 / 片头片尾 ——
+  ['GET', '/api/projects/:id/shell', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return shellService.get(params.id);
+  }],
+  ['POST', '/api/projects/:id/shell', async ({ params, body, req }) => {
+    projectOf(req, params.id);
+    return shellService.save(params.id, body ?? {});
+  }],
+  ['POST', '/api/projects/:id/shell/card', async ({ params, body, req }) => {
+    projectOf(req, params.id);
+    return shellService.renderCard(params.id, body.kind === 'outro' ? 'outro' : 'intro');
+  }],
+
+  // —— 剧集生产（V4.3）：单集成片 / 全自动托管 ——
+  ['POST', '/api/projects/:id/produce', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const job = productionService.create({
+      projectId: p.id,
+      userId: p.user_id,
+      mode: body.mode === 'auto' ? 'auto' : 'single',
+      episodes: body.episode ?? body.episodes ?? null,
+      preset: body.preset || null,
+    });
+    return productionService.step(job.id);
+  }],
+  ['GET', '/api/projects/:id/produce', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return { items: productionService.list(params.id) };
+  }],
+  ['GET', '/api/produce/:jobId', async ({ params }) => productionService.get(params.jobId)],
+  ['POST', '/api/produce/:jobId/step', async ({ params }) => productionService.step(params.jobId)],
+  ['POST', '/api/produce/:jobId/pause', async ({ params }) => productionService.pause(params.jobId)],
+  ['POST', '/api/produce/:jobId/resume', async ({ params }) => productionService.resume(params.jobId)],
+  // 我的资产：所有项目的成片（系列剧逐集成片后统一汇总，便于一键分发）
+  ['GET', '/api/me/films', async ({ query, req }) => {
+    const user = authService.optionalUser(req);
+    const userId = user?.id ?? query.userId;
+    if (!userId) throw new AppError('AUTH_REQUIRED', '请先登录');
+    return { items: productionService.myFilms(userId, { limit: +(query.limit ?? 100) }) };
+  }],
+
+  // —— 分发资料包（V4.3）：一次备齐平台审核要的全部材料 ——
+  ['POST', '/api/projects/:id/submission/prepare', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    return submissionPack.prepare({
+      projectId: p.id, episode: body.episode ?? null, platformCode: body.platformCode ?? null, userId: p.user_id,
+    });
+  }],
+  ['GET', '/api/projects/:id/submission', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return { items: submissionPack.list(params.id) };
+  }],
+  ['POST', '/api/submission/:packId/submitted', async ({ params, body }) =>
+    submissionPack.markSubmitted({ packId: params.packId, distributionId: body.distributionId ?? null })],
 
   // —— 一句话成剧编排（V4.2）：plan → shots → edit 单步推进 ——
   ['POST', '/api/oneshot/start', async ({ body, req }) => {
@@ -662,8 +846,14 @@ export const routes = [
   ['POST', '/api/projects/:id/docs', async ({ params, body }) => creationDocs.save({
     projectId: params.id, type: body.type, content: body.content,
   })],
-  ['GET', '/api/projects/:id/docs', async ({ params }) => creationDocs.all(params.id)],
-  ['GET', '/api/projects/:id/docs/check', async ({ params }) => creationDocs.check(params.id)],
+  ['GET', '/api/projects/:id/docs', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return creationDocs.all(params.id);
+  }],
+  ['GET', '/api/projects/:id/docs/check', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return creationDocs.check(params.id);
+  }],
 
   // —— 节奏大师 ——
   ['POST', '/api/rhythm/diagnose', async ({ body }) => rhythmMaster.diagnose(body.script)],
@@ -793,8 +983,14 @@ export const routes = [
   ['POST', '/api/distribution/:id/contract', async ({ params, body }) => distributionHub.signContract(params.id, body ?? {})],
   ['POST', '/api/distribution/:id/revenue', async ({ params, body }) => distributionHub.recordRevenue(params.id, body)],
   ['POST', '/api/distribution/:id/stats', async ({ params, body }) => distributionHub.recordStats(params.id, body)],
-  ['GET', '/api/distribution', async ({ query }) => distributionHub.listWithSteps(query.projectId)],
-  ['GET', '/api/distribution/summary', async ({ query }) => distributionHub.summary(query.projectId)],
+  ['GET', '/api/distribution', async ({ query, req }) => {
+    projectOf(req, query.projectId);
+    return distributionHub.listWithSteps(query.projectId);
+  }],
+  ['GET', '/api/distribution/summary', async ({ query, req }) => {
+    projectOf(req, query.projectId);
+    return distributionHub.summary(query.projectId);
+  }],
 
   // —— 质检：一致性自检（V3.3 / M3 出口条件）——
   ['GET', '/api/qc/providers', async () => consistencyChecker.listProviders()],
@@ -914,8 +1110,7 @@ export const routes = [
   ['GET', '/api/web/status', async () => staticStatus()],
 
   // —— 微信登录（V3.5）：wx.login(code) → openid → 自签 session token ——
-  ['POST', '/api/auth/login', async ({ body, req }) => {
-    const r = await authService.login({
+  ['POST', '/api/auth/login', async ({ body, req }) => {    const r = await authService.login({
       code: body.code, nickname: body.nickname ?? null, avatar: body.avatar ?? null,
     });
     // 新用户带邀请码注册 → 建立邀请关系（有效性在此判定，不通过则如实返回原因）
@@ -935,6 +1130,11 @@ export const routes = [
   ['GET', '/api/auth/me', async ({ req }) => {
     const user = authService.requireUser(req);
     return { user: authService.publicUser(user), mode: wechatClient.mode };
+  }],
+  // 补全头像昵称（登录后的一次性引导，也是「登录功能完善」的最后一环）
+  ['POST', '/api/auth/profile', async ({ body, req }) => {
+    const user = authService.requireUser(req);
+    return { user: authService.updateProfile(user.id, { nickname: body.nickname, avatar: body.avatar }) };
   }],
   ['GET', '/api/wechat/status', async () => wechatClient.status()],
 
@@ -973,6 +1173,11 @@ export const routes = [
     packages: virtualPay.packages(),
     pay_mode: wechatClient.payConfigured ? 'live' : 'mock',
     cny_per_point: config.credit.cnyPerPoint,
+    campaign: (() => {
+      const c = adminService.campaign();
+      const active = adminService.campaignActive();
+      return { active, note: c.note || '', end_at: c.endAt ?? null };
+    })(),
   })],
   // 兑换码兑换算力额度：幂等（每码每用户一次），入账走 Ledger
   ['POST', '/api/redeem', async ({ body, req }) => {
@@ -1055,6 +1260,29 @@ export const routes = [
   ['GET', '/api/admin/redeem-codes/:code/usages', async ({ params, req }) => {
     adminService.assertAdmin(req.headers['x-admin-token']);
     return { items: adminService.codeUsages(params.code) };
+  }],
+
+  // —— 管理端：充值活动（按档次加赠） ——
+  ['GET', '/api/admin/campaign', async ({ req }) => {
+    adminService.assertAdmin(req.headers['x-admin-token']);
+    const c = adminService.campaign();
+    return { ...c, active: adminService.campaignActive() };
+  }],
+  ['POST', '/api/admin/campaign', async ({ body, req }) => {
+    adminService.assertAdmin(req.headers['x-admin-token']);
+    const c = adminService.saveCampaign(body ?? {});
+    return { ...c, active: adminService.campaignActive() };
+  }],
+
+  // —— 管理端：模型目录与探活（实测不可用的模型自动从用户列表消失） ——
+  ['GET', '/api/admin/models/catalog', async ({ req }) => {
+    adminService.assertAdmin(req.headers['x-admin-token']);
+    return { catalog: modelCatalog.all(), health: modelCatalog.health() };
+  }],
+  ['POST', '/api/admin/models/probe', async ({ body, req }) => {
+    adminService.assertAdmin(req.headers['x-admin-token']);
+    const { probeModels } = await import('../relay/probeModels.js');
+    return probeModels({ deep: body.deep === true });
   }],
 
   // —— 运维（生产需鉴权） ——

@@ -16,9 +16,12 @@ App({
     user: null,
     statusBarHeight: 20,
     navBarHeight: 64,
-    // 跨 tab 传参：首页输入的一句话、分发页选中的项目
+    // 跨 tab 传参：首页输入的剧名、分发页选中的项目与平台
+    draftTitle: '',
     draftPrompt: '',
     selectedProjectId: '',
+    selectedPlatform: '',
+    profileComplete: false,
     // 裂变：分享链接带进来的邀请码（首次登录时提交给服务端判定有效性）
     pendingInviteCode: '',
   },
@@ -135,6 +138,7 @@ App({
     this.globalData.user = d.user;
     this.globalData.userId = d.user.id;
     this.globalData.balance = d.user.balance_points || 0;
+    this.globalData.profileComplete = !!d.user.profile_complete;
     this.globalData.loginMode = d.mode || '';
     return this.globalData;
   },

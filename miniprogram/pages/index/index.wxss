@@ -113,3 +113,14 @@
 .dot-sep { color: #3E4757; margin: 0 8rpx; }
 .privacy-links { margin-top: 20rpx; font-size: 23rpx; }
 .privacy-later { text-align: center; font-size: 23rpx; color: #626D80; margin-top: 24rpx; }
+
+/* —— 索引编号（同名剧靠它区分） —— */
+.idx-tag {
+  margin-right: 8rpx;
+  padding: 0 8rpx;
+  border-radius: 6rpx;
+  font-size: 19rpx;
+  color: #E0BD77;
+  background: rgba(243, 201, 105, 0.12);
+  font-family: "SF Mono", Menlo, monospace;
+}

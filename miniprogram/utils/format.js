@@ -31,6 +31,14 @@ function fmtMoney(n) {
   return fixed.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+function fmtBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${Math.round(v)} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
+  if (v < 1024 * 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`;
+  return `${(v / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
 function fmtDuration(sec) {
   const s = Number(sec) || 0;
   if (s < 60) return `${Math.round(s)}秒`;
@@ -111,6 +119,9 @@ function projectView(p, map) {
     seasonNo: Number(p.season_no) || 1,
     seasonTag: (Number(p.season_no) || 1) > 1 ? `第 ${Number(p.season_no)} 季` : '',
     seriesId: p.series_id || '',
+    // 索引编号：同一用户内自增，用来区分同名项目
+    indexLabel: p.index_label || '',
+    seriesLabel: p.series_label || p.series_title || '',
   };
 }
 
@@ -128,6 +139,7 @@ module.exports = {
   charOf,
   fmtNumber,
   fmtMoney,
+  fmtBytes,
   fmtDuration,
   timeAgo,
   projectStatus,

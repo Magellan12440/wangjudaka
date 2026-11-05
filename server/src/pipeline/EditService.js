@@ -10,8 +10,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { db } from '../store/db.js';
 import seeds from '../seeds/loader.js';
+import { newId, nowIso } from '../core/util.js';
 import { editPlan } from '../media/EditPlan.js';
 import { MEDIA_ROOT } from '../api/media.js';
+import shellService from '../shell/ShellService.js';
+import { modelCatalog } from '../relay/ModelCatalog.js';
 import { fail, ERR } from '../core/errors.js';
 
 /** 光影 → 氛围：音效排点靠它决定铺雨声还是风声 */
@@ -108,10 +111,10 @@ export class EditService {
           code: 'NO_STORYBOARD',
           severity: 'fatal',
           issue: '还没有分镜，无法剪辑',
-          message: '还没有分镜，无法剪辑；请先在「流程」里生成剧本与总谱',
+          message: '还没有分镜，无法剪辑；请先回到「剧本」生成分镜',
         }],
         warnings: [],
-        next_action: { label: '去生成剧本与分镜', tab: 'flow' },
+        next_action: { label: '去生成剧本与分镜', tab: 'script' },
         missing_shots: [],
         coverage: 0,
         segments: [],
@@ -125,10 +128,18 @@ export class EditService {
     const style = seeds.style(project.spec?.style_code) ?? null;
     const director = seeds.director(project.spec?.director_code ?? style?.director_profile_default) ?? null;
 
+    // 剧壳：片头/片尾作为独立片段接在正片前后（只在文件真实存在时接入）
+    const shellSegs = shellService.segments(projectId);
+    const withShell = [
+      ...(shellSegs.intro ? [shellSegs.intro] : []),
+      ...shots,
+      ...(shellSegs.outro ? [shellSegs.outro] : []),
+    ];
+
     const built = editPlan.buildEditPlan({
       projectId,
       episodeNo: episode ?? normalizeEpisodeNo(shots[0]?.shot_no) ?? 'E01',
-      shots,
+      shots: withShell,
       style,
       director,
       aspect: project.spec?.aspect ?? '9:16',
@@ -140,6 +151,11 @@ export class EditService {
       ...built,
       missing_shots: missing,
       coverage: shots.length ? +((shots.length - missing.length) / shots.length).toFixed(3) : 0,
+      shell: {
+        enabled: shellService.get(projectId).enabled,
+        intro: Boolean(shellSegs.intro),
+        outro: Boolean(shellSegs.outro),
+      },
     };
   }
 
@@ -166,7 +182,10 @@ export class EditService {
   }
 
   /** 真剪：落盘 → 渲染 → 发布；没有 ffmpeg 时返回命令而不是假成功 */
-  async render(projectId, episodeNo = null) {
+  async render(projectId, episodeNo = null, { preset = null } = {}) {
+    const project = db.findOne('projects', (x) => x.id === projectId);
+    // 未显式指定时，按项目里选的剪辑档位（ED-STD/ED-FAST/ED-HQ/ED-EDL）
+    const profile = preset ?? modelCatalog.editPreset(project?.spec?.edit_profile ?? 'ED-STD');
     const plan = this.plan(projectId, episodeNo);
     if (!plan.ok) {
       return {
@@ -178,7 +197,16 @@ export class EditService {
       };
     }
     const assets = editPlan.materialize(plan);
-    const built = editPlan.buildCommand(plan, assets);
+    if (profile === null) {
+      return {
+        ok: false,
+        code: 'EDL_ONLY',
+        plan,
+        files: assets.files,
+        hint: '当前剪辑档位是「仅导出剪辑单」：字幕与剪辑单已生成，可在本地自己合成',
+      };
+    }
+    const built = editPlan.buildCommand(plan, assets, { preset: profile });
     if (!editPlan.hasFfmpeg()) {
       return {
         ok: false,
@@ -189,9 +217,39 @@ export class EditService {
         hint: '本机未安装 ffmpeg：命令与字幕/配乐/剪辑单已生成，可在装有 ffmpeg 的机器（或云托管镜像）执行',
       };
     }
-    const result = await editPlan.render(plan, assets);
+    const result = await editPlan.render(plan, assets, { preset: profile });
     const published = this.publish(plan, assets);
-    return { ok: true, plan, assets: published, render: result, cmd: built.cmd };
+    // 成片登记：分发资料包、我的资产、续集复用都要能按集找到这条记录
+    const film = db.insert('episode_films', {
+      id: newId('film'),
+      project_id: projectId,
+      user_id: db.findOne('projects', (x) => x.id === projectId)?.user_id ?? null,
+      episode: plan.episode ?? normalizeEpisodeNo(episodeNo) ?? 'E01',
+      url: published.video?.url ?? null,
+      srt_url: published.srt?.url ?? null,
+      ass_url: published.ass?.url ?? null,
+      sheet_url: published.sheet?.url ?? null,
+      bytes: published.video?.bytes ?? result.bytes ?? null,
+      duration_sec: Number(plan.timeline?.total_sec ?? 0),
+      resolution: plan.video?.resolution ?? null,
+      preset: profile,
+      shell: plan.shell ?? null,
+      duration_ms: result.duration_ms ?? null,
+      created_at: nowIso(),
+    });
+    return { ok: true, plan, assets: published, render: result, cmd: built.cmd, film };
+  }
+
+  /** 某项目已渲染成片（新→旧） */
+  films(projectId, { episode = null } = {}) {
+    const ep = normalizeEpisodeNo(episode);
+    return db.find('episode_films', (f) => f.project_id === projectId && (!ep || f.episode === ep))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  }
+
+  /** 最新一集成片（分发资料包默认取这条） */
+  latestFilm(projectId, episode = null) {
+    return this.films(projectId, { episode })[0] ?? null;
   }
 }
 

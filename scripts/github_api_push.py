@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.2.0: 一句话成剧(OneShot) + 大师语法配方库 + 合成音频/字幕/剪辑单 + 分发四步闭环 + 云托管部署文档"
+MSG = "v4.3.0: 剧名即建项目 + 项目索引隔离 + 剧壳片头片尾 + 逐集/全自动托管 + 一键备齐审核材料 + 实际消耗x2计费 + 每环节前五模型 + 管理台充值活动"
 
 
 def api(method, path, payload=None, retries=3):

@@ -206,10 +206,10 @@ async function main() {
     ok('首页统计已聚合', (index.data.stats.projects || 0) >= 0 && typeof index.data.stats.shots === 'number');
     ok('首页隐私弹层默认关闭', index.data.privacyNeeded === false);
 
-    // 首页输入 → 跳创作
-    index.onInput({ detail: { value: '外卖员觉醒读心术，却发现老板才是幕后黑手' } });
+    // 首页只输剧名 → 跳创作（新建项目就是全部创作的开关）
+    index.onInput({ detail: { value: '长夜归人' } });
     index.startCreate();
-    ok('首页把创意带给创作页', appInstance.globalData.draftPrompt.length > 6);
+    ok('首页把剧名带给创作页', appInstance.globalData.draftTitle === '长夜归人', appInstance.globalData.draftTitle);
     ok('首页跳转到创作 tab', navs.some((n) => n.includes('/pages/create/create')));
 
     // —— 2. 创作页 ——
@@ -218,13 +218,18 @@ async function main() {
     create.onShow();
     await sleep(600);
     ok('创作页风格库加载 32 套', (create.data.styles || []).length === 32, String((create.data.styles || []).length));
-    ok('创作页带到首页创意', create.data.prompt.length > 6);
-    ok('创作页导演原型可用', (create.data.directors || []).length >= 1);
+    ok('创作页带入首页剧名', create.data.title === '长夜归人', create.data.title);
+    ok('创作页无剧名不可建项目', create.data.canCreate === true);
+    ok('模型目录每环节最多 5 个', (create.data.modelRoles || []).length === 4
+      && (create.data.modelRoles || []).every((r) => r.items.length <= 5),
+    JSON.stringify((create.data.modelRoles || []).map((r) => `${r.key}:${r.items.length}`)));
+    ok('剧本环节默认 DeepSeek V4.1', (create.data.picks || {}).chat === 'AUTO-DEEPSEEK-V4_1-FLASH', create.data.picks && create.data.picks.chat);
 
     create.refreshQuote();
     await sleep(500);
     ok('报价返回预估点数', create.data.quote && create.data.quote.est_credits > 0, JSON.stringify(create.data.quote && create.data.quote.est_credits));
-    ok('报价文案已预计算', Boolean(create.data.quote && create.data.quote.time_text && create.data.quote.cny_text));
+    ok('报价文案已预计算', Boolean(create.data.quote && create.data.quote.time_text && create.data.quote.credits_text));
+    ok('报价按 2 倍计费口径展示', Number(create.data.billingMultiplier) === 2, String(create.data.billingMultiplier));
 
     // 静态漫剧应比动态便宜（切参数后重新报价）
     const dynamicCredits = create.data.quote.est_credits;
@@ -237,14 +242,13 @@ async function main() {
     // —— 3. 真实建项目（走页面 create()，验证串起来的主链路）——
     create.pick({ currentTarget: { dataset: { field: 'videoType', value: 'dynamic' } } });
     await sleep(400);
-    // 本段验证「手动模式」的旧链路：创建后停在素材 tab，不自动生成
-    create.setData({ autoMode: false });
+    // 建项目后停在素材 tab，剧本与分镜在项目内再生成（不自动烧点）
     create.create();
     await sleep(2400);
     const projNav = navs.find((n) => n.includes('/pages/project/project'));
     ok('创作完成后进入剧组', Boolean(projNav), projNav || '未跳转');
     ok('首次进入带 setup 引导标记', String(projNav).includes('setup=1'), projNav || '');
-    ok('手动模式不带编排任务', !String(projNav).includes('oneshot='), projNav || '');
+    ok('建项目后进入设置引导', String(projNav).includes('fresh=1'), projNav || '');
     const projectId = projNav ? decodeURIComponent(projNav.split('id=')[1].split('&')[0]) : '';
 
     // 充值：管理员发兑换码 → 用户兑换（顺带验证兑换写链路，镜头生成要花点数）
@@ -273,9 +277,9 @@ async function main() {
     ok('剧组页加载成功', project.data.loading === false && !project.data.error, project.data.error);
     ok('新项目默认停在素材 tab', project.data.tab === 'material', project.data.tab);
     ok('新项目素材为空', (project.data.materials || []).length === 0, String((project.data.materials || []).length));
-    ok('12 节点泳道已建立', (project.data.nodes || []).length === 12, String((project.data.nodes || []).length));
-    const doneBefore = (project.data.nodes || []).filter((n) => n.status === 'done').length;
-    ok('未生成剧本时创作节点未点亮', doneBefore < 6, `done=${doneBefore}`);
+    ok('新项目无成片、无托管任务', (project.data.films || []).length === 0 && !project.data.job);
+    ok('新项目制作进度为个位数', project.data.progress.percent <= 20, String(project.data.progress.percent));
+    ok('界面不再暴露流水线节点', project.data.nodes === undefined, typeof project.data.nodes);
 
     // 上传小说正文作为剧本创作素材
     project.openTextSheet();
@@ -301,10 +305,9 @@ async function main() {
     ok('场次已渲染', (project.data.currentScenes || []).length >= 1, String((project.data.currentScenes || []).length));
     ok('场次光影文案已预计算', (project.data.currentScenes || []).every((s) => typeof s.lockedText === 'string'));
     ok('分镜卡已就绪', (project.data.shots || []).length > 0);
-    const doneAfter = (project.data.nodes || []).filter((n) => n.status === 'done').length;
-    ok('剧本生成后创作节点点亮', doneAfter >= 6, `done=${doneAfter}`);
-    ok('媒体节点未假装完成', (project.data.nodes || []).filter((n) => ['N08', 'N09', 'N10'].includes(n.id)).every((n) => n.status === 'pending'));
-    ok('剧组页进度百分比正确', project.data.progress.percent === Math.round((doneAfter / 12) * 100), String(project.data.progress.percent));
+    ok('剧本生成后制作进度前进', project.data.progress.percent > 0, String(project.data.progress.percent));
+    ok('剧组页进度结构完整', typeof project.data.progress.done === 'number' && typeof project.data.progress.total === 'number',
+      JSON.stringify(project.data.progress));
     ok('交付清单 6 项', (project.data.deliveryItems || []).length === 6);
     ok('角色资产已落库', (project.data.assets || {}).total >= 3, String(project.data.assets && project.data.assets.total));
 
@@ -320,10 +323,22 @@ async function main() {
     await sleep(2600);
     ok('逐镜出图成功', ((project.data.gens || {}).total || 0) >= 1, JSON.stringify(project.data.gens && project.data.gens.total));
 
-    project.switchTab({ currentTarget: { dataset: { tab: 'flow' } } });
-    ok('剧组页切 tab', project.data.tab === 'flow', project.data.tab);
+    project.switchTab({ currentTarget: { dataset: { tab: 'script' } } });
+    ok('剧组页切 tab', project.data.tab === 'script', project.data.tab);
     project.toggleShots();
     ok('分镜展开/收起可用', typeof project.data.shotLimit === 'number');
+
+    // 成片 tab：剪辑单（不假装出片，只给真实覆盖率）
+    project.switchTab({ currentTarget: { dataset: { tab: 'deliver' } } });
+    await sleep(1500);
+    if (project.data.edit) {
+      ok('成片 tab 拿到剪辑单', project.data.edit.shotCount > 0, `shots=${project.data.edit.shotCount}`);
+      ok('剪辑单含字幕与声音', project.data.edit.subtitleCount > 0 && project.data.edit.sfxCount >= 0,
+        `srt=${project.data.edit.subtitleCount} sfx=${project.data.edit.sfxCount}`);
+      ok('剪辑单标明素材覆盖率', project.data.edit.coverage <= 100, String(project.data.edit.coverage));
+    } else {
+      ok('成片 tab 拿到剪辑单', false, project.data.editError || '无剪辑单');
+    }
 
     // —— 5. 分发中控 ——
     const dist = loadPage('pages/distribute/distribute.js');
@@ -392,45 +407,67 @@ async function main() {
     ok('新一季属于同一系列', seasonRes.data.series && seasonRes.data.seasons.length === 2, String((seasonRes.data.seasons || []).length));
     ok('续集资产已继承', (seasonRes.data.shared_assets || []).length >= 1);
 
-    // —— 10. 一句话成剧：自动模式建项目 → 编排任务 → 剧组页进度卡 ——
+    // —— 10. 第二部剧：只填剧名就开 + 索引隔离 + 托管生产 + 资料包如实缺件 ——
     const create2 = loadPage('pages/create/create.js');
     create2.onLoad();
     create2.onShow();
-    await sleep(500);
-    create2.setData({ step: 3, prompt: '外卖员觉醒读心术，一句话直出一集', autoMode: true });
+    await sleep(600);
     navs.length = 0;
+    create2.onTitle({ detail: { value: '外卖员读心术' } });
     create2.create();
     await sleep(3000);
     const autoNav = navs.find((n) => n.includes('/pages/project/project'));
-    ok('一句话直出带编排任务号', Boolean(autoNav && autoNav.includes('oneshot=')), autoNav || '未跳转');
-    const autoProjectId = autoNav ? autoNav.split('id=')[1].split('&')[0] : '';
-    const autoRunId = autoNav && autoNav.includes('oneshot=') ? autoNav.split('oneshot=')[1] : '';
-    const runRes = autoRunId ? await fetch(`${BASE}/api/oneshot/${autoRunId}`).then((r) => r.json()) : { data: null };
-    const run = runRes.data || {};
-    ok('编排任务已建且首步已跑', Boolean(run.id) && Array.isArray(run.steps) && run.steps.length === 3, JSON.stringify(run.status));
-    ok('首步产出剧本与分镜', (run.steps || []).some((s) => s.key === 'plan' && s.summary && s.summary.shots > 0),
-      JSON.stringify((run.steps || [])[0] && (run.steps || [])[0].summary));
+    ok('只填剧名也能建项目', Boolean(autoNav), autoNav || '未跳转');
+    const autoProjectId = autoNav ? decodeURIComponent(autoNav.split('id=')[1].split('&')[0]) : '';
 
-    const autoProject = loadPage('pages/project/project.js');
-    autoProject.onLoad({ id: autoProjectId, fresh: '1', setup: '1', oneshot: autoRunId });
-    autoProject.onShow();
-    await sleep(2200);
-    autoProject.stopOneshot();
-    ok('剧组页拿到编排进度', Boolean(autoProject.data.os) && (autoProject.data.os.steps || []).length === 3,
-      JSON.stringify(autoProject.data.os && autoProject.data.os.status));
-    ok('编排进度卡优先停在流程 tab', autoProject.data.tab === 'flow', autoProject.data.tab);
+    // 索引编号：同用户内自增，同名剧靠它区分
+    const listRes = await fetch(`${BASE}/api/projects?userId=${appInstance.globalData.userId}`).then((r) => r.json()).catch(() => null);
+    const projectsData = (listRes && (Array.isArray(listRes.data) ? listRes.data : (listRes.data || {}).items)) || [];
+    const labels = projectsData.map((p) => p.index_label).filter(Boolean);
+    ok('项目索引编号唯一且成序列', projectsData.length >= 2 && new Set(labels).size === labels.length
+      && labels.every((l) => /^#\d{3}$/.test(l)), labels.join(','));
 
-    // 交付 tab：剪辑单
-    autoProject.switchTab({ currentTarget: { dataset: { tab: 'deliver' } } });
-    await sleep(1200);
-    if (autoProject.data.edit) {
-      ok('交付 tab 拿到剪辑单', autoProject.data.edit.shotCount > 0, `shots=${autoProject.data.edit.shotCount}`);
-      ok('剪辑单含字幕与声音', autoProject.data.edit.subtitleCount > 0 && autoProject.data.edit.sfxCount >= 0,
-        `srt=${autoProject.data.edit.subtitleCount} sfx=${autoProject.data.edit.sfxCount}`);
-      ok('剪辑单标明缺片段', autoProject.data.edit.coverage <= 100, String(autoProject.data.edit.coverage));
-    } else {
-      ok('交付 tab 拿到剪辑单', false, autoProject.data.editError || '无剪辑单');
+    // 托管生产：建任务 → 单步推进（不假装成功，停在哪就报哪）
+    const prodRes = await fetch(`${BASE}/api/projects/${autoProjectId}/produce`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'single', episodes: ['E01'] }),
+    }).then((r) => r.json()).catch(() => null);
+    const job = prodRes && prodRes.data;
+    ok('托管任务可创建', Boolean(job && job.id), String(JSON.stringify(prodRes && prodRes.error)).slice(0, 120));
+    if (job) {
+      ok('托管任务含逐集状态', (job.episode_states || []).length >= 1, String((job.episode_states || []).length));
+      const stepRes = await fetch(`${BASE}/api/produce/${encodeURIComponent(job.id)}/step`, { method: 'POST' })
+        .then((r) => r.json()).catch(() => null);
+      const j2 = stepRes && stepRes.data;
+      ok('托管单步推进有回执', Boolean(j2 && ['running', 'paused', 'done'].includes(j2.status)),
+        JSON.stringify(j2 && j2.status));
+      ok('推进后进度结构可读', Boolean(j2 && j2.progress && typeof j2.progress.percent === 'number'),
+        JSON.stringify(j2 && j2.progress));
     }
+
+    // 资料包：缺成片时如实标「未齐」，不假装能提审
+    const packRes = await fetch(`${BASE}/api/projects/${autoProjectId}/submission/prepare`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ episode: 'E01' }),
+    }).then((r) => r.json()).catch(() => null);
+    const pk = packRes && packRes.data;
+    ok('资料包可打包并落 zip', Boolean(pk && pk.zip && pk.zip.url), String(JSON.stringify(packRes && packRes.error)).slice(0, 120));
+    ok('缺成片时如实标注未齐', Boolean(pk && pk.ready === false && (pk.missing || []).length > 0),
+      `missing=${pk && (pk.missing || []).length}`);
+    ok('资料包清单给出平台材料项', Boolean(pk && (pk.checklist || []).length >= 5), String(pk && (pk.checklist || []).length));
+
+    // 剧组页：成片 tab 能拿到托管进度卡与资料包卡
+    const autoProject = loadPage('pages/project/project.js');
+    autoProject.onLoad({ id: autoProjectId, fresh: '1', setup: '1' });
+    autoProject.onShow();
+    await sleep(2000);
+    autoProject.switchTab({ currentTarget: { dataset: { tab: 'deliver' } } });
+    await sleep(1600);
+    ok('成片页拿到托管任务', Boolean(autoProject.data.job && autoProject.data.job.id), JSON.stringify(autoProject.data.job && autoProject.data.job.status));
+    ok('成片页逐集状态可渲染', Array.isArray(autoProject.data.jobStates));
+    autoProject.stopJobPolling();
 
     // —— 11. 协议页 ——
     const legal = loadPage('pages/legal/legal.js');

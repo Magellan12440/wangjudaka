@@ -58,22 +58,22 @@
         </view>
         <view class="pill pill-gold pill-no-dot">先建项目</view>
       </view>
-      <view class="sub mt8">项目是创作的容器：素材、剧本、分镜、成片都归属于它。</view>
+      <view class="sub mt8">只要一个剧名就能开工：素材、剧本、分镜、成片都归属这部戏。</view>
 
       <view class="prompt-wrap mt24">
         <textarea
           class="textarea prompt-area {{typing ? 'input-focus' : ''}}"
-          placeholder="一句话写下核心冲突，例如：被家族抛弃的少年十年后归来复仇，却发现当年救他的是仇人的女儿"
+          placeholder="剧名，例如：长夜归人"
           placeholder-class="input-ph"
           value="{{prompt}}"
-          maxlength="300"
+          maxlength="30"
           bindinput="onInput"
           bindfocus="onFocus"
           bindblur="onBlur"
           cursor-spacing="160"
           show-confirm-bar="{{false}}"
         />
-        <view class="counter {{prompt.length > 260 ? 'warn' : ''}}">{{prompt.length}}/300</view>
+        <view class="counter {{prompt.length > 24 ? 'warn' : ''}}">{{prompt.length}}/30</view>
       </view>
 
       <scroll-view class="idea-scroll mt16" scroll-x enable-flex show-scrollbar="{{false}}">
@@ -89,8 +89,8 @@
         </view>
       </scroll-view>
 
-      <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="startCreate">新建项目</view>
-      <view class="create-note">下一步只选风格与时长，不产生任何消耗</view>
+      <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="startCreate">用这个名字开剧</view>
+      <view class="create-note">剧名可随时改；素材、参考片、风格与时长在建好后再补</view>
     </view>
 
     <!-- 进行中 -->
@@ -117,7 +117,7 @@
             <text class="ai-badge">AI 生成</text>
             <view class="proj-badge" wx:if="{{item.seasonTag}}">{{item.seasonTag}}</view>
           </view>
-          <view class="proj-title ellipsis">{{item.title}}</view>
+          <view class="proj-title ellipsis"><text wx:if="{{item.indexLabel}}" class="idx-tag">{{item.indexLabel}}</text>{{item.title}}</view>
           <view class="proj-meta ellipsis">{{item.styleName}} · {{item.episodes}} 集</view>
           <view class="proj-foot">
             <view class="mini-progress">
@@ -148,7 +148,10 @@
         </view>
         <view class="flex1" style="margin-left:22rpx">
           <view class="between">
-            <text class="proj-row-title ellipsis">{{item.title}}</text>
+            <view class="row flex1" style="min-width:0">
+              <text wx:if="{{item.indexLabel}}" class="idx-tag">{{item.indexLabel}}</text>
+              <text class="proj-row-title ellipsis">{{item.title}}</text>
+            </view>
             <text class="pill {{item.statusCls}}">{{item.statusText}}</text>
           </view>
           <view class="tiny mt8 ellipsis">{{item.meta}}</view>

@@ -14,6 +14,7 @@
       <view class="flex1" style="margin-left:22rpx">
         <view class="me-name">{{nickname || '创作者'}}</view>
         <view class="me-id">ID {{uidText}} · {{loginMode === 'live' ? '微信登录' : '体验模式'}}</view>
+        <view wx:if="{{!profileComplete}}" class="me-tip tap" hover-class="tap-on" bindtap="editProfile">补一个昵称，作品署名更好认 ›</view>
       </view>
       <view class="me-edit tap" hover-class="tap-on" bindtap="openAbout">设置</view>
     </view>
@@ -32,6 +33,43 @@
         <view class="b-action primary tap" hover-class="tap-on" bindtap="openRecharge">充值</view>
         <view class="b-action tap" hover-class="tap-on" bindtap="openRedeem">兑换码</view>
         <view class="b-action tap" hover-class="tap-on" bindtap="openInvite">邀请返利</view>
+      </view>
+    </view>
+
+    <!-- 充值活动 -->
+    <view wx:if="{{campaign && campaign.active}}" class="campaign">
+      <view class="campaign-dot"></view>
+      <view class="flex1">
+        <view class="campaign-title">充值加赠进行中</view>
+        <view class="campaign-sub">{{campaign.note}}{{campaign.end_at ? ' · 截止 ' + campaign.end_at : ''}}</view>
+      </view>
+    </view>
+
+    <!-- 我的资产：逐集成片 -->
+    <view class="section">
+      <view class="row">
+        <text class="section-title">我的资产</text>
+        <text class="section-sub">{{filmCount}} 集成片</text>
+      </view>
+      <text wx:if="{{filmCount}}" class="section-more tap" hover-class="tap-on" bindtap="goDistribute">去分发 ›</text>
+    </view>
+
+    <view wx:if="{{!filmCount}}" class="card empty">
+      <view class="empty-icon">▷</view>
+      <view class="empty-title">还没有成片</view>
+      <view class="empty-sub">在剧集里剪出一集，成片会自动汇总到这里</view>
+    </view>
+
+    <view wx:else class="card">
+      <view wx:for="{{films}}" wx:key="id" class="film-row">
+        <view class="film-main" data-id="{{item.projectId}}" bindtap="goDistribute">
+          <view class="film-title">
+            <text wx:if="{{item.indexLabel}}" class="film-idx">{{item.indexLabel}}</text>
+            <text>{{item.projectTitle}}</text>
+          </view>
+          <view class="film-sub">{{item.ep}} · {{item.durationText || '—'}} · {{item.timeText}}</view>
+        </view>
+        <text class="film-copy tap" hover-class="tap-on" data-url="{{item.url}}" bindtap="copyFilm">复制</text>
       </view>
     </view>
 

@@ -305,3 +305,20 @@
 .os-dot.cur { background: rgba(243, 201, 105, 0.18); color: #FFE0A3; border-color: rgba(243, 201, 105, 0.5); }
 .os-dot.bad { background: rgba(242, 108, 108, 0.16); color: #F58C8C; border-color: rgba(242, 108, 108, 0.45); }
 .os-name { font-size: 24rpx; color: #E4E9F3; font-weight: 600; margin-bottom: 4rpx; }
+
+/* —— 逐集托管状态 —— */
+.ep-state {
+  display: flex; align-items: center;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.05);
+}
+.ep-state:last-child { border-bottom: none; }
+.ep-state-no {
+  flex: none; width: 120rpx;
+  font-size: 22rpx; color: #FFE0A3; font-weight: 600;
+  font-family: "SF Mono", Menlo, monospace;
+}
+.ep-state-sub {
+  flex: 1;
+  font-size: 21rpx; color: #8C97A9;
+}

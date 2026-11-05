@@ -4,6 +4,23 @@
   "_price_verified_at": "2026-11-04",
   "models": [
     {
+      "code": "AUTO-DEEPSEEK-V4_1-FLASH",
+      "role": "chat",
+      "display_name": "DeepSeek V4.1（剧本与推理·默认）",
+      "upstream_id": "deepseek-v4.1-flash",
+      "upstream_available": true,
+      "commercial_ok": true,
+      "needs_review": false,
+      "price": {
+        "unit": "1k_tokens",
+        "suanli_in": 0.0004815,
+        "suanli_out": 0.0016854
+      },
+      "notes": "V4.3 起作为剧本/大纲/推理默认模型；预扣后按实际用量结算，统一 ×2 计费",
+      "supports_json": true,
+      "price_note": "按同档推理模型保守估算，实测后按结算价校准"
+    },
+    {
       "code": "LLM-PLOT",
       "role": "chat",
       "display_name": "剧本创作模型（默认）",
@@ -724,17 +741,6 @@
       "role": "video",
       "display_name": "上游新模型（待核验）：seedance-2.5-anmiao-quannengcankao",
       "upstream_id": "seedance-2.5-anmiao-quannengcankao",
-      "upstream_available": true,
-      "commercial_ok": false,
-      "needs_review": true,
-      "price": {},
-      "notes": "由 sync_models.js 自动发现；许可证未核验，禁止用于交付产物。请补齐 price 并逐条确认 commercial_ok。"
-    },
-    {
-      "code": "AUTO-DEEPSEEK-V4_1-FLASH",
-      "role": "chat",
-      "display_name": "上游新模型（待核验）：deepseek-v4.1-flash",
-      "upstream_id": "deepseek-v4.1-flash",
       "upstream_available": true,
       "commercial_ok": false,
       "needs_review": true,

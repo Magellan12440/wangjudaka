@@ -9,6 +9,7 @@
 import { db } from '../store/db.js';
 import { generateService } from './GenerateService.js';
 import { materialService } from '../assets/MaterialService.js';
+import { modelCatalog } from '../relay/ModelCatalog.js';
 import { fail, ERR } from '../core/errors.js';
 
 const PROJECT = 'projects';
@@ -65,6 +66,8 @@ export class ShotService {
         aspect: project.spec?.aspect ?? '9:16',
         quality: project.spec?.quality ?? '1080p',
       },
+      // 用户在本项目选的模型：不在可选目录里就回退默认，绝不把请求打到已下架上游
+      model: modelCatalog.resolve(kind, project.spec?.models?.[kind] ?? null),
       shot_no: shot.no,
       shot: {
         shot_no: shot.no,

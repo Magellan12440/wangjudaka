@@ -75,6 +75,8 @@ class SeedStore {
     this.modelRegistryMeta = { note: reg._note, lastSync: reg._last_sync };
     const bp = readJson('blueprint_templates.json');
     this.blueprintTemplates = Array.isArray(bp) ? bp : bp.templates ?? [];
+    // V4.3：用户可选模型目录（每环节最多 5 个，人工排序 + 实测过滤）
+    this.modelCatalog = readJson('model_catalog.json', { roles: {} });
 
     // 索引
     this._style = indexBy(this.stylePresets);
@@ -174,6 +176,10 @@ class SeedStore {
   blueprint(code) { return this._blueprint.get(code) ?? null; }
   lockTemplate(assetType) { return this._lockTpl.get(assetType) ?? null; }
 
+  /** 用户可选模型目录（见 model_catalog.json） */
+  catalogRoles() { return Object.keys(this.modelCatalog?.roles ?? {}); }
+  catalogRole(role) { return this.modelCatalog?.roles?.[role] ?? null; }
+
   rhythmByCat(cat) { return this._rhythmByCat[cat] ?? []; }
   shotsByDim(dim) { return this._shotByDim[dim] ?? []; }
   emotionsByCat(cat) { return this._emotionByCat[cat] ?? []; }
@@ -262,6 +268,14 @@ class SeedStore {
     for (const [k, min] of [['cinema_grammar', 12], ['sfx_cards', 10]]) {
       if (actual[k] < min) problems.push({ item: k, expected: `>=${min}`, actual: actual[k] });
     }
+    // 可选模型目录：每个环节都要有货，否则前端选择器会空掉
+    for (const role of ['chat', 'image', 'video', 'audio', 'edit']) {
+      const r = this.catalogRole(role);
+      if (!r) problems.push({ item: `model_catalog.${role}`, issue: '目录缺少该环节' });
+      else if (!(r.items ?? []).length) problems.push({ item: `model_catalog.${role}`, issue: '目录没有任何模型' });
+      else if ((r.items ?? []).length > 5) problems.push({ item: `model_catalog.${role}`, issue: '每个环节最多 5 个模型' });
+    }
+    actual.model_catalog_roles = this.catalogRoles().length;
     // 交叉引用校验：风格引用的光影卡必须存在
     for (const s of this.stylePresets) {
       for (const c of [...(s.lighting_cards_required ?? []), ...(s.lighting_cards_forbidden ?? [])]) {

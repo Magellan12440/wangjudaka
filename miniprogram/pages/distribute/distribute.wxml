@@ -110,6 +110,68 @@
         <view class="flex1">小程序无法内嵌第三方平台（业务域名限制）。这里提供官方入口、材料清单与状态跟踪，上传/审核/签约/提现在电脑端完成。</view>
       </view>
 
+      <!-- 一键备齐审核材料（V4.3） -->
+      <view class="card">
+        <view class="between">
+          <text class="title">一键备齐审核材料</text>
+          <text wx:if="{{pack}}" class="pill {{pack.ready ? 'pill-green' : 'pill-gold'}}">{{pack.ready ? '已齐' : '缺 ' + pack.missing.length + ' 项'}}</text>
+        </view>
+        <view class="sub mt8">成片 + 字幕 + 封面 + AI 创作说明 + 创作过程证据 + 材料清单，打成一个压缩包，下载到电脑端按清单上传。</view>
+
+        <block wx:if="{{films.length}}">
+          <view class="field-label mt16"><text>选一集成片</text><text class="opt">{{films.length}} 集已出片</text></view>
+          <scroll-view class="proj-scroll" scroll-x show-scrollbar="{{false}}" enable-flex>
+            <view
+              wx:for="{{films}}"
+              wx:key="id"
+              class="chip chip-sm tap {{packEp === item.episode ? 'on' : ''}}"
+              hover-class="tap-on"
+              data-ep="{{item.episode}}"
+              bindtap="pickPackEp"
+            >{{item.episode}}</view>
+          </scroll-view>
+        </block>
+        <view wx:else class="empty-sub mt16">还没有成片，先去「我的剧」把某一集剪出来。</view>
+
+        <view class="field-label mt16"><text>按哪个平台备料（可选）</text><text class="opt">决定材料清单</text></view>
+        <view class="chips">
+          <view
+            wx:for="{{platforms}}"
+            wx:key="code"
+            class="chip chip-sm tap {{selectedPlatform === item.code ? 'on' : ''}}"
+            hover-class="tap-on"
+            data-code="{{item.code}}"
+            bindtap="pickPackPlatform"
+          >{{item.label}}</view>
+        </view>
+
+        <view class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="preparePack">{{packBusy === 'pack' ? '打包中…' : '打包审核材料'}}</view>
+
+        <block wx:if="{{pack}}">
+          <view class="kv mt16"><text class="kv-k">压缩包</text><text class="kv-v">{{pack.files.length}} 个文件 · {{pack.sizeText}} · {{pack.episode}}</text></view>
+          <view class="kv" wx:for="{{pack.checklist}}" wx:key="key">
+            <text class="kv-k">{{item.mark}} {{item.label}}</text>
+            <text class="kv-v">{{item.done ? '已含' : (item.required ? '缺' : '可选')}}</text>
+          </view>
+          <view class="btn btn-block btn-ghost mt16" bindtap="copyPackUrl">复制下载链接</view>
+          <view class="btn btn-block mt16 {{uploaded ? 'btn-disabled' : ''}}" bindtap="markUploaded">{{uploaded ? '已登记提交' : '我已在平台提交'}}</view>
+          <view class="hint mt8">{{pack.note}}</view>
+        </block>
+      </view>
+
+      <!-- 已出成片 -->
+      <view wx:if="{{films.length}}" class="card">
+        <view class="between">
+          <text class="title">已出成片</text>
+          <text class="tiny">{{films.length}} 集</text>
+        </view>
+        <view wx:for="{{films}}" wx:key="id" class="file-row" data-url="{{item.url}}" bindtap="copyFilm">
+          <text class="file-type">{{item.epText}}</text>
+          <text class="file-url">{{item.url}}</text>
+        </view>
+        <view class="hint mt8">点任一集复制链接。</view>
+      </view>
+
       <!-- 分发任务 -->
       <view class="section">
         <view class="row">

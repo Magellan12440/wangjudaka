@@ -112,6 +112,68 @@
     }).catch(function (e) { LW.toast(e.message, 'err'); });
   };
 
+  // ---------- 充值活动 ----------
+  var campaignCache = { bonusByPackage: {} };
+
+  function toLocalInput(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function renderCampaign(c) {
+    campaignCache = c || { bonusByPackage: {} };
+    $('cpEnabled').value = c && c.enabled ? '1' : '0';
+    $('cpStart').value = toLocalInput(c && c.startAt);
+    $('cpEnd').value = toLocalInput(c && c.endAt);
+    $('cpNote').value = (c && c.note) || '';
+    $('cpState').textContent = c && c.active ? '活动进行中' : (c && c.enabled ? '未到时间或已结束' : '未开启');
+    $('cpState').className = 'badge' + (c && c.active ? ' ok' : '');
+    var tb = $('cpRows');
+    call('/api/admin/packages').then(function (d) {
+      var items = d.items || [];
+      if (!items.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">先建充值档次</td></tr>'; return; }
+      var map = (campaignCache.bonusByPackage) || {};
+      tb.innerHTML = items.map(function (p) {
+        var v = map[p.id];
+        if (v === undefined) v = map[p.code];
+        return '<tr>' +
+          '<td><b>' + LW.esc(p.name) + '</b><div class="small muted mono">' + LW.esc(p.code) + '</div></td>' +
+          '<td>' + p.points + '</td>' +
+          '<td>' + (p.bonus ? '+' + p.bonus : '—') + '</td>' +
+          '<td><input type="number" min="0" step="1" data-pkg="' + p.id + '" value="' + (v === undefined ? '' : v) + '" placeholder="不参加" style="width:110px"></td>' +
+          '</tr>';
+      }).join('');
+    });
+  }
+
+  function loadCampaign() {
+    return call('/api/admin/campaign').then(renderCampaign);
+  }
+
+  $('btnCpSave').onclick = function () {
+    var map = {};
+    LW.qsa('#cpRows input[data-pkg]').forEach(function (inp) {
+      var raw = inp.value.trim();
+      if (raw === '') return;
+      var n = parseInt(raw, 10);
+      if (isFinite(n) && n >= 0) map[inp.getAttribute('data-pkg')] = n;
+    });
+    var body = {
+      enabled: $('cpEnabled').value === '1',
+      startAt: $('cpStart').value || null,
+      endAt: $('cpEnd').value || null,
+      note: $('cpNote').value.trim(),
+      bonusByPackage: map,
+    };
+    call('/api/admin/campaign', { method: 'POST', body: body }).then(function (c) {
+      LW.toast('活动已保存，小程序「我的」页立即生效', 'ok');
+      renderCampaign(c);
+    }).catch(function (e) { LW.toast(e.message, 'err'); });
+  };
+
   // ---------- 兑换码生成 ----------
   $('btnGen').onclick = function () {
     var body = {
@@ -280,6 +342,7 @@
   function refreshAll() {
     loadOverview().catch(function (e) { LW.toast(e.message, 'err'); });
     loadPackages().catch(function (e) { LW.toast(e.message, 'err'); });
+    loadCampaign().catch(function (e) { LW.toast(e.message, 'err'); });
     loadCodes().catch(function (e) { LW.toast(e.message, 'err'); });
     loadStats().catch(function (e) { LW.toast(e.message, 'err'); });
     loadInvStats().catch(function (e) { LW.toast(e.message, 'err'); });

@@ -10,6 +10,7 @@ import { logger } from './core/redact.js';
 import { db } from './store/db.js';
 import assetLibrary from './assets/AssetLibrary.js';
 import adminService from './admin/AdminService.js';
+import productionService from './pipeline/ProductionService.js';
 
 // 导演总谱在规划阶段需要读角色情绪档案；用全局只读句柄避免启动期循环依赖
 globalThis.__lingwuAssetLibrary = assetLibrary;
@@ -80,6 +81,16 @@ server.listen(config.server.port, config.server.host, () => {
   console.log(`  种子: 风格${v.counts.style_presets} 导演${v.counts.director_profiles} 镜头${v.counts.shot_cards} 转场${v.counts.transition_cards} 光影${v.counts.lighting_cards} 节奏${v.counts.rhythm_templates} 情绪${v.counts.emotion_cards}`);
   console.log(`  MOCK 模式下不产生真实算力消耗；配置 RELAY_API_KEY 后自动切换真实算力`);
   console.log(`  管理台: http://${shown}:${config.server.port}/admin.html（需 ADMIN_TOKEN）\n`);
+
+  // V4.3：剧集托管调度器。用户选「自动成片」后关掉小程序也会继续逐集推进。
+  // 测试环境不起（避免后台定时器干扰断言）；可用 PRODUCTION_RUNNER=off 关闭。
+  if (config.server.env !== 'test' && String(process.env.PRODUCTION_RUNNER ?? 'on') !== 'off') {
+    const timer = setInterval(() => {
+      productionService.tickRunning().catch((e) => logger.warn('托管调度异常', { msg: e.message }));
+    }, Number(process.env.PRODUCTION_TICK_MS ?? 4000));
+    timer.unref?.();
+    logger.info('剧集托管调度器已启动');
+  }
 });
 
 /**

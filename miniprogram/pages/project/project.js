@@ -2,14 +2,14 @@ const api = require('../../utils/api.js');
 const fmt = require('../../utils/format.js');
 const motion = require('../../utils/motion.js');
 
+// 用户只看「做剧的步骤」，流水线/画布/节点一律留在后端
 const TABS = [
   { key: 'material', label: '素材' },
   { key: 'script', label: '剧本' },
-  { key: 'flow', label: '流程' },
-  { key: 'assets', label: '资产' },
+  { key: 'assets', label: '角色' },
   { key: 'gens', label: '镜头' },
-  { key: 'qc', label: '质检' },
-  { key: 'deliver', label: '交付' },
+  { key: 'shell', label: '剧壳' },
+  { key: 'deliver', label: '成片' },
 ];
 
 const KIND_TEXT = { text: '文本', image: '图片', video: '视频', audio: '音频' };
@@ -119,22 +119,40 @@ function shapeRun(run) {
   };
 }
 
+/** 资料包展示口径：文件大小等格式化（WXML 不能调函数，统一在这里算好） */
+function packView(pack) {
+  if (!pack) return null;
+  const files = (pack.files || []).map((f) => ({
+    ...f,
+    sizeText: f.bytes ? fmt.fmtBytes(f.bytes) : '已包含',
+  }));
+  const missing = pack.checklist ? pack.checklist.filter((c) => c.missing) : (pack.missing || []);
+  return {
+    ...pack,
+    files,
+    missingText: missing.map((m) => m.label || m.key).join('、'),
+    checklist: (pack.checklist || []).map((c) => ({
+      ...c,
+      mark: c.done ? '✓' : (c.required ? '✕' : '–'),
+    })),
+  };
+}
+
 Page({
   data: {
     projectId: '',
     pageAnim: false,
     loading: true,
     error: '',
-    tab: 'flow',
+    tab: 'material',
     tabs: TABS,
-    tabIndex: 2,
+    tabIndex: 0,
     segTabsStyle: '',
     setup: false,
     project: null,
     progress: { done: 0, total: 12, percent: 0, next: null },
     ringStyle: '',
     run: null,
-    nodes: [],
     plan: null,
     shots: [],
     shotLimit: 12,
@@ -154,8 +172,20 @@ Page({
     editEpisode: '',      // 空 = 全片
     film: null,           // { video/srt/sheet/... }
     filmCmd: '',          // 云端无 ffmpeg 时的可复制命令
-    os: null,             // 一句话成剧进度
+    os: null,             // 一句话成剧进度（兼容旧任务，不再在界面展示）
     osError: '',
+    // 剧壳（片头片尾）
+    shell: null,
+    shellForm: { seriesTitle: '', tagline: '', introText: '', outroText: '', introSec: 3, outroSec: 4, enabled: true },
+    shellBusy: '',
+    // 剧集生产（单集 / 全自动）
+    job: null,
+    jobStates: [],
+    produceEp: 1,
+    produceBusy: '',
+    // 分发资料包
+    pack: null,
+    packBusy: '',
     busy: '',
     balance: 0,
     isFresh: false,
@@ -185,42 +215,36 @@ Page({
   onLoad(q) {
     const app = getApp();
     const setup = q.setup === '1';
-    const osId = q.oneshot || '';
     this.setData({
       projectId: q.id || '',
       balance: app.globalData.balance || 0,
       isFresh: q.fresh === '1',
       setup,
-      tab: setup && !osId ? 'material' : 'flow',
-      tabIndex: setup && !osId ? 0 : 2,
-      segTabsStyle: motion.segStyle(setup && !osId ? 0 : 2, TABS.length),
+      tab: setup ? 'material' : 'deliver',
+      tabIndex: setup ? 0 : 5,
+      segTabsStyle: motion.segStyle(setup ? 0 : 5, TABS.length),
     });
-    this.reload(true).then(() => {
-      if (osId) {
-        this.osId = osId;
-        this.pumpOneshot();
-      }
-    });
+    this.reload(true);
   },
 
   onShow() {
     motion.enter(this);
     this.setData({ balance: getApp().globalData.balance || 0 });
-    // 从后台回来时接着跑（页面被 onHide 打断过）
-    if (this.osId && this.data.os && this.data.os.status === 'running' && !this.osTimer) {
-      this.pumpOneshot();
-    }
+    // 回到前台继续轮询托管任务（后台仍在逐集推进）
+    if (this.data.job && this.data.job.status === 'running') this.pollJob();
   },
 
   onHide() {
     motion.clear(this);
     this.stopOneshot();
+    this.stopJobPolling();
   },
 
   onUnload() {
     this.__gone = true;
     motion.clear(this);
     this.stopOneshot();
+    this.stopJobPolling();
     this.stopUploading();
   },
 
@@ -275,25 +299,16 @@ Page({
     const st = fmt.projectStatus(p.status);
     const plan = d.plan;
     const episodes = (plan && plan.episodes) || Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90)));
-    const nodes = ((d.run && d.run.nodes) || []).map((n) => {
-      const ns = fmt.nodeStatus(n.status);
-      return {
-        id: n.id,
-        name: n.name,
-        status: n.status,
-        statusText: ns.text,
-        dot: ns.dot,
-        cls: ns.cls,
-        gate: n.gate,
-        cost: n.cost_credits || 0,
-        error: n.error || '',
-      };
-    });
     const assets = d.assets || { total: 0, ready: 0, items: [] };
     const gens = d.generations || { total: 0, credits: 0, items: [] };
     const qc = d.qc;
     const gate = d.gate;
     const progress = d.progress || { done: 0, total: 12, percent: 0, next: null };
+    // 剧壳 / 剧集托管 / 资料包 / 已出成片（全部来自服务端聚合，前端不自己推状态）
+    const shell = d.shell || {};
+    const job = (d.jobs || [])[0] || null;
+    const pack = packView((d.submissions || [])[0] || null);
+    const films = d.films || [];
 
     const deliveryItems = [
       {
@@ -364,7 +379,6 @@ Page({
       progress,
       ringStyle: motion.ringStyle(progress.percent),
       run: d.run ? { id: d.run.id, status: d.run.status, totalCredits: d.run.total_credits || 0 } : null,
-      nodes,
       plan,
       shots: d.shots || [],
       shotItems,
@@ -389,11 +403,26 @@ Page({
       },
       qc,
       gate,
+      shell,
+      shellForm: {
+        seriesTitle: shell.series_title || p.title || '',
+        tagline: shell.tagline || '',
+        introText: (shell.opening && shell.opening.text) || p.title || '',
+        outroText: (shell.ending && shell.ending.text) || '下集更精彩 · 关注不迷路',
+        introSec: (shell.opening && shell.opening.sec) || 3,
+        outroSec: (shell.ending && shell.ending.sec) || 4,
+        enabled: shell.enabled !== false,
+      },
+      job: job ? this.shapeJob(job) : null,
+      jobStates: job ? (job.episode_states || []) : [],
+      pack: pack || null,
+      films,
       docs: d.docs,
       materialsUsed: d.materials_used || 0,
       deliveryItems,
       deliveryDone: deliveryItems.filter((x) => x.ok).length,
       epList: Array.from({ length: Math.max(1, Number(episodes) || 1) }, (_, i) => i + 1),
+      produceEp: this.data.produceEp && this.data.produceEp <= episodes ? this.data.produceEp : 1,
     });
   },
 
@@ -412,7 +441,7 @@ Page({
   /** 剪辑单提示「还没分镜」时，一键跳回流程页去生成 */
   goFlow() {
     motion.haptic();
-    const idx = TABS.findIndex((t) => t.key === 'flow');
+    const idx = TABS.findIndex((t) => t.key === 'script');
     this.setData({ tab: 'flow', tabIndex: idx < 0 ? 2 : idx, segTabsStyle: motion.segStyle(idx < 0 ? 2 : idx, TABS.length) });
     wx.pageScrollTo({ scrollTop: 0, duration: 180 });
   },
@@ -988,6 +1017,221 @@ Page({
     wx.setClipboardData({
       data: f.video.url,
       success: () => wx.showToast({ title: '成片链接已复制，可在浏览器打开', icon: 'none' }),
+    });
+  },
+
+  // ——— 剧壳（片头片尾）———
+  shapeJob(job) {
+    const st = job.status;
+    const text = { running: '后台制作中', paused: '已暂停', done: '全部完成', failed: '已中断' }[st] || st;
+    const cls = st === 'done' ? 'pill-green' : st === 'failed' ? 'pill-red' : st === 'paused' ? 'pill-gold' : 'pill-blue';
+    return { ...job, statusText: text, statusCls: cls, percent: (job.progress && job.progress.percent) || 0 };
+  },
+
+  onShellInput(e) {
+    const field = e.currentTarget.dataset.field;
+    this.setData({ [`shellForm.${field}`]: e.detail.value });
+  },
+
+  pickShellSec(e) {
+    motion.haptic();
+    const { field, value } = e.currentTarget.dataset;
+    this.setData({ [`shellForm.${field}`]: Number(value) });
+  },
+
+  saveShell() {
+    if (this.data.shellBusy) return;
+    const f = this.data.shellForm;
+    this.setData({ shellBusy: 'save' });
+    api.saveShell(this.data.projectId, {
+      enabled: f.enabled,
+      series_title: f.seriesTitle,
+      tagline: f.tagline,
+      opening: { enabled: true, sec: f.introSec, text: f.introText },
+      ending: { enabled: true, sec: f.outroSec, text: f.outroText },
+    })
+      .then((shell) => {
+        wx.showToast({ title: '剧壳已保存', icon: 'none' });
+        this.setData({ shell });
+      })
+      .catch(() => {})
+      .then(() => this.setData({ shellBusy: '' }));
+  },
+
+  makeShellCard(e) {
+    const kind = e.currentTarget.dataset.kind || 'intro';
+    if (this.data.shellBusy) return;
+    this.setData({ shellBusy: kind });
+    wx.showLoading({ title: kind === 'intro' ? '生成片头…' : '生成片尾…', mask: true });
+    api.renderShellCard(this.data.projectId, kind)
+      .then((r) => {
+        wx.hideLoading();
+        if (r.ok) {
+          wx.showToast({ title: `${kind === 'intro' ? '片头' : '片尾'}已生成`, icon: 'none' });
+          return this.reload(false);
+        }
+        wx.showModal({
+          title: '当前环境无法生成',
+          content: (r.hint || '生成失败') + (r.cmd ? '\n\n命令已生成，可复制到本机执行。' : ''),
+          confirmText: r.cmd ? '复制命令' : '知道了',
+          success: (x) => {
+            if (x.confirm && r.cmd) wx.setClipboardData({ data: r.cmd });
+          },
+        });
+      })
+      .catch((err) => {
+        wx.hideLoading();
+        wx.showToast({ title: err.message || '生成失败', icon: 'none' });
+      })
+      .then(() => this.setData({ shellBusy: '' }));
+  },
+
+  // ——— 剧集生产（单集 / 全自动托管）———
+  pickProduceEp(e) {
+    motion.haptic();
+    this.setData({ produceEp: Number(e.currentTarget.dataset.ep) || 1 });
+  },
+
+  produce(mode) {
+    if (this.data.produceBusy) return;
+    motion.haptic();
+    const ep = `E${String(this.data.produceEp).padStart(2, '0')}`;
+    const label = mode === 'auto' ? '全自动逐集生成' : `第 ${this.data.produceEp} 集`;
+    wx.showModal({
+      title: mode === 'auto' ? '开启自动成片' : '生成这一集',
+      content: mode === 'auto'
+        ? '后台会从这一集开始逐集出图、出片、剪辑，关掉小程序也会继续；做完的成片自动进「我的资产」，余额不足会停在当前集。'
+        : `${label}：先补齐缺失镜头，再剪辑成片。已有产物不会重复扣费。`,
+      confirmText: '开始',
+      success: (r) => {
+        if (!r.confirm) return;
+        this.setData({ produceBusy: mode });
+        api.produce(this.data.projectId, { mode, episode: ep })
+          .then((job) => {
+            this.setData({ job: this.shapeJob(job), jobStates: job.episode_states || [] });
+            this.pollJob();
+          })
+          .catch((err) => wx.showModal({ title: '未能开始', content: err.message || '请稍后重试', showCancel: false }))
+          .then(() => this.setData({ produceBusy: '' }));
+      },
+    });
+  },
+
+  pollJob() {
+    const job = this.data.job;
+    if (!job || !job.id) return;
+    if (this.jobTimer) clearTimeout(this.jobTimer);
+    const tick = () => {
+      if (this.__gone) return;
+      api.produceStep(job.id)
+        .then((next) => {
+          this.setData({ job: this.shapeJob(next), jobStates: next.episode_states || [] });
+          if (next.status === 'running') {
+            this.jobTimer = setTimeout(tick, 1500);
+            return;
+          }
+          this.jobTimer = null;
+          this.reload(false);
+          if (next.status === 'done') {
+            wx.showToast({ title: '成片已全部完成', icon: 'none' });
+          } else if (next.status === 'paused') {
+            wx.showModal({
+              title: '已暂停',
+              content: next.paused_reason === 'INSUFFICIENT_CREDITS'
+                ? '余额不足，已停在当前集。充值后点「继续托管」即可从断点续跑，已生成镜头不会重花。'
+                : (next.paused_reason === 'FFMPEG_MISSING'
+                  ? '当前服务器缺少剪辑组件，剪辑单与字幕已生成，可联系管理员配置渲染环境。'
+                  : (next.paused_reason || '已暂停')),
+              showCancel: false,
+            });
+          }
+        })
+        .catch(() => { this.jobTimer = null; });
+    };
+    tick();
+  },
+
+  pauseJob() {
+    const job = this.data.job;
+    if (!job) return;
+    api.producePause(job.id).then((j) => this.setData({ job: this.shapeJob(j), jobStates: j.episode_states || [] })).catch(() => {});
+  },
+
+  resumeJob() {
+    const job = this.data.job;
+    if (!job) return;
+    api.produceResume(job.id).then((j) => {
+      this.setData({ job: this.shapeJob(j), jobStates: j.episode_states || [] });
+      this.pollJob();
+    }).catch(() => {});
+  },
+
+  stopJobPolling() {
+    if (this.jobTimer) {
+      clearTimeout(this.jobTimer);
+      this.jobTimer = null;
+    }
+  },
+
+  // ——— 分发资料包 ———
+  preparePack() {
+    if (this.data.packBusy) return;
+    motion.haptic();
+    const platformCode = getApp().globalData.selectedPlatform || null;
+    this.setData({ packBusy: 'prepare' });
+    wx.showLoading({ title: '打包审核材料…', mask: true });
+    api.prepareSubmission(this.data.projectId, {
+      episode: `E${String(this.data.produceEp).padStart(2, '0')}`,
+      platformCode,
+    })
+      .then((raw) => {
+        wx.hideLoading();
+        const pack = packView(raw);
+        this.setData({ pack });
+        wx.showModal({
+          title: pack.ready ? '材料已备齐' : '材料还缺几项',
+          content: pack.ready
+            ? `共 ${pack.files.length} 个文件，已打成一个压缩包。复制链接到电脑下载，在创作者中心整包上传即可。`
+            : pack.missing.map((m) => `· ${m.label}：${m.hint}`).join('\n'),
+          confirmText: '复制下载链接',
+          cancelText: '稍后',
+          success: (r) => {
+            if (r.confirm) wx.setClipboardData({ data: api.baseUrl() + pack.zip.url });
+          },
+        });
+      })
+      .catch((err) => {
+        wx.hideLoading();
+        wx.showModal({ title: '打包失败', content: err.message || '请稍后重试', showCancel: false });
+      })
+      .then(() => this.setData({ packBusy: '' }));
+  },
+
+  copyPack() {
+    if (!this.data.pack) return;
+    wx.setClipboardData({
+      data: api.baseUrl() + this.data.pack.zip.url,
+      success: () => wx.showToast({ title: '下载链接已复制', icon: 'none' }),
+    });
+  },
+
+  markUploaded() {
+    const pack = this.data.pack;
+    if (!pack) return;
+    api.markSubmitted(pack.id)
+      .then(() => {
+        wx.showToast({ title: '已标记提交', icon: 'none' });
+        this.reload(false);
+      })
+      .catch(() => {});
+  },
+
+  openFilm(e) {
+    const url = e.currentTarget.dataset.url;
+    if (!url) return;
+    wx.setClipboardData({
+      data: url,
+      success: () => wx.showToast({ title: '成片链接已复制', icon: 'none' }),
     });
   },
 

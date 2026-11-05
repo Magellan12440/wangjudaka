@@ -68,6 +68,13 @@ Page({
     calcLoading: false,
     packInfo: null,
     busy: '',
+    // 一键备齐（V4.3）
+    films: [],
+    filmEp: '',
+    packEp: '',
+    pack: null,
+    packBusy: '',
+    uploaded: false,
   },
 
   onLoad() {
@@ -79,6 +86,7 @@ Page({
     // 从项目详情跳过来时，优先用选中的项目
     const app = getApp();
     const selected = app.globalData.selectedProjectId;
+    this.setData({ selectedPlatform: app.globalData.selectedPlatform || '' });
     if (selected && selected !== this.data.projectId) {
       this.setData({ projectId: selected });
       this.loadProjectData();
@@ -140,6 +148,7 @@ Page({
     if (!projectId) return;
     const cur = this.data.projects.find((x) => x.id === projectId);
     this.setData({ projectTitle: cur ? cur.title : this.data.projectTitle });
+    this.loadPack();
     api.distributions(projectId)
       .then((list) => {
         const tasks = (Array.isArray(list) ? list : []).map((t) => {
@@ -468,5 +477,144 @@ Page({
   onPullDownRefresh() {
     this.loadProjectData();
     wx.stopPullDownRefresh();
+  },
+
+  // —— 一键备齐平台审核材料（V4.3） ——
+
+  /** 成片 + 已备过的资料包，决定默认集号 */
+  loadPack() {
+    const projectId = this.data.projectId;
+    if (!projectId) return;
+    api.projectFilms(projectId)
+      .then((list) => {
+        const films = (Array.isArray(list) ? list : []).map((f) => ({
+          ...f,
+          epText: f.episode || 'E01',
+          sizeText: f.bytes ? fmt.fmtBytes(f.bytes) : '',
+        }));
+        const last = films[films.length - 1];
+        const ep = this.data.packEp || this.data.filmEp || (last && last.episode) || 'E01';
+        this.setData({ films, filmEp: this.data.filmEp || (last && last.episode) || '', packEp: ep });
+      })
+      .catch(() => this.setData({ films: [] }));
+
+    api.submissions(projectId)
+      .then((r) => {
+        const items = (r && r.items) || [];
+        if (!items.length) return;
+        const last = items[0];
+        this.setData({
+          pack: this.shapePack(last),
+          uploaded: !!last.submitted_at,
+          packEp: this.data.packEp || last.episode,
+        });
+      })
+      .catch(() => {});
+  },
+
+  shapePack(raw) {
+    if (!raw) return null;
+    const files = (raw.files || []).map((f) => ({
+      key: f.key, name: f.name,
+    }));
+    const checklist = (raw.checklist || []).map((c) => ({
+      ...c,
+      mark: c.done ? '✓' : (c.required ? '✕' : '–'),
+      cls: c.done ? 'pill-green' : (c.required ? 'pill-red' : 'pill-gray'),
+    }));
+    return {
+      id: raw.id,
+      episode: raw.episode,
+      zipUrl: raw.zip_url || (raw.zip && raw.zip.url) || '',
+      bytes: raw.bytes || (raw.zip && raw.zip.bytes) || 0,
+      sizeText: fmt.fmtBytes(raw.bytes || (raw.zip && raw.zip.bytes) || 0),
+      files,
+      checklist,
+      missing: raw.checklist ? raw.checklist.filter((c) => c.missing) : [],
+      ready: !!raw.ready,
+      note: raw.note || '',
+      createdAt: fmt.timeAgo(raw.created_at),
+    };
+  },
+
+  pickPackEp(e) {
+    this.setData({ packEp: e.currentTarget.dataset.ep, pack: null, uploaded: false });
+  },
+
+  preparePack() {
+    const projectId = this.data.projectId;
+    if (!projectId || this.data.packBusy) return;
+    const platformCode = getApp().globalData.selectedPlatform || null;
+    this.setData({ packBusy: 'pack' });
+    api.prepareSubmission(projectId, { episode: this.data.packEp || null, platformCode })
+      .then((r) => {
+        this.setData({ pack: this.shapePack(r), uploaded: false });
+        if (r.ready) {
+          wx.showModal({
+            title: '材料已备齐',
+            content: `共 ${r.files.length} 个文件，已打成一个压缩包（${fmt.fmtBytes(r.zip.bytes)}）。复制下载链接到电脑端，解压后按清单逐项上传。`,
+            showCancel: false,
+          });
+        } else {
+          wx.showModal({
+            title: '还缺材料',
+            content: `缺 ${r.missing.length} 项：${r.missing.map((m) => m.label || m.key).join('、')}\n\n把缺的补上再打一次包，平台提审一次过。`,
+            showCancel: false,
+          });
+        }
+      })
+      .catch(() => {})
+      .then(() => this.setData({ packBusy: '' }));
+  },
+
+  copyPackUrl() {
+    const p = this.data.pack;
+    if (!p || !p.zipUrl) return;
+    const base = getApp().globalData.baseUrl || '';
+    const url = /^https?:/.test(p.zipUrl) ? p.zipUrl : `${base}${p.zipUrl}`;
+    wx.setClipboardData({
+      data: url,
+      success: () => wx.showToast({ title: '下载链接已复制', icon: 'none' }),
+    });
+  },
+
+  /** 登记「我已上传」——第三方平台无开放上传 API，只能由平台侧完成，这里只做状态推进 */
+  markUploaded() {
+    const p = this.data.pack;
+    if (!p) return;
+    const task = this.data.tasks.find((t) => t.platform === getApp().globalData.selectedPlatform);
+    wx.showModal({
+      title: '确认已提交到平台',
+      content: '确认你已在电脑端创作者中心完成上传并提交审核。登记后任务状态会推进到「内容审核」。',
+      confirmText: '已提交',
+      success: (r) => {
+        if (!r.confirm) return;
+        api.markSubmitted(p.id, task ? task.id : null)
+          .then(() => {
+            this.setData({ uploaded: true });
+            wx.showToast({ title: '已登记', icon: 'none' });
+            this.loadProjectData();
+          })
+          .catch(() => {});
+      },
+    });
+  },
+
+  /** 选中平台：写入 globalData，后续打包带上该平台的材料清单 */
+  pickPackPlatform(e) {
+    const code = e.currentTarget.dataset.code;
+    const cur = getApp().globalData.selectedPlatform;
+    const next = cur === code ? '' : code;
+    getApp().globalData.selectedPlatform = next;
+    this.setData({ selectedPlatform: next });
+  },
+
+  copyFilm(e) {
+    const url = e.currentTarget.dataset.url;
+    if (!url) return;
+    wx.setClipboardData({
+      data: url,
+      success: () => wx.showToast({ title: '成片链接已复制', icon: 'none' }),
+    });
   },
 });

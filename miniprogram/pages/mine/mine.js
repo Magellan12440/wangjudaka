@@ -39,6 +39,13 @@ Page({
     payText: '请选择档次',
     showRecharge: true,
     loading: true,
+    // 我的资产：逐集成片
+    films: [],
+    filmCount: 0,
+    // 资料完善
+    profileComplete: false,
+    // 充值活动
+    campaign: null,
   },
 
   onShow() {
@@ -54,6 +61,71 @@ Page({
       this.loadEntries();
       this.loadPackages();
       this.loadRedeems();
+      this.loadFilms();
+    });
+  },
+
+  /** 我的资产：所有已出成片（跨项目逐集汇总，方便一键分发） */
+  loadFilms() {
+    api.myFilms()
+      .then((r) => {
+        const items = (r && r.items) || (Array.isArray(r) ? r : []);
+        const films = items.map((f) => ({
+          id: f.id,
+          projectId: f.project_id,
+          projectTitle: f.project_title,
+          indexLabel: f.index_label || '',
+          ep: f.episode || 'E01',
+          url: f.url,
+          srtUrl: f.srt_url || '',
+          durationText: f.duration_sec ? fmt.fmtDuration(f.duration_sec) : '',
+          res: f.resolution || '',
+          timeText: fmt.timeAgo(f.created_at),
+        }));
+        this.setData({ films, filmCount: films.length });
+      })
+      .catch(() => {});
+  },
+
+  copyFilm(e) {
+    const url = e.currentTarget.dataset.url;
+    if (!url) return;
+    wx.setClipboardData({
+      data: url,
+      success: () => wx.showToast({ title: '成片链接已复制', icon: 'none' }),
+    });
+  },
+
+  goDistribute(e) {
+    const id = e.currentTarget.dataset.id;
+    if (id) getApp().globalData.selectedProjectId = id;
+    wx.switchTab({ url: '/pages/distribute/distribute' });
+  },
+
+  /** 完善资料：昵称（微信昵称不能静默获取，只能让用户自己填） */
+  editProfile() {
+    const app = getApp();
+    wx.showModal({
+      title: '设置昵称',
+      editable: true,
+      placeholderText: this.data.nickname || '取个笔名',
+      confirmText: '保存',
+      success: (r) => {
+        if (!r.confirm) return;
+        const nickname = String(r.content || '').trim().slice(0, 20);
+        if (!nickname) {
+          wx.showToast({ title: '昵称不能为空', icon: 'none' });
+          return;
+        }
+        api.updateProfile({ nickname })
+          .then((d) => {
+            if (d && d.user) app.applyUser({ user: d.user, mode: this.data.loginMode });
+            this.setData({ nickname, initial: nickname.slice(0, 1), profileComplete: true });
+            app.globalData.profileComplete = true;
+            wx.showToast({ title: '已保存', icon: 'none' });
+          })
+          .catch(() => {});
+      },
     });
   },
 
@@ -72,6 +144,7 @@ Page({
           balance: d.user.balance_points || 0,
           loginMode: d.mode || '',
           uidText: fmt.shortId(d.user.id),
+          profileComplete: !!d.user.profile_complete,
         });
         motion.countUp(this, 'balanceShow', d.user.balance_points || 0, { duration: 700 });
       })
@@ -101,6 +174,7 @@ Page({
           // 未配置虚拟支付商户号时，是否允许用 mock 发货把流程走通（上线前应关闭）
           showRecharge: d.pay_mode === 'live' || config.mockRecharge !== false,
           cnyPerPoint: d.cny_per_point || 1,
+          campaign: d.campaign || null,
           selectedId: this.data.selectedId || (list[0] && list[0].id) || '',
         }, () => this.refreshPayText());
       })
