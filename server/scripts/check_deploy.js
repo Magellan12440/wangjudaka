@@ -153,6 +153,30 @@ if (list) {
   ok('打包清单不含 data/ 运行数据', !/wangju-daka-[^\s/]+\/(?:server\/)?data(?:_test)?\//.test(list));
 }
 
+// —— 11. 镜像内容完整性：种子库必须被 git 跟踪（云托管按仓库构建）——
+// 踩过的坑：server/.gitignore 里写过 `data/`，把 src/seeds/data/ 整个忽略掉，
+// 本地一切正常，推到 GitHub 后镜像里没有种子 JSON，容器启动即崩
+// （AppError: 种子文件缺失: style_presets.json → Back-off restarting failed container）。
+let tracked = '';
+try {
+  tracked = execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', 'server/src/seeds/data'], {
+    cwd: path.resolve(SERVER, '..'),
+    encoding: 'utf8',
+    timeout: 30000,
+  });
+} catch (e) {
+  tracked = '';
+}
+const seedTracked = tracked.split('\n').filter((x) => x.endsWith('.json'));
+ok('种子库已被 git 跟踪（云托管构建依赖）', seedTracked.length >= 10, `仅 ${seedTracked.length} 个`);
+// 关键的几份必须点名存在，避免「只剩一个空目录」也能通过数量检查之外的极端情况
+for (const must of ['style_presets.json', 'shot_cards.json', 'transition_cards.json', 'lighting_cards.json', 'cinema_grammar.json']) {
+  ok(`种子已跟踪：${must}`, seedTracked.some((p) => p.endsWith('/' + must)));
+}
+// Dockerfile 必须把整个 server/src 打进镜像（种子在 src 里面）
+const dockerfileText = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8');
+ok('Dockerfile 打包整个 server/src（含种子）', /COPY\s+server\/src\s/.test(dockerfileText));
+
 // —— 结果 ——
 if (fails.length === 0) {
   console.log(`  结果：${pass} 通过 / 0 失败`);

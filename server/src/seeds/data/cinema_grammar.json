@@ -1,0 +1,219 @@
+{
+  "_note": "导演语法扩展库：构图/氛围/镜头/调色 四类词表 + 组合配方。PromptCompiler 只在显式传入时拼装，保证既有调用零影响。配方里的 shot/move/lighting/transition/rhythm 必须是已有卡库中的合法 code。",
+  "_version": "1.0",
+  "composition": [
+    { "code": "CMP-CENTER", "name": "中心构图", "prompt_en": "dead-center composition, subject framed symmetrically in the middle", "prompt_zh": "中心构图，人物居于画面正中", "mood": ["对峙", "仪式感", "压迫"] },
+    { "code": "CMP-THIRD", "name": "三分法", "prompt_en": "rule-of-thirds composition, subject on the left third line", "prompt_zh": "三分法构图，人物压左三分线", "mood": ["日常", "对话", "自然"] },
+    { "code": "CMP-FRAME", "name": "框中框", "prompt_en": "framed within a doorway or window, strong foreground frame edges", "prompt_zh": "框中框构图，用门框/窗框做前景", "mood": ["窥视", "被困", "孤独"] },
+    { "code": "CMP-DIAGONAL", "name": "对角线", "prompt_en": "strong diagonal composition, dynamic unbalanced lines", "prompt_zh": "对角线构图，画面失衡有张力", "mood": ["冲突", "奔跑", "失衡"] },
+    { "code": "CMP-SYMMETRY", "name": "绝对对称", "prompt_en": "perfect bilateral symmetry, one-point perspective vanishing center", "prompt_zh": "绝对对称构图，一点透视", "mood": ["仙门", "宏大", "秩序"] },
+    { "code": "CMP-NEGATIVE", "name": "负空间", "prompt_en": "large negative space, tiny subject pressed to one corner", "prompt_zh": "大量留白，人物被挤在角落", "mood": ["渺小", "孤独", "宿命"] },
+    { "code": "CMP-LEADROOM", "name": "视线留白", "prompt_en": "generous look-room in the direction the subject is gazing", "prompt_zh": "人物视线方向留白", "mood": ["期待", "凝望", "离别"] },
+    { "code": "CMP-FOREGROUND", "name": "前景遮挡", "prompt_en": "blurred foreground elements partially blocking the subject", "prompt_zh": "虚化前景遮挡人物", "mood": ["偷窥", "危险", "距离"] },
+    { "code": "CMP-OVERHEAD", "name": "俯视平面", "prompt_en": "top-down flattened composition, graphic shapes", "prompt_zh": "俯视平面构图，图形化", "mood": ["命运", "棋局", "冷眼"] }
+  ],
+  "atmosphere": [
+    { "code": "ATM-RAIN", "name": "雨", "prompt_en": "falling rain, wet reflective surfaces, rain streaks in light beams", "prompt_zh": "落雨，地面积水反光，光束中有雨丝", "mood": ["悲", "赛博", "诀别"] },
+    { "code": "ATM-FOG", "name": "雾", "prompt_en": "thick atmospheric fog, depth falloff, silhouettes fading into mist", "prompt_zh": "浓雾，纵深衰减，人影没入雾中", "mood": ["悬疑", "盗墓", "未知"] },
+    { "code": "ATM-DUST", "name": "丁达尔尘埃", "prompt_en": "dust motes floating in volumetric light shafts", "prompt_zh": "丁达尔光束中漂浮的尘埃", "mood": ["回忆", "静谧", "神圣"] },
+    { "code": "ATM-SMOKE", "name": "烟", "prompt_en": "drifting smoke, layered haze, volumetric scattering", "prompt_zh": "流动的烟，层叠雾气", "mood": ["黑帮", "战场", "迷离"] },
+    { "code": "ATM-PETAL", "name": "花瓣", "prompt_en": "petals drifting through the air across the frame", "prompt_zh": "花瓣横穿画面飘落", "mood": ["古风", "唯美", "重逢"] },
+    { "code": "ATM-SNOW", "name": "雪", "prompt_en": "falling snow, cold blue highlights, breath vapor", "prompt_zh": "落雪，冷蓝高光，呼吸白气", "mood": ["苍凉", "诀别", "北地"] },
+    { "code": "ATM-EMBER", "name": "火星", "prompt_en": "floating embers and sparks rising from below", "prompt_zh": "火星从画面下方升起", "mood": ["战火", "毁灭", "热血"] },
+    { "code": "ATM-REFLECTION", "name": "积水倒影", "prompt_en": "puddle reflections doubling the subject, ripples distorting the mirror image", "prompt_zh": "积水倒影，涟漪扭曲镜面", "mood": ["都市", "心事", "雨夜"] },
+    { "code": "ATM-STEAM", "name": "蒸汽", "prompt_en": "neon-lit steam vents, colored haze in the air", "prompt_zh": "霓虹照亮的蒸汽，空气中带色雾", "mood": ["赛博", "街头", "夜"] },
+    { "code": "ATM-PAPER", "name": "纸屑", "prompt_en": "scattered paper scraps swirling in the air", "prompt_zh": "纸屑在空中翻飞", "mood": ["混乱", "崩塌", "都市"] }
+  ],
+  "lens": [
+    { "code": "LNS-24MM", "name": "24mm 广角", "prompt_en": "shot on 24mm wide lens, exaggerated perspective", "prompt_zh": "24mm 广角，透视夸张", "use_case": "环境交代、压迫感" },
+    { "code": "LNS-35MM", "name": "35mm 人文", "prompt_en": "shot on 35mm lens, natural documentary perspective", "prompt_zh": "35mm 人文视角", "use_case": "纪实、街头" },
+    { "code": "LNS-50MM", "name": "50mm 标准", "prompt_en": "shot on 50mm lens, human-eye perspective", "prompt_zh": "50mm 标准视角，接近人眼", "use_case": "对话主力" },
+    { "code": "LNS-85MM", "name": "85mm 人像", "prompt_en": "shot on 85mm portrait lens, compressed background, shallow depth of field", "prompt_zh": "85mm 人像镜头，背景压缩，浅景深", "use_case": "情绪、特写" },
+    { "code": "LNS-135MM", "name": "135mm 压缩", "prompt_en": "shot on 135mm telephoto, heavy compression, isolated subject", "prompt_zh": "135mm 长焦，强压缩，人物被剥离", "use_case": "偷窥、孤独" },
+    { "code": "LNS-MACRO", "name": "微距", "prompt_en": "macro lens, extreme detail, razor-thin focus plane", "prompt_zh": "微距镜头，极致细节", "use_case": "道具、眼神、线索" },
+    { "code": "LNS-ANAMORPHIC", "name": "变形宽银幕", "prompt_en": "anamorphic lens, horizontal blue flares, 2.39:1 widescreen feel", "prompt_zh": "变形宽银幕，横向蓝色光晕", "use_case": "电影感、史诗" },
+    { "code": "LNS-FISHEYE", "name": "鱼眼", "prompt_en": "fisheye lens, extreme barrel distortion", "prompt_zh": "鱼眼镜头，桶形畸变", "use_case": "荒诞、主观、眩晕" },
+    { "code": "LNS-TILTSHIFT", "name": "移轴", "prompt_en": "tilt-shift lens, miniature effect, selective focus band", "prompt_zh": "移轴镜头，微缩模型感", "use_case": "命运俯瞰、讽刺" },
+    { "code": "LNS-VINTAGE", "name": "老镜头", "prompt_en": "vintage glass, soft halation, gentle lower contrast", "prompt_zh": "老镜头，柔和高光溢出", "use_case": "回忆、年代" }
+  ],
+  "color": [
+    { "code": "CLR-TEALORANGE", "name": "青橙", "prompt_en": "teal and orange color grade, warm skin against cool shadows", "prompt_zh": "青橙调色，暖肤色配冷阴影" },
+    { "code": "CLR-DESAT", "name": "低饱和", "prompt_en": "desaturated palette, muted colors, restrained contrast", "prompt_zh": "低饱和，色彩克制" },
+    { "code": "CLR-PASTEL", "name": "奶油", "prompt_en": "pastel palette, milky highlights, soft contrast", "prompt_zh": "奶油调，高光发乳白" },
+    { "code": "CLR-MONO", "name": "近黑白", "prompt_en": "near-monochrome, single accent color only", "prompt_zh": "近乎黑白，只留一个点缀色" },
+    { "code": "CLR-NEON", "name": "霓虹", "prompt_en": "saturated neon palette, magenta and cyan practicals", "prompt_zh": "霓虹高饱和，品红与青色光源" },
+    { "code": "CLR-WARMAMBER", "name": "琥珀暖", "prompt_en": "warm amber grade, golden skin tones, cozy falloff", "prompt_zh": "琥珀暖调，肤色偏金" },
+    { "code": "CLR-COLD", "name": "冷蓝", "prompt_en": "cold blue grade, cyan shadows, clinical distance", "prompt_zh": "冷蓝调，阴影发青" },
+    { "code": "CLR-INK", "name": "水墨", "prompt_en": "ink-wash palette, rice-paper texture, restrained ink bleed", "prompt_zh": "水墨调，宣纸质感" }
+  ],
+  "recipes": [
+    {
+      "code": "GRM-VERTIGO", "name": "眩晕推拉", "intent": "认知崩塌 / 真相揭穿",
+      "shot": "SHT-CU", "move": "SHT-PUSH", "composition": "CMP-CENTER", "atmosphere": "ATM-DUST",
+      "lens": "LNS-85MM", "color": "CLR-DESAT", "lighting": ["LIG-TOP", "LIG-LOWKEY"],
+      "transition": "TRN-ZOOMIN", "rhythm": "REV-01",
+      "why": "85mm 推近 + 顶光压顶，把「她意识到被欺骗」的瞬间做成生理性眩晕；推入穿越转场让下一镜从瞳孔里长出来",
+      "styles": ["STY-XUANYI", "STY-FUCHOU", "STY-DUSHI", "STY-GONGDOU", "STY-KEHUAN", "STY-LVZHENG", "STY-SHANGZHAN"]
+    },
+    {
+      "code": "GRM-DOORWAY-PEEK", "name": "门框窥视", "intent": "偷窥 / 被困 / 秘密",
+      "shot": "SHT-MS", "move": "SHT-STATIC", "composition": "CMP-FRAME", "atmosphere": "ATM-FOG",
+      "lens": "LNS-50MM", "color": "CLR-COLD", "lighting": ["LIG-PRACTICAL", "LIG-LOWKEY"],
+      "transition": "TRN-DOORWAY", "rhythm": "HOOK-09",
+      "why": "固定机位 + 框中框，观众被迫站在门外偷看；门框穿行转场直接把摄影机送进房间",
+      "styles": ["STY-XUANYI", "STY-LINGYI", "STY-ZHAIDOU", "STY-GONGDOU", "STY-DIEZHAN"]
+    },
+    {
+      "code": "GRM-SHADOW-CLOSE", "name": "阴影逼近", "intent": "威胁将至 / 倒计时",
+      "shot": "SHT-MLS", "move": "SHT-TRACK", "composition": "CMP-NEGATIVE", "atmosphere": "ATM-FOG",
+      "lens": "LNS-24MM", "color": "CLR-COLD", "lighting": ["LIGM-SHADOW-MOVE", "LIG-BACK"],
+      "transition": "TRN-OBJWIPE", "rhythm": "CFL-07",
+      "why": "横移跟拍让人物始终被压在小角落，影子先于人物到达；物体遮挡切把威胁藏进黑场",
+      "styles": ["STY-XUANYI", "STY-LINGYI", "STY-DAOMU", "STY-DIEZHAN", "STY-ZHANZHENG", "STY-YILIAO"]
+    },
+    {
+      "code": "GRM-CLOUD-ASCEND", "name": "云端俯瞰", "intent": "仙门气象 / 世界尺度",
+      "shot": "SHT-BIRD", "move": "SHT-CRANE", "composition": "CMP-SYMMETRY", "atmosphere": "ATM-DUST",
+      "lens": "LNS-ANAMORPHIC", "color": "CLR-TEALORANGE", "lighting": ["LIG-DAWN", "LIG-RIM"],
+      "transition": "TRN-INTOWHITE", "rhythm": "HOOK-10",
+      "why": "鸟瞰 + 升降建立宗门秩序，入白转场相当于「一拂袖」的留白，接人物特写不突兀",
+      "styles": ["STY-XIANXIA", "STY-XUANHUAN", "STY-XIUXIAN", "STY-GUFENG", "STY-WUXIA"]
+    },
+    {
+      "code": "GRM-ROBE-ENTRANCE", "name": "衣袂登场", "intent": "人物出场 / 气场",
+      "shot": "SHT-MCU", "move": "SHT-ARC", "composition": "CMP-LEADROOM", "atmosphere": "ATM-PETAL",
+      "lens": "LNS-85MM", "color": "CLR-PASTEL", "lighting": ["LIG-BACK", "LIG-RIM"],
+      "transition": "TRN-WHIP", "rhythm": "HOOK-10",
+      "why": "环绕 + 逆光轮廓，衣摆和发丝先入画；甩镜切把出场的力量甩到下一场",
+      "styles": ["STY-GUFENG", "STY-XIANXIA", "STY-WUXIA", "STY-GONGDOU", "STY-ZHAIDOU", "STY-XUANHUAN"]
+    },
+    {
+      "code": "GRM-CANDLE-CONFESSION", "name": "烛火独白", "intent": "宫斗夜谈 / 心事",
+      "shot": "SHT-CU", "move": "SHT-STATIC", "composition": "CMP-THIRD", "atmosphere": "ATM-SMOKE",
+      "lens": "LNS-85MM", "color": "CLR-WARMAMBER", "lighting": ["LIG-CANDLE", "LIGM-FIRE"],
+      "transition": "TRN-HARDCUT", "rhythm": "EMP-06",
+      "why": "烛光是唯一光源，火光轻微跳动让静止的脸有呼吸；硬切保留台词的锋利",
+      "styles": ["STY-GONGDOU", "STY-ZHAIDOU", "STY-GUFENG", "STY-LISHI"]
+    },
+    {
+      "code": "GRM-ELEVATOR-PRESS", "name": "电梯压迫", "intent": "都市焦虑 / 逼仄",
+      "shot": "SHT-MLS", "move": "SHT-PUSH", "composition": "CMP-FRAME", "atmosphere": "ATM-REFLECTION",
+      "lens": "LNS-24MM", "color": "CLR-COLD", "lighting": ["LIG-TOP", "LIG-COOL"],
+      "transition": "TRN-WHIP", "rhythm": "CFL-06",
+      "why": "24mm 在密闭空间里把墙压向人物，顶光制造眼窝阴影；甩镜切模拟电梯门开的失重",
+      "styles": ["STY-DUSHI", "STY-ZHICHANG", "STY-XUANYI", "STY-SHANGZHAN"]
+    },
+    {
+      "code": "GRM-STREET-SOLITUDE", "name": "街灯独行", "intent": "孤独 / 城市夜",
+      "shot": "SHT-FS", "move": "SHT-TRACK", "composition": "CMP-NEGATIVE", "atmosphere": "ATM-RAIN",
+      "lens": "LNS-135MM", "color": "CLR-NEON", "lighting": ["LIG-NIGHT", "LIGM-NEON-PULSE"],
+      "transition": "TRN-MATCH", "rhythm": "EMP-05",
+      "why": "长焦把人物从街景里剥离出来，霓虹脉动替代心跳；形状匹配切到下一条街不打断情绪",
+      "styles": ["STY-DUSHI", "STY-TIANCHONG", "STY-NIXI", "STY-JIATING", "STY-XIAOYUAN", "STY-ZHONGTIAN"]
+    },
+    {
+      "code": "GRM-BOARDROOM", "name": "会议对峙", "intent": "职场 / 权力",
+      "shot": "SHT-OSS", "move": "SHT-STATIC", "composition": "CMP-THIRD", "atmosphere": "ATM-STEAM",
+      "lens": "LNS-50MM", "color": "CLR-DESAT", "lighting": ["LIG-INDOOR-MIX", "LIG-KEY-SIDE"],
+      "transition": "TRN-JCUT", "rhythm": "CFL-04",
+      "why": "过肩 + 侧光把两人切成明暗两派；J 切让下一句台词先于画面到达，压迫感更强",
+      "styles": ["STY-ZHICHANG", "STY-SHANGZHAN", "STY-LVZHENG", "STY-DUSHI", "STY-YILIAO"]
+    },
+    {
+      "code": "GRM-NEON-RAIN", "name": "霓虹雨夜", "intent": "赛博 / 城市底层",
+      "shot": "SHT-WS", "move": "SHT-PUSH", "composition": "CMP-DIAGONAL", "atmosphere": "ATM-STEAM",
+      "lens": "LNS-ANAMORPHIC", "color": "CLR-NEON", "lighting": ["LIG-NEON", "LIGM-FLICKER"],
+      "transition": "TRN-REFLECT", "rhythm": "HOOK-04",
+      "why": "变形宽银幕横光晕 + 霓虹闪烁，积水倒影里切入下一场，空间感翻倍",
+      "styles": ["STY-CYBER", "STY-KEHUAN", "STY-DUSHI", "STY-MORI", "STY-YOUXI"]
+    },
+    {
+      "code": "GRM-HOLO-UNBALANCE", "name": "全息失衡", "intent": "科技眩晕 / 失真",
+      "shot": "SHT-DUTCH", "move": "SHT-ARC", "composition": "CMP-DIAGONAL", "atmosphere": "ATM-STEAM",
+      "lens": "LNS-FISHEYE", "color": "CLR-NEON", "lighting": ["LIG-HIGHSAT", "LIGM-NEON-PULSE"],
+      "transition": "TRN-PIXEL", "rhythm": "REV-09",
+      "why": "荷兰角 + 鱼眼把秩序感打碎；像素化转场让「系统崩溃」变成视觉事件",
+      "styles": ["STY-CYBER", "STY-KEHUAN", "STY-YOUXI", "STY-MORI"]
+    },
+    {
+      "code": "GRM-HERO-LANDING", "name": "强者登场", "intent": "逆袭 / 打脸前摇",
+      "shot": "SHT-LOW", "move": "SHT-CRANE", "composition": "CMP-CENTER", "atmosphere": "ATM-EMBER",
+      "lens": "LNS-24MM", "color": "CLR-TEALORANGE", "lighting": ["LIG-BACK", "LIGM-SWEEP"],
+      "transition": "TRN-CROWD", "rhythm": "HOOK-10",
+      "why": "仰拍 + 升降把人举起来，逆光扫光给轮廓镀边；人群穿过转场像被气场推开",
+      "styles": ["STY-NIXI", "STY-XUANHUAN", "STY-XIUXIAN", "STY-XIANXIA", "STY-JUNLV", "STY-WUXIA"]
+    },
+    {
+      "code": "GRM-SLAP", "name": "打脸瞬间", "intent": "爽感 / 反转",
+      "shot": "SHT-MCU", "move": "SHT-WHIP", "composition": "CMP-DIAGONAL", "atmosphere": "ATM-PAPER",
+      "lens": "LNS-35MM", "color": "CLR-TEALORANGE", "lighting": ["LIG-NOON", "LIGM-LIGHTNING"],
+      "transition": "TRN-WHIP", "rhythm": "REV-02",
+      "why": "甩镜 + 硬光闪白，把巴掌的物理冲击做成剪辑冲击；纸屑飞散替代慢动作",
+      "styles": ["STY-NIXI", "STY-DUSHI", "STY-GONGDOU", "STY-ZHAIDOU", "STY-FUCHOU"]
+    },
+    {
+      "code": "GRM-ONER", "name": "一镜到底", "intent": "沉浸 / 空间调度",
+      "shot": "SHT-TRACK", "move": "SHT-ARC", "composition": "CMP-FOREGROUND", "atmosphere": "ATM-SMOKE",
+      "lens": "LNS-35MM", "color": "CLR-DESAT", "lighting": ["LIG-PRACTICAL"],
+      "transition": "TRN-HARDCUT", "rhythm": "CFL-09",
+      "why": "前景不断掠过制造连续空间错觉，硬切只在必须换场时出现，保住「一镜」的幻觉",
+      "styles": ["STY-DIEZHAN", "STY-ZHANZHENG", "STY-JUNLV", "STY-WUXIA", "STY-XUANYI", "STY-YILIAO"]
+    },
+    {
+      "code": "GRM-TEAR-CLOSEUP", "name": "眼泪特写", "intent": "情绪高点 / 共情",
+      "shot": "SHT-ECU", "move": "SHT-STATIC", "composition": "CMP-CENTER", "atmosphere": "ATM-DUST",
+      "lens": "LNS-MACRO", "color": "CLR-PASTEL", "lighting": ["LIG-SOFTBOX", "LIG-RIM"],
+      "transition": "TRN-DISSOLVE-W", "rhythm": "EMP-05",
+      "why": "微距拍睫毛上的泪，柔光箱+轮廓光让泪珠有高光点；白闪溶解把情绪推到下一场",
+      "styles": ["STY-TIANCHONG", "STY-JIATING", "STY-XIAOYUAN", "STY-GUFENG", "STY-YILIAO", "STY-ZHONGTIAN"]
+    },
+    {
+      "code": "GRM-REUNION", "name": "久别重逢", "intent": "暖 / 释怀",
+      "shot": "SHT-MCU", "move": "SHT-PUSH", "composition": "CMP-LEADROOM", "atmosphere": "ATM-PETAL",
+      "lens": "LNS-85MM", "color": "CLR-WARMAMBER", "lighting": ["LIG-GOLDEN", "LIG-BLOOM"],
+      "transition": "TRN-XFADE", "rhythm": "EMP-04",
+      "why": "黄金时刻 + 柔光晕，缓慢推近代替台词；叠化把时间抹平",
+      "styles": ["STY-TIANCHONG", "STY-JIATING", "STY-ZHONGTIAN", "STY-DUSHI", "STY-LISHI"]
+    },
+    {
+      "code": "GRM-FLASHBACK", "name": "回忆闪回", "intent": "往事 / 因果",
+      "shot": "SHT-FS", "move": "SHT-PULL", "composition": "CMP-THIRD", "atmosphere": "ATM-DUST",
+      "lens": "LNS-VINTAGE", "color": "CLR-PASTEL", "lighting": ["LIG-OVERCAST", "LIGM-FADE-DARK"],
+      "transition": "TRN-HLUMA", "rhythm": "REV-05",
+      "why": "老镜头 + 低对比，拉镜把观众从回忆里推出来；亮度溶解是闪回最干净的门",
+      "styles": ["STY-XUANYI", "STY-FUCHOU", "STY-DUSHI", "STY-LISHI", "STY-JIATING"]
+    },
+    {
+      "code": "GRM-TOMB-POV", "name": "手电探洞", "intent": "盗墓 / 未知",
+      "shot": "SHT-POV", "move": "SHT-HAND", "composition": "CMP-NEGATIVE", "atmosphere": "ATM-FOG",
+      "lens": "LNS-24MM", "color": "CLR-DESAT", "lighting": ["LIG-UNDER", "LIGM-FLICKER"],
+      "transition": "TRN-INTODARK", "rhythm": "HOOK-03",
+      "why": "主观视角 + 手持，手电光斑是唯一亮区；入黑转场让「看不见」成为悬念本身",
+      "styles": ["STY-DAOMU", "STY-LINGYI", "STY-XUANYI"]
+    },
+    {
+      "code": "GRM-LOOKBACK", "name": "回头杀", "intent": "灵异 / 惊吓",
+      "shot": "SHT-REAR", "move": "SHT-PUSH", "composition": "CMP-CENTER", "atmosphere": "ATM-FOG",
+      "lens": "LNS-50MM", "color": "CLR-COLD", "lighting": ["LIG-BACK", "LIGM-LIGHTNING"],
+      "transition": "TRN-DISSOLVE-W", "rhythm": "HOOK-08",
+      "why": "背面跟拍逼观众替角色害怕，闪电亮一下交代「多了个人」；白闪切走不给看清",
+      "styles": ["STY-LINGYI", "STY-XUANYI", "STY-DAOMU"]
+    },
+    {
+      "code": "GRM-WATER-PASS", "name": "水汽穿行", "intent": "转场 / 时间跳跃",
+      "shot": "SHT-MS", "move": "SHT-PUSH", "composition": "CMP-FOREGROUND", "atmosphere": "ATM-STEAM",
+      "lens": "LNS-50MM", "color": "CLR-WARMAMBER", "lighting": ["LIG-PRACTICAL"],
+      "transition": "TRN-WATERWIPE", "rhythm": "CFL-09",
+      "why": "水汽糊住镜头再散开，等于一次免费的时间跳跃；比叠化更有触感",
+      "styles": ["STY-XIANXIA", "STY-XUANHUAN", "STY-XIUXIAN", "STY-GUFENG", "STY-WUXIA", "STY-ZHONGTIAN"]
+    },
+    {
+      "code": "GRM-FREEZE-END", "name": "定格收尾", "intent": "集末钩子",
+      "shot": "SHT-MCU", "move": "SHT-WHIP", "composition": "CMP-DIAGONAL", "atmosphere": "ATM-EMBER",
+      "lens": "LNS-35MM", "color": "CLR-TEALORANGE", "lighting": ["LIG-BACK", "LIGM-SWEEP"],
+      "transition": "TRN-FREEZE", "rhythm": "HOOK-01",
+      "why": "甩到最张力的一帧直接定格，片尾字幕压上来，完播率靠这一下",
+      "styles": []
+    }
+  ]
+}

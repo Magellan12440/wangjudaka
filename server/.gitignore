@@ -5,13 +5,17 @@
 *.key
 *.pem
 
-# 运行时数据
-data/
-data_test/
-data_smoke_h/
-logs/
-tmp/
-coverage/
+# 运行时数据（锚定到 server/ 根，否则会误伤 src/seeds/data/ 种子库）
+/data/
+/data_test/
+/data_smoke_h/
+/logs/
+/tmp/
+/coverage/
+
+# 种子库是源码，必须进仓库（上面 /data/ 已锚定，这里再加一道保险）
+!src/seeds/data/
+!src/seeds/data/**
 
 # 依赖
 node_modules/
