@@ -18,6 +18,11 @@
 // 云托管默认域名（免备案，但必须加进小程序后台的 request 合法域名）
 const CLOUD = 'https://express-r0ph-341726-13-1525512932.sh.run.tcloudbase.com';
 
+// 云托管环境与服务名：用于「小程序内网调用」通道（wx.cloud.callContainer）
+// 这条通道走微信内部链路，**不校验 request 合法域名**，是白名单没配时的兜底。
+const CLOUD_ENV = 'prod-d8gx3wb1v1c823433';
+const CLOUD_SERVICE = 'express-r0ph';
+
 const HOSTS = {
   // 开发版：**默认直连云端**。
   // 这里以前写的是电脑局域网 IP，导致真机打开开发版必然「网络异常」——
@@ -62,6 +67,8 @@ module.exports = {
   env,
   hosts: HOSTS,
   baseUrl,
+  cloudEnv: CLOUD_ENV,
+  cloudService: CLOUD_SERVICE,
   brand: '网剧大咖',
   slogan: '一句话，开一部网剧',
   version: '4.7.1',

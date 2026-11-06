@@ -30,6 +30,7 @@ App({
 
   onLaunch(options) {
     this.initWindow();
+    this.initCloud();
     this.warnPlaceholderHost();
     this.captureInviteCode(options);
     this.selfCheck();
@@ -37,8 +38,23 @@ App({
   },
 
   /**
-   * 启动自检：先打一次 /health。
-   * 连不上时给出「具体是哪一类问题 + 连的是哪个域名」，而不是让页面一直转圈。
+   * 初始化云开发：仅用于「小程序内网调用」通道（wx.cloud.callContainer）。
+   * 这条通道不受 request 合法域名限制，是白名单没配时唯一的活路。
+   * 初始化失败不影响公网通道，所以整体吞掉异常。
+   */
+  initCloud() {
+    try {
+      if (typeof wx !== 'undefined' && wx.cloud && typeof wx.cloud.init === 'function') {
+        wx.cloud.init({ env: config.cloudEnv, traceUser: false });
+        this.globalData.cloudReady = true;
+      }
+    } catch (e) {
+      this.globalData.cloudReady = false;
+    }
+  },
+
+  /**
+   * 启动自检：公网 + 内网两条通道各打一次 /health。
    * 只在首次失败时弹窗（storage 记账），避免每次冷启动都打扰。
    */
   selfCheck() {
@@ -55,9 +71,8 @@ App({
       try { wx.setStorageSync('netfail_notified', r.baseUrl); } catch (e) { /* ignore */ }
       wx.showModal({
         title: '连不上后端',
-        content: `原因：${r.reason}\n地址：${r.baseUrl}\n\n`
-          + '如果是「域名未加入 request 合法域名」：小程序后台 → 开发管理 → 开发设置 → 服务器域名，'
-          + '把上面这个 https 域名加进 request 合法域名，再重新编译/重进小程序。',
+        content: `公网：${r.http.reason || '不通'}\n内网：${r.container.reason || '不通'}\n\n`
+          + '两条都不通时，通常是云托管服务缩到 0 实例还没拉起，或服务名填错。',
         showCancel: false,
         confirmText: '知道了',
       });

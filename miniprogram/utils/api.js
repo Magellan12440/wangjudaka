@@ -21,9 +21,77 @@ function token() {
   }
 }
 
-function request(opts) {
-  const { url, method = 'GET', data = {}, toast = false, retry = true, timeout = 30000 } = opts;
+// 通道偏好：一旦小程序内网通道成功过，后续优先走它（省掉一次必然失败的 http 请求）
+const CHANNEL_KEY = 'use_container';
+
+function preferContainer() {
+  try { return wx.getStorageSync(CHANNEL_KEY) === 1; } catch (e) { return false; }
+}
+
+function markContainer(ok) {
+  try {
+    if (ok) wx.setStorageSync(CHANNEL_KEY, 1);
+    else wx.removeStorageSync(CHANNEL_KEY);
+  } catch (e) { /* ignore */ }
+}
+
+/** 把 wx 的 errMsg 翻成人话，供页面分支与用户判断 */
+function classify(raw) {
+  const s = String(raw || '');
+  if (/not in domain list/i.test(s)) return 'DOMAIN_NOT_ALLOWED';
+  if (/timeout/i.test(s)) return 'TIMEOUT';
+  if (/ssl|cert/i.test(s)) return 'SSL_ERROR';
+  return 'NETWORK_ERROR';
+}
+
+const CODE_TITLE = {
+  DOMAIN_NOT_ALLOWED: '域名未加入白名单',
+  TIMEOUT: '请求超时',
+  SSL_ERROR: '证书校验失败',
+  NETWORK_ERROR: '网络异常，请稍后重试',
+  NO_CLOUD: '内网通道不可用',
+};
+
+/** 两条通道的响应处理完全一致，抽出来避免逻辑漂移 */
+function handleResponse(res, opts, resolve, reject) {
+  const body = res.data || {};
+  if (body.ok) return resolve(body.data);
+  if (res.statusCode === 401 && opts.retry) {
+    const app = getApp();
+    if (app && app.relogin) {
+      return app.relogin()
+        .then(() => request({ ...opts, retry: false }))
+        .then(resolve)
+        .catch(reject);
+    }
+  }
+  if (res.statusCode === 401) {
+    try { wx.removeStorageSync('token'); } catch (e) { /* ignore */ }
+  }
+  if (opts.toast) wx.showToast({ title: body.message || '请求失败', icon: 'none' });
+  const err = new Error(body.message || '请求失败');
+  err.code = body.code || 'REQUEST_FAILED';
+  err.status = res.statusCode;
+  err.detail = body.detail || {};
+  reject(err);
+}
+
+function failWith(raw, opts, reject) {
+  const code = classify(raw);
+  const title = CODE_TITLE[code] || CODE_TITLE.NETWORK_ERROR;
+  if (opts.toast) wx.showToast({ title, icon: 'none', duration: 2500 });
+  const err = new Error(title);
+  err.code = code;
+  err.raw = raw;
+  err.baseUrl = base();
+  err.detail = { errMsg: String(raw || ''), baseUrl: base() };
+  reject(err);
+}
+
+/** 通道 A：公网 HTTPS（wx.request）。域名没进白名单时会在 fail 里报 not in domain list。 */
+function viaHttp(opts) {
   return new Promise((resolve, reject) => {
+    const { url, method = 'GET', data = {}, timeout = 30000 } = opts;
     wx.request({
       url: base() + url,
       method,
@@ -33,52 +101,66 @@ function request(opts) {
         'Content-Type': 'application/json',
         ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
       },
-      success: (res) => {
-        const body = res.data || {};
-        if (body.ok) return resolve(body.data);
-        if (res.statusCode === 401 && retry) {
-          const app = getApp();
-          if (app && app.relogin) {
-            return app.relogin()
-              .then(() => request({ ...opts, retry: false }))
-              .then(resolve)
-              .catch(reject);
-          }
-        }
-        if (res.statusCode === 401) {
-          try { wx.removeStorageSync('token'); } catch (e) { /* ignore */ }
-        }
-        if (toast) wx.showToast({ title: body.message || '请求失败', icon: 'none' });
-        const err = new Error(body.message || '请求失败');
-        err.code = body.code || 'REQUEST_FAILED';
-        err.status = res.statusCode;
-        err.detail = body.detail || {};
-        reject(err);
-      },
-      fail: (e) => {
-        // 把微信给的原始 errMsg 翻成人话：真机上「网络异常」有几种完全不同的原因，
-        // 一律提示「请检查网络」会让排查无从下手。
-        const raw = String((e && e.errMsg) || '');
-        const code = /not in domain list/i.test(raw) ? 'DOMAIN_NOT_ALLOWED'
-          : /timeout/i.test(raw) ? 'TIMEOUT'
-            : /ssl|cert/i.test(raw) ? 'SSL_ERROR'
-              : 'NETWORK_ERROR';
-        const title = {
-          DOMAIN_NOT_ALLOWED: '域名未加入白名单',
-          TIMEOUT: '请求超时',
-          SSL_ERROR: '证书校验失败',
-          NETWORK_ERROR: '网络异常，请稍后重试',
-        }[code];
-        if (toast) wx.showToast({ title, icon: 'none', duration: 2500 });
-        const err = new Error(title);
-        err.code = code;
-        err.raw = e;
-        err.baseUrl = base();
-        err.detail = { errMsg: raw, baseUrl: base() };
-        reject(err);
-      },
+      success: (res) => handleResponse(res, opts, resolve, reject),
+      fail: (e) => failWith(e && e.errMsg, opts, reject),
     });
   });
+}
+
+/**
+ * 通道 B：小程序内网调用（wx.cloud.callContainer）。
+ * 走微信内部链路到云托管，**不受 request 合法域名约束**，也不需要公网域名。
+ * 需要基础库 ≥ 2.23.1 且已在 onLaunch 里 wx.cloud.init。
+ */
+function viaContainer(opts) {
+  return new Promise((resolve, reject) => {
+    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callContainer) {
+      const err = new Error(CODE_TITLE.NO_CLOUD);
+      err.code = 'NO_CLOUD';
+      return reject(err);
+    }
+    const { url, method = 'GET', data = {}, timeout = 30000 } = opts;
+    wx.cloud.callContainer({
+      config: { env: config.cloudEnv },
+      path: url,
+      method,
+      timeout,
+      header: {
+        'X-WX-SERVICE': config.cloudService,
+        'Content-Type': 'application/json',
+        ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
+      },
+      data,
+      success: (res) => handleResponse(res, opts, resolve, reject),
+      fail: (e) => failWith(e && e.errMsg, opts, reject),
+    });
+  });
+}
+
+/**
+ * 请求入口：先走公网，遇到「域名未加白名单」或连不上，自动切内网通道重试一次。
+ * 内网通道成功过就记住，后续直接走它——避免每次请求都先撞一次墙。
+ */
+function request(opts) {
+  const o = Object.assign({ retry: true }, opts);
+  const tryOrder = preferContainer() ? [viaContainer, viaHttp] : [viaHttp, viaContainer];
+  const attempt = (i) => {
+    if (i >= tryOrder.length) {
+      return Promise.reject(Object.assign(new Error(CODE_TITLE.NETWORK_ERROR), { code: 'NETWORK_ERROR' }));
+    }
+    return tryOrder[i](o).catch((err) => {
+      // 业务错误（4xx/5xx 且服务端有返回）不换通道，换了也一样
+      if (err && err.status && err.code !== 'DOMAIN_NOT_ALLOWED') throw err;
+      const retriable = ['DOMAIN_NOT_ALLOWED', 'NETWORK_ERROR', 'TIMEOUT', 'NO_CLOUD'].indexOf(err && err.code) >= 0;
+      if (!retriable) throw err;
+      const switchedToContainer = tryOrder[i] === viaHttp && tryOrder[i + 1] === viaContainer;
+      return attempt(i + 1).then((d) => {
+        if (switchedToContainer) markContainer(true);
+        return d;
+      });
+    });
+  };
+  return attempt(0);
 }
 
 const enc = (v) => encodeURIComponent(v || '');
@@ -381,45 +463,84 @@ module.exports = {
   adminRelay: () => request({ url: '/api/admin/relay' }),
 
   /**
-   * 网络自检：一次 GET /health，返回「能不能连上、连的是谁」。
-   * 不抛异常，任何失败都转成结构化结果，供页面直接展示。
+   * 网络自检：把「公网通道」和「内网通道」都探一遍，直接告诉你哪条能用。
+   * 不抛异常，任何失败都转成结构化结果。
    */
   netDiag: () =>
     new Promise((resolve) => {
       const host = base();
-      const started = Date.now();
-      wx.request({
-        url: `${host}/health`,
-        method: 'GET',
-        timeout: 12000,
-        success: (res) => {
-          const body = res.data || {};
-          const d = body.data || body;
-          resolve({
-            ok: res.statusCode === 200,
-            baseUrl: host,
-            ms: Date.now() - started,
-            status: res.statusCode,
-            version: d.version || '',
-            relay: (d.relay && d.relay.mode) || '',
-            reason: res.statusCode === 200 ? '' : `HTTP ${res.statusCode}`,
-          });
-        },
-        fail: (e) => {
-          const raw = String((e && e.errMsg) || '');
-          resolve({
-            ok: false,
-            baseUrl: host,
-            ms: Date.now() - started,
-            status: 0,
-            version: '',
-            relay: '',
-            reason: /not in domain list/i.test(raw) ? '域名未加入 request 合法域名'
-              : /timeout/i.test(raw) ? '请求超时'
-                : /ssl|cert/i.test(raw) ? '证书校验失败'
-                  : (raw || '网络不可达'),
-          });
-        },
+
+      const probeHttp = new Promise((r) => {
+        const started = Date.now();
+        wx.request({
+          url: `${host}/health`,
+          method: 'GET',
+          timeout: 12000,
+          success: (res) => {
+            const body = res.data || {};
+            const d = body.data || body;
+            r({
+              ok: res.statusCode === 200,
+              ms: Date.now() - started,
+              status: res.statusCode,
+              version: d.version || '',
+              relay: (d.relay && d.relay.mode) || '',
+              reason: res.statusCode === 200 ? '' : `HTTP ${res.statusCode}`,
+            });
+          },
+          fail: (e) => {
+            const raw = String((e && e.errMsg) || '');
+            r({
+              ok: false,
+              ms: Date.now() - started,
+              status: 0,
+              version: '',
+              relay: '',
+              reason: /not in domain list/i.test(raw) ? '域名未加入 request 合法域名'
+                : /timeout/i.test(raw) ? '请求超时'
+                  : /ssl|cert/i.test(raw) ? '证书校验失败'
+                    : (raw || '网络不可达'),
+            });
+          },
+        });
+      });
+
+      const probeContainer = new Promise((r) => {
+        if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callContainer) {
+          return r({ ok: false, reason: '未初始化云开发（基础库 < 2.23.1 或未 init）' });
+        }
+        const started = Date.now();
+        wx.cloud.callContainer({
+          config: { env: config.cloudEnv },
+          path: '/health',
+          method: 'GET',
+          timeout: 12000,
+          header: { 'X-WX-SERVICE': config.cloudService, 'Content-Type': 'application/json' },
+          success: (res) => {
+            let d = res.data;
+            if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = {}; } }
+            d = (d && d.data) || d || {};
+            r({ ok: res.statusCode === 200, ms: Date.now() - started, version: d.version || '' });
+          },
+          fail: (e) => r({ ok: false, ms: Date.now() - started, reason: String((e && e.errMsg) || '调用失败') }),
+        });
+      });
+
+      Promise.all([probeHttp, probeContainer]).then(([http, container]) => {
+        const best = http.ok ? http : (container.ok ? container : http);
+        resolve({
+          ok: http.ok || container.ok,
+          baseUrl: host,
+          ms: best.ms,
+          status: best.status || 0,
+          version: best.version || '',
+          relay: best.relay || '',
+          channel: http.ok ? '公网' : (container.ok ? '内网' : '都不通'),
+          reason: http.ok || container.ok ? ''
+            : (container.reason ? `${http.reason}；内网：${container.reason}` : http.reason),
+          http,
+          container,
+        });
       });
     }),
 };
