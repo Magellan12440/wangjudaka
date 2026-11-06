@@ -33,6 +33,10 @@ Page({
     redeemCode: '',
     redeeming: false,
     paying: false,
+    // 网络自检（排查「网络异常」用）
+    netText: '检测 ›',
+    netOk: null,
+    netBusy: false,
     version: config.version,
     supportEmail: config.supportEmail,
     cnyPerPoint: 1,
@@ -104,6 +108,29 @@ Page({
   goAdmin() {
     motion.haptic();
     wx.navigateTo({ url: '/pages/admin/admin' });
+  },
+
+  /** 网络自检：告诉用户「连的是哪个域名、通不通」，用于排查「网络异常」 */
+  runNetDiag() {
+    if (this.data.netBusy) return;
+    motion.haptic();
+    this.setData({ netBusy: true, netText: '检测中…' });
+    api.netDiag().then((r) => {
+      const ok = r.ok;
+      this.setData({
+        netBusy: false,
+        netOk: ok,
+        netText: ok ? `正常 · v${r.version || '?'} · ${r.ms}ms` : `失败 · ${r.reason}`,
+      });
+      wx.showModal({
+        title: ok ? '后端连通正常' : '后端连不上',
+        content: `地址：${r.baseUrl}\n耗时：${r.ms}ms\n`
+          + (ok ? `版本：${r.version || '未知'}\n算力：${r.relay || '未知'}`
+            : `原因：${r.reason}\n\n请把这条截图发我，一眼就能定位。`),
+        showCancel: false,
+        confirmText: '知道了',
+      });
+    });
   },
 
   // —— 账号安全（V4.4）：绑手机 / 设密码 ——

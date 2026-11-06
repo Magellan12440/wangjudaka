@@ -1,8 +1,16 @@
 // 统一请求封装：只与自有后端通信，绝不接触上游算力凭据。
 // token 自动注入 Authorization；401 自动重登并重试一次；所有错误带 code 供页面分支处理。
+const config = require('../config.js');
+
 function base() {
-  const app = getApp();
-  return (app && app.globalData && app.globalData.baseUrl) || 'http://127.0.0.1:8787';
+  // 优先用 App 上算好的地址；拿不到时（页面先于 App 实例化、或 Node 自测）
+  // 必须回退到 config.baseUrl，绝不能回退到 127.0.0.1 —— 手机上的 127.0.0.1 是手机自己。
+  let fromApp = '';
+  try {
+    const app = getApp();
+    fromApp = (app && app.globalData && app.globalData.baseUrl) || '';
+  } catch (e) { /* 非小程序环境 */ }
+  return fromApp || config.baseUrl;
 }
 
 function token() {
@@ -48,10 +56,25 @@ function request(opts) {
         reject(err);
       },
       fail: (e) => {
-        if (toast) wx.showToast({ title: '网络异常，请稍后重试', icon: 'none' });
-        const err = new Error('网络异常，请检查网络后重试');
-        err.code = 'NETWORK_ERROR';
+        // 把微信给的原始 errMsg 翻成人话：真机上「网络异常」有几种完全不同的原因，
+        // 一律提示「请检查网络」会让排查无从下手。
+        const raw = String((e && e.errMsg) || '');
+        const code = /not in domain list/i.test(raw) ? 'DOMAIN_NOT_ALLOWED'
+          : /timeout/i.test(raw) ? 'TIMEOUT'
+            : /ssl|cert/i.test(raw) ? 'SSL_ERROR'
+              : 'NETWORK_ERROR';
+        const title = {
+          DOMAIN_NOT_ALLOWED: '域名未加入白名单',
+          TIMEOUT: '请求超时',
+          SSL_ERROR: '证书校验失败',
+          NETWORK_ERROR: '网络异常，请稍后重试',
+        }[code];
+        if (toast) wx.showToast({ title, icon: 'none', duration: 2500 });
+        const err = new Error(title);
+        err.code = code;
         err.raw = e;
+        err.baseUrl = base();
+        err.detail = { errMsg: raw, baseUrl: base() };
         reject(err);
       },
     });
@@ -90,9 +113,12 @@ function uploadMaterial(projectId, filePath, note) {
         err.status = res.statusCode;
         reject(err);
       },
-      fail: () => {
-        const err = new Error('上传中断，请检查网络后重试');
-        err.code = 'NETWORK_ERROR';
+      fail: (e) => {
+        const raw = String((e && e.errMsg) || '');
+        const isDomain = /not in domain list/i.test(raw);
+        const err = new Error(isDomain ? '域名未加入白名单，无法上传' : '上传中断，请检查网络后重试');
+        err.code = isDomain ? 'DOMAIN_NOT_ALLOWED' : 'NETWORK_ERROR';
+        err.detail = { errMsg: raw, baseUrl: base() };
         reject(err);
       },
     });
@@ -353,4 +379,47 @@ module.exports = {
   adminProbeModels: (deep) =>
     request({ url: '/api/admin/models/probe', method: 'POST', data: { deep: deep === true }, timeout: 120000 }),
   adminRelay: () => request({ url: '/api/admin/relay' }),
+
+  /**
+   * 网络自检：一次 GET /health，返回「能不能连上、连的是谁」。
+   * 不抛异常，任何失败都转成结构化结果，供页面直接展示。
+   */
+  netDiag: () =>
+    new Promise((resolve) => {
+      const host = base();
+      const started = Date.now();
+      wx.request({
+        url: `${host}/health`,
+        method: 'GET',
+        timeout: 12000,
+        success: (res) => {
+          const body = res.data || {};
+          const d = body.data || body;
+          resolve({
+            ok: res.statusCode === 200,
+            baseUrl: host,
+            ms: Date.now() - started,
+            status: res.statusCode,
+            version: d.version || '',
+            relay: (d.relay && d.relay.mode) || '',
+            reason: res.statusCode === 200 ? '' : `HTTP ${res.statusCode}`,
+          });
+        },
+        fail: (e) => {
+          const raw = String((e && e.errMsg) || '');
+          resolve({
+            ok: false,
+            baseUrl: host,
+            ms: Date.now() - started,
+            status: 0,
+            version: '',
+            relay: '',
+            reason: /not in domain list/i.test(raw) ? '域名未加入 request 合法域名'
+              : /timeout/i.test(raw) ? '请求超时'
+                : /ssl|cert/i.test(raw) ? '证书校验失败'
+                  : (raw || '网络不可达'),
+          });
+        },
+      });
+    }),
 };

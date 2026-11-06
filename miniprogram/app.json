@@ -20,6 +20,12 @@
     "backgroundColorTop": "#080A0F",
     "backgroundColorBottom": "#080A0F"
   },
+  "networkTimeout": {
+    "request": 30000,
+    "connectSocket": 30000,
+    "uploadFile": 60000,
+    "downloadFile": 60000
+  },
   "tabBar": {
     "color": "#8D97A9",
     "selectedColor": "#F2C14E",

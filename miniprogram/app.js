@@ -32,7 +32,36 @@ App({
     this.initWindow();
     this.warnPlaceholderHost();
     this.captureInviteCode(options);
+    this.selfCheck();
     this.readyPromise = this.bootstrap();
+  },
+
+  /**
+   * 启动自检：先打一次 /health。
+   * 连不上时给出「具体是哪一类问题 + 连的是哪个域名」，而不是让页面一直转圈。
+   * 只在首次失败时弹窗（storage 记账），避免每次冷启动都打扰。
+   */
+  selfCheck() {
+    if (typeof wx === 'undefined' || !wx.request) return;
+    api.netDiag().then((r) => {
+      this.globalData.netDiag = r;
+      if (r.ok) {
+        try { wx.removeStorageSync('netfail_notified'); } catch (e) { /* ignore */ }
+        return;
+      }
+      let notified = '';
+      try { notified = wx.getStorageSync('netfail_notified') || ''; } catch (e) { /* ignore */ }
+      if (notified === r.baseUrl) return;
+      try { wx.setStorageSync('netfail_notified', r.baseUrl); } catch (e) { /* ignore */ }
+      wx.showModal({
+        title: '连不上后端',
+        content: `原因：${r.reason}\n地址：${r.baseUrl}\n\n`
+          + '如果是「域名未加入 request 合法域名」：小程序后台 → 开发管理 → 开发设置 → 服务器域名，'
+          + '把上面这个 https 域名加进 request 合法域名，再重新编译/重进小程序。',
+        showCancel: false,
+        confirmText: '知道了',
+      });
+    });
   },
 
   /** 体验版/线上版仍指向占位域名时明确提示：否则真机上只表现为「一直转圈」 */
