@@ -194,60 +194,63 @@ def cmd_info(cred):
 
 
 def cmd_deploy(cred):
-    srv = call('DescribeCloudBaseRunServer', {'EnvId': ENV_ID, 'ServerName': SERVER_NAME, 'Limit': 10, 'Offset': 0}, cred)
+    """以「线上最新的仓库构建版本」为模板建新版本 —— 不猜参数，只照抄已有事实。"""
+    srv = call('DescribeCloudBaseRunServer', {'EnvId': ENV_ID, 'ServerName': SERVER_NAME, 'Limit': 20, 'Offset': 0}, cred)
     if not show(srv):
         return 1
-    s = srv.get('Server', {})
-    upload_type = pick(s, 'UploadType', default='repository')
-    repo = pick(s, 'Repo', 'Repository')
-    branch = pick(s, 'Branch', default='main')
-    dockerfile = pick(s, 'DockerfilePath')
-    build_dir = pick(s, 'BuildDir')
+    items = srv.get('VersionItems') or []
+    base = None
+    for v in items:
+        if v.get('UploadType') == 'repository':
+            base = v
+            break
+    if not base:
+        print('❌ 历史版本里没有仓库构建记录，无法照抄参数（请先在控制台手动发一次）')
+        return 1
 
-    print(f'沿用线上配置：type={upload_type} repo={repo} branch={branch} '
-          f'dockerfile={dockerfile} buildDir={build_dir}')
+    detail = call('DescribeCloudBaseRunServerVersion', {
+        'EnvId': ENV_ID, 'ServerName': SERVER_NAME, 'VersionName': base['VersionName'],
+    }, cred)
+    if not show(detail):
+        return 1
 
+    repo = detail.get('Repo')
+    branch = detail.get('Branch') or 'main'
+    dockerfile = detail.get('DockerfilePath') or 'Dockerfile'
+    build_dir = detail.get('BuildDir') or './'
+    print(f'模板版本 {base["VersionName"]}：repo={repo} branch={branch} '
+          f'dockerfile={dockerfile} buildDir={build_dir} port={detail.get("ContainerPort")}')
+
+    ver = json.load(open(os.path.join(ROOT, 'server', 'package.json'), encoding='utf-8'))['version']
     payload = {
         'EnvId': ENV_ID,
         'ServerName': SERVER_NAME,
-        'UploadType': upload_type,
-        'VersionRemark': f'v{json.load(open(os.path.join(ROOT, "server", "package.json"), encoding="utf-8"))["version"]} 云存储',
-        'ContainerPort': s.get('ContainerPort') or 80,
-        'Cpu': s.get('Cpu') or 0.25,
-        'Mem': s.get('Mem') or 0.5,
-        'MinNum': s.get('MinNum') if s.get('MinNum') is not None else 0,
-        'MaxNum': s.get('MaxNum') or 1,
-        'IsPublic': True,
+        'UploadType': 'repository',
+        'Repository': repo,
+        'Branch': branch,
+        'DockerfilePath': dockerfile,
+        'BuildDir': build_dir,
+        'VersionRemark': f'v{ver}: 修发版（新增文件未入库导致模块缺失）',
+        'ContainerPort': detail.get('ContainerPort') or 80,
+        'Cpu': detail.get('Cpu') or 1,
+        'Mem': detail.get('Mem') or 2,
+        'MinNum': detail.get('MinNum') if detail.get('MinNum') is not None else 0,
+        'MaxNum': detail.get('MaxNum') or 5,
+        # 新版本先不接流量（0%），构建+启动验证通过后再放量，避免把用户打到坏版本上
+        'FlowRatio': 0,
+        'PolicyThreshold': 60,
+        'PolicyType': 'cpu',
     }
-    if upload_type == 'repository':
-        if not repo:
-            print('❌ 服务未配置代码仓库，无法从仓库构建')
-            return 1
-        payload['Repository'] = repo
-        payload['Branch'] = branch
-        if dockerfile:
-            payload['DockerfilePath'] = dockerfile
-        if build_dir:
-            payload['BuildDir'] = build_dir
-        payload['CodeDetail'] = json.dumps({
-            'Repo': repo, 'Branch': branch,
-            **({'DockerfilePath': dockerfile} if dockerfile else {}),
-            **({'BuildDir': build_dir} if build_dir else {}),
-        })
-    else:
-        img = pick(s, 'ImageUrl')
-        if not img:
-            print('❌ 服务既非仓库构建也无镜像地址，无法发版')
-            return 1
-        payload['ImageInfo'] = {'ImageUrl': img}
+    # Repository/Branch/DockerfilePath/BuildDir 已在上层给出，CodeDetail 不再重复传
+    # （传了会报 UnknownParameter: CodeDetail.Repo）
 
     res = call('CreateCloudBaseRunServerVersion', payload, cred, timeout=90)
     if not show(res):
         print('提交的参数：', json.dumps(payload, ensure_ascii=False))
         return 1
     vid = pick(res, 'RunId', 'VersionName', 'BuildId')
-    print('✅ 已提交构建，版本 ID :', vid)
-    print('   后续：python scripts/tcb_deploy.py buildlog', vid)
+    print('✅ 已提交构建，版本 :', vid)
+    print('   查看：python scripts/tcb_deploy.py info')
     return 0
 
 

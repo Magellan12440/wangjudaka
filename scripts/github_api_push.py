@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.8.0 修复发版：推送脚本改用 git add -A 纳入新增文件（此前 server/src/storage/ 从未进仓库，导致容器 ERR_MODULE_NOT_FOUND 部署失败）；启动期显式告警生产缺 WX_APPID/SESSION_SECRET"
+MSG = "docs+tooling: 纠正云托管 OpenAPI 参数结论（FlowRatio/PolicyThreshold 为必填、CodeDetail 不可传、EnvParams 只能控制台改）；补 build_failed / deploy_failed 排错顺序"
 
 
 def api(method, path, payload=None, retries=3):
