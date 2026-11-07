@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.8.4: 修复线上微信登录（DEPTH_ZERO_SELF_SIGNED_CERT）——容器出网被自签证书拦截，自动降级内网 HTTP 通道；内容安全/图片机审同步走统一出站封装"
+MSG = "v4.8.5: 短信登录「未开通」改为中性提示（不再当报错）并引导微信/密码登录；补出网 TLS 拦截排查文档"
 
 
 def api(method, path, payload=None, retries=3):

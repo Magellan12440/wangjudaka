@@ -42,6 +42,7 @@
             {{countdown > 0 ? countdown + 's 后重发' : (sending ? '发送中…' : '获取验证码')}}
           </view>
         </view>
+        <view wx:if="{{smsNote}}" class="sms-note">{{smsNote}}</view>
         <view wx:if="{{devCode}}" class="dev-code">
           <text class="tag gold">测试码</text>
           <text class="dev-num">{{devCode}}</text>

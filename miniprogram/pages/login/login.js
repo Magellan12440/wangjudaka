@@ -96,13 +96,16 @@ Page({
     this.setData({ sending: true, error: '' });
     api.sendSms(phone)
       .then((d) => {
+        const unusable = !d.sent && !d.dev_code;
         this.setData({
           sending: false,
           countdown: d.sent || d.dev_code ? RESEND_SEC : 0,
-          // 后端未接短信服务商时会明确返回 dev 码，照实展示；线上则只会说明「暂未接入」
+          // 后端未接短信服务商时会明确返回 dev 码，照实展示；线上则只说明「暂未接入」。
+          // 这类「能力未开通」不是报错，别用红字吓人，单独一行提示该走哪条路。
           devCode: d.dev_code || '',
           devNote: d.sent ? '' : d.note || '未配置短信服务',
-          error: d.sent || d.dev_code ? '' : (d.note || '暂不可用'),
+          smsNote: unusable ? '验证码登录暂未开通，请用上面的「微信一键登录」，或改用手机号 + 密码登录' : '',
+          error: '',
         });
         if (d.sent || d.dev_code) this.tick();
         if (d.sent) wx.showToast({ title: '验证码已发送', icon: 'none' });
