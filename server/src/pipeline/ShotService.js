@@ -57,6 +57,39 @@ export class ShotService {
     }
 
     const pending = (shot.characters ?? []).filter((c) => !chars[c].image_url);
+
+    // 场景 / 道具资产（V4.10）：分镜要复用同一处景，就得把场景图当参考传给编译器，
+    // 否则每镜都在重新想象这个地方，一致性只剩角色。
+    const scenes = {};
+    const props = {};
+    for (const a of assets) {
+      if (a.asset_type === 'scene' && a.asset_code === shot.scene) {
+        scenes[a.asset_code] = {
+          asset_code: a.asset_code,
+          name: a.name,
+          locks: a.locks ?? [],
+          lock_values: a.lock_values ?? {},
+          image_url: a.image_url ?? null,
+          negative: a.negative ?? [],
+        };
+      }
+      if (a.asset_type === 'prop' && (shot.props ?? []).includes(a.asset_code)) {
+        props[a.asset_code] = {
+          asset_code: a.asset_code,
+          name: a.name,
+          locks: a.locks ?? [],
+          lock_values: a.lock_values ?? {},
+          image_url: a.image_url ?? null,
+          negative: a.negative ?? [],
+        };
+      }
+    }
+    const pendingRefs = [
+      ...pending.map((c) => ({ asset_code: c, role: 'character', reason: '角色卡尚未出图，按连续性锁文本生成' })),
+      ...(scenes[shot.scene] && !scenes[shot.scene].image_url
+        ? [{ asset_code: shot.scene, role: 'scene', reason: '场景图尚未生成，按空间与光源锁生成' }]
+        : []),
+    ];
     const materials = materialService.list(projectId).filter((m) => m.kind === 'image');
 
     const compileRequest = {
@@ -98,15 +131,11 @@ export class ShotService {
             shot_card: shot.shot_card,
           }
         : null,
-      assets: { characters: chars, scenes: {}, props: {}, emotions: {} },
+      assets: { characters: chars, scenes, props, emotions: {} },
       options: {
         allow_pending_reference: true,
         allow_neutral_emotion: false,
-        pending_plan: pending.map((c) => ({
-          asset_code: c,
-          role: 'character',
-          reason: '角色卡尚未出图，按连续性锁文本生成',
-        })),
+        pending_plan: pendingRefs,
         // 用户上传的参考图会作为额外参考登记（不改写总谱，只影响画风倾向）
         material_references: materials.slice(0, 3).map((m) => ({ name: m.name, url: m.url, note: m.note })),
       },

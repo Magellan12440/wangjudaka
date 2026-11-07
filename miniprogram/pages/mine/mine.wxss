@@ -115,24 +115,32 @@
 
 /* —— 快捷入口 —— */
 .tool-grid { display: flex; margin-top: 26rpx; }
+/* 4 个入口并排：留白收紧一点，末项不留右边距 */
 .tool {
-  flex: 1; margin-right: 16rpx; padding: 26rpx 18rpx 22rpx;
+  flex: 1; min-width: 0; margin-right: 14rpx; padding: 24rpx 10rpx 20rpx;
   border-radius: 24rpx; text-align: center;
   background: rgba(22, 35, 58, 0.035);
   border: 1rpx solid rgba(22, 35, 58, 0.07);
   animation: rise 0.5s cubic-bezier(0.16, 0.84, 0.28, 1) both;
 }
 .tool:nth-child(1) { animation-delay: 0.06s; }
-.tool:nth-child(2) { animation-delay: 0.11s; }
-.tool:nth-child(3) { animation-delay: 0.16s; margin-right: 0; }
+.tool:nth-child(2) { animation-delay: 0.10s; }
+.tool:nth-child(3) { animation-delay: 0.14s; }
+.tool:nth-child(4) { animation-delay: 0.18s; margin-right: 0; }
 .tool-icon {
-  width: 62rpx; height: 62rpx; line-height: 62rpx; margin: 0 auto 14rpx;
-  border-radius: 20rpx; font-size: 30rpx; color: #E08A22;
+  width: 58rpx; height: 58rpx; line-height: 58rpx; margin: 0 auto 12rpx;
+  border-radius: 18rpx; font-size: 28rpx; color: #E08A22;
   background: rgba(232, 145, 47, 0.1);
   border: 1rpx solid rgba(232, 145, 47, 0.2);
 }
-.tool-name { font-size: 24rpx; color: #2A3446; font-weight: 600; }
-.tool-sub { font-size: 18rpx; color: #9AA5B5; margin-top: 6rpx; }
+.tool-name {
+  font-size: 23rpx; color: #2A3446; font-weight: 600;
+  line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tool-sub {
+  font-size: 17rpx; color: #9AA5B5; margin-top: 6rpx; line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* —— 账单 —— */
 .bill {
