@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.8.0 补丁：启动期显式告警生产缺 WX_APPID/SESSION_SECRET 等必需变量；新增 tcb_deploy.py 发版脚本与云存储部署文档（修上次 deploy_failed 无法查因的问题）"
+MSG = "v4.8.0 修复发版：推送脚本改用 git add -A 纳入新增文件（此前 server/src/storage/ 从未进仓库，导致容器 ERR_MODULE_NOT_FOUND 部署失败）；启动期显式告警生产缺 WX_APPID/SESSION_SECRET"
 
 
 def api(method, path, payload=None, retries=3):
@@ -47,10 +47,49 @@ def api(method, path, payload=None, retries=3):
             sys.exit(f"{method} {path} -> {e}")
 
 
+# 关键：必须先把未跟踪文件纳入索引再枚举。
+# 历史事故：直接用 `git ls-files` 只拿到已跟踪文件，新增的目录（如 server/src/storage/）
+# 从未进仓库，容器启动直接 ERR_MODULE_NOT_FOUND，而本地一切正常、极难察觉。
+subprocess.check_call(["git", "add", "-A"], cwd=ROOT)
 files = subprocess.check_output(
     ["git", "-c", "core.quotepath=false", "ls-files"], cwd=ROOT, text=True, encoding="utf-8"
 ).splitlines()
-print(f"待上传文件: {len(files)}")
+untracked_before = subprocess.check_output(
+    ["git", "-c", "core.quotepath=false", "ls-files", "-o", "--exclude-standard"],
+    cwd=ROOT, text=True, encoding="utf-8",
+).splitlines()
+print(f"待上传文件: {len(files)}" + (f"（其中新增 {len(untracked_before)} 个）" if untracked_before else ""))
+
+
+def sanity_check(rel_list):
+    """本地 import 的相对路径若在待推送清单里找不到，直接中止。
+    宁可推不上去，也不要推一个「少文件」的版本让线上崩。"""
+    import re
+    missing = []
+    for rel in rel_list:
+        if not rel.endswith('.js'):
+            continue
+        fp = os.path.join(ROOT, rel.replace('/', os.sep))
+        try:
+            with open(fp, encoding='utf-8') as f:
+                src = f.read()
+        except Exception:
+            continue
+        for spec in re.findall(r"from\s+['\"](\.[^'\"]+)['\"]", src):
+            base = os.path.normpath(os.path.join(os.path.dirname(rel), spec)).replace(os.sep, '/')
+            if base in rel_set or base + '.js' in rel_set or (base + '/index.js') in rel_set:
+                continue
+            missing.append(f'{rel} -> {spec}')
+    return missing
+
+
+rel_set = set(files)
+missing = sanity_check(files)
+if missing:
+    print('❌ 以下相对 import 在待推送清单里找不到，已中止（避免线上缺文件）：')
+    for x in missing[:20]:
+        print('   ', x)
+    sys.exit(1)
 
 # 空仓库的 git/blobs 接口会 409，先用 contents API 放一个 README 完成初始化
 try:
