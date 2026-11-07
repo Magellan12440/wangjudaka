@@ -3,6 +3,7 @@
 // 未配置微信 AppID 时服务端自动降级 mock 登录（同一 code 幂等同一用户），本地联调不受影响。
 const api = require('./utils/api.js');
 const config = require('./config.js');
+const accounts = require('./utils/accounts.js');
 
 App({
   globalData: {
@@ -186,7 +187,62 @@ App({
     this.globalData.balance = d.user.balance_points || 0;
     this.globalData.profileComplete = !!d.user.profile_complete;
     this.globalData.loginMode = d.mode || '';
+    // 登录成功即入账号簿：下次可以一键切回来（token 自签，切换不需要再收验证码）
+    if (this.globalData.token) {
+      try {
+        accounts.remember({ user: d.user, token: this.globalData.token, mode: d.mode || '' });
+      } catch (e) { /* 账号簿失败不影响登录 */ }
+    }
     return this.globalData;
+  },
+
+  /** 本机已登录过的账号（供账号页展示） */
+  accountList() {
+    return accounts.view(this.globalData.userId);
+  },
+
+  /**
+   * 切换账号：把账号簿里的 token 换进来，再向服务端确认一次。
+   * 失败有两种：
+   *   - AUTH_TOKEN_INVALID：这个账号的登录被吊销了（改密 / 退出全部设备），需要重新登录；
+   *   - 网络错误：token 留着，让用户重试即可。
+   * @returns {Promise<object>} 切换后的 globalData
+   */
+  switchAccount(userId) {
+    const rec = accounts.get(userId);
+    if (!rec || !rec.token) {
+      return Promise.reject(Object.assign(new Error('该账号需要重新登录'), { code: 'NEED_LOGIN' }));
+    }
+    const prev = {
+      token: wx.getStorageSync('token') || '',
+      userId: this.globalData.userId,
+    };
+    try { wx.setStorageSync('token', rec.token); } catch (e) { /* ignore */ }
+    this.globalData.token = rec.token;
+    return api.me()
+      .then((d) => {
+        accounts.markUsed(userId);
+        return this.applyUser(d);
+      })
+      .catch((e) => {
+        const code = e && e.code;
+        if (code === 'AUTH_TOKEN_INVALID' || code === 'UNAUTHORIZED') {
+          accounts.markExpired(userId);
+          // 换回原来的登录态，别把用户直接扔回登录页
+          if (prev.token) {
+            try { wx.setStorageSync('token', prev.token); } catch (err) { /* ignore */ }
+            this.globalData.token = prev.token;
+          }
+          this.globalData.userId = prev.userId;
+          throw Object.assign(new Error('这个账号的登录已失效，请重新登录'), { code: 'NEED_LOGIN' });
+        }
+        if (prev.token) {
+          try { wx.setStorageSync('token', prev.token); } catch (err) { /* ignore */ }
+          this.globalData.token = prev.token;
+          this.globalData.userId = prev.userId;
+        }
+        throw e;
+      });
   },
 
   refreshBalance() {
@@ -209,8 +265,11 @@ App({
   logout() {
     try {
       wx.removeStorageSync('token');
-      wx.removeStorageSync('tokenAt');
     } catch (e) { /* ignore */ }
+    // 账号簿里的记录留着（只标失效），这样「切换账号」还能看到它并提示重新登录
+    if (this.globalData.userId) {
+      try { accounts.clearToken(this.globalData.userId); } catch (e) { /* ignore */ }
+    }
     this.globalData.token = '';
     this.globalData.user = null;
     this.globalData.userId = '';
@@ -219,5 +278,15 @@ App({
     this.globalData.profileComplete = false;
     this.readyPromise = null;
     return Promise.resolve();
+  },
+
+  /** 退出并立刻跳到登录页（「切换账号」里点其它账号但已失效时用） */
+  toLogin({ add = false, phone = '' } = {}) {
+    let url = '/pages/login/login';
+    const q = [];
+    if (add) q.push('mode=add');
+    if (phone) q.push('phone=' + encodeURIComponent(phone));
+    if (q.length) url = url + '?' + q.join('&');
+    wx.navigateTo({ url });
   },
 });

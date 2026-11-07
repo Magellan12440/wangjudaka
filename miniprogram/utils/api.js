@@ -343,6 +343,46 @@ function uploadMaterial(projectId, filePath, note) {
   });
 }
 
+/**
+ * 上传本地文件 → 只取正文（不建项目、不存素材）。
+ * 用于「改编我的剧本」：docx / pdf / xlsx / pptx / txt 都能读成文字回填输入框。
+ * @param {string} filePath
+ * @param {{maxChars?:number}} opts
+ */
+function extractTextFile(filePath, opts) {
+  const maxChars = (opts && opts.maxChars) || 20000;
+  return new Promise((resolve, reject) => {
+    if (typeof wx === 'undefined' || !wx.uploadFile) {
+      return reject(Object.assign(new Error('当前环境不支持选文件'), { code: 'NO_UPLOAD' }));
+    }
+    wx.uploadFile({
+      url: `${base()}/api/texts/extract`,
+      filePath,
+      name: 'file',
+      formData: { maxChars: String(maxChars) },
+      timeout: 120000,
+      header: token() ? { Authorization: `Bearer ${token()}` } : {},
+      success: (res) => {
+        let body = {};
+        try { body = JSON.parse(res.data || '{}'); } catch (e) { /* keep empty */ }
+        if (body && body.ok) return resolve(body.data);
+        const err = new Error((body && body.message) || '这个文件读不出正文');
+        err.code = (body && body.code) || 'EXTRACT_FAILED';
+        err.status = res.statusCode;
+        reject(err);
+      },
+      fail: (e) => {
+        const raw = String((e && e.errMsg) || '');
+        const isDomain = /not in domain list/i.test(raw);
+        const err = new Error(isDomain ? '域名未加入白名单，无法上传' : '上传中断，请检查网络后重试');
+        err.code = isDomain ? 'DOMAIN_NOT_ALLOWED' : 'NETWORK_ERROR';
+        err.detail = { errMsg: raw };
+        reject(err);
+      },
+    });
+  });
+}
+
 // 说明：小程序页面统一用 require，因此这里必须是 CommonJS 导出（不能写 export default）
 module.exports = {
   request,
@@ -379,8 +419,13 @@ module.exports = {
   // —— 充值（虚拟支付，iOS 合规唯一通道）——
   payPackages: () => request({ url: '/api/pay/packages' }),
   rechargePackages: () => request({ url: '/api/recharge/packages' }),
-  createPayOrder: (packageId) =>
-    request({ url: '/api/pay/virtual/order', method: 'POST', data: { packageId }, toast: true }),
+  // 支持两种下单方式：传 packageId 走档位；传 amountCny 走自定义金额
+  createPayOrder: (arg) => {
+    const data = typeof arg === 'object' && arg !== null
+      ? { packageId: arg.packageId || null, amountCny: arg.amountCny || null }
+      : { packageId: arg };
+    return request({ url: '/api/pay/virtual/order', method: 'POST', data, toast: true });
+  },
   mockPaySuccess: (orderId) =>
     request({ url: '/api/pay/virtual/mock-success', method: 'POST', data: { orderId }, toast: true }),
   payOrders: () => request({ url: '/api/pay/virtual/orders' }),
@@ -448,6 +493,7 @@ module.exports = {
   addTextMaterial: (projectId, payload) =>
     request({ url: `/api/projects/${enc(projectId)}/materials/text`, method: 'POST', data: payload, toast: true, timeout: 60000 }),
   uploadMaterial,
+  extractTextFile,
   removeMaterial: (projectId, materialId) =>
     request({ url: `/api/projects/${enc(projectId)}/materials/${enc(materialId)}/remove`, method: 'POST', data: {}, toast: true }),
   materialDigest: (projectId) => request({ url: `/api/projects/${enc(projectId)}/materials/digest` }),

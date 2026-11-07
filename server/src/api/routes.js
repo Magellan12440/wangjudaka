@@ -44,6 +44,7 @@ import { resolveScope, resolveOwnership } from '../auth/scope.js';
 import * as relayRuntime from '../relay/RelayRuntime.js';
 import * as promptLibrary from '../prompts/PromptLibrary.js';
 import { probeModels } from '../relay/probeModels.js';
+import capacity from '../relay/Capacity.js';
 import contentSecurity from '../security/ContentSecurity.js';
 import virtualPay from '../pay/VirtualPay.js';
 import wechatClient from '../wechat/WechatClient.js';
@@ -1071,6 +1072,37 @@ export const routes = [
     return materialService.digest(params.id);
   }],
 
+  /**
+   * 只抽正文、不建项目（V4.9.1）。
+   * 「改编我的剧本」页在上传本地文件时用：先把 docx/pdf/xlsx 读成文字回填输入框，
+   * 用户确认后再按原流程建项目 —— 不产生半成品项目与孤儿素材。
+   */
+  ['POST', '/api/texts/extract', async ({ body, req }) => {
+    authService.requireUser(req);
+    const files = body?.files ?? [];
+    if (!files.length) throw new AppError('BAD_REQUEST', '没有收到文件');
+    const f = files[0];
+    const r = materialService.extractText({
+      filename: f.filename,
+      mime: f.mime,
+      buffer: f.data,
+      maxChars: Number(body.fields?.maxChars) || 20000,
+    });
+    // 读得到正文才做机审；读不到就别空跑一次内容安全接口
+    if (r.ok) {
+      try {
+        await contentSecurity.assertText({
+          content: r.text.slice(0, 2400),
+          bizType: 'script_file', scene: 1,
+        });
+      } catch (e) {
+        if (e && e.code && e.code !== 'SECURITY_BLOCKED') throw e;
+        return { ...r, ok: false, text: '', chars: 0, reason: e.message || '正文未通过内容安全校验' };
+      }
+    }
+    return r;
+  }],
+
   // —— 镜头生产（V4.2）：项目内按分镜号出关键帧 / 视频 ——
   ['POST', '/api/projects/:id/shots/:shotNo/generate', async ({ params, body, req }) => {
     const p = projectOf(req, params.id);
@@ -1557,7 +1589,12 @@ export const routes = [
   })],
   ['POST', '/api/pay/virtual/order', async ({ body, req }) => {
     const user = authService.requireUser(req);
-    return virtualPay.createOrder({ userId: user.id, packageId: body.packageId, sessionKey: body.sessionKey ?? null });
+    return virtualPay.createOrder({
+      userId: user.id,
+      packageId: body.packageId ?? null,
+      amountCny: body.amountCny ?? null,
+      sessionKey: body.sessionKey ?? null,
+    });
   }],
   ['GET', '/api/pay/virtual/orders', async ({ req }) => {
     const user = authService.requireUser(req);
@@ -1674,6 +1711,18 @@ export const routes = [
   ['GET', '/api/admin/overview', async ({ req }) => {
     adminConsole.assertAdmin(req);
     return adminService.overview();
+  }],
+  /**
+   * 容量测算（V4.9.1）：单密钥到底能扛多少人。
+   * 参数：episodes / episodeSec（按你要卖的规格算）、users（想支撑多少人同时出片）
+   */
+  ['GET', '/api/admin/capacity', async ({ query, req }) => {
+    adminConsole.assertAdmin(req);
+    return capacity.snapshot({
+      episodes: +(query.episodes ?? 3),
+      episodeSec: +(query.episodeSec ?? 90),
+      activeUsersWanted: +(query.users ?? 0),
+    });
   }],
   ['GET', '/api/admin/packages', async ({ req }) => {
     adminConsole.assertAdmin(req);

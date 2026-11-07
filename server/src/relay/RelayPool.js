@@ -132,10 +132,10 @@ class RelayPool {
     }
   }
 
-  async acquire({ estimatedCredits = 0 } = {}) {
+  async acquire({ estimatedCredits = 0, waitMs = null } = {}) {
     // 0) 先刷新真实余额（有缓存则几乎零成本）
     await this.refreshBalance();
-    // 1) 熔断
+    // 1) 熔断（余额问题，排队也没用）
     if (Date.now() < this.fuseUntil) {
       fail(ERR.RELAY_FUSED, '算力池暂时熔断，正在恢复中，请稍后重试');
     }
@@ -145,9 +145,20 @@ class RelayPool {
       logger.error('算力池水位触及熔断线', { ratio: this.waterRatio(), realBalanceSuanli: this.realBalanceSuanli });
       fail(ERR.RELAY_FUSED, '算力池额度不足，已暂停服务，请等待运营补仓');
     }
-    // 3) 并发
+    // 3) 并发：槽位满时**先排队再失败**。
+    //    单个密钥只有 8 个槽位，直接拒绝会让第 9 个用户看到「系统繁忙」；
+    //    等一个出片周期（默认 6 秒，够一个 5 秒镜头跑完）往往就轮到了。
+    const budget = waitMs === null ? Number(process.env.RELAY_QUEUE_WAIT_MS ?? 6000) : Number(waitMs);
+    const deadline = Date.now() + Math.max(0, budget);
+    while (this.inflight >= this.maxConcurrency && Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 150));
+    }
     if (this.inflight >= this.maxConcurrency) {
-      fail(ERR.RELAY_RATE_LIMITED, '算力池已达并发上限，请稍后再试');
+      fail(ERR.RELAY_RATE_LIMITED, '算力池已达并发上限，请稍后再试', {
+        inflight: this.inflight,
+        maxConcurrency: this.maxConcurrency,
+      });
     }
     // 4) RPM
     this.#slideWindow();

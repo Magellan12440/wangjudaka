@@ -251,27 +251,13 @@ Page({
         this.setData({
           packages: list,
           payMode: d.pay_mode || '',
-          // 未配置虚拟支付商户号时，是否允许用 mock 发货把流程走通（上线前应关闭）
           showRecharge: d.pay_mode === 'live' || config.mockRecharge !== false,
           cnyPerPoint: d.cny_per_point || 1,
           campaign: d.campaign || null,
           selectedId: this.data.selectedId || (list[0] && list[0].id) || '',
-        }, () => this.refreshPayText());
+        });
       })
       .catch(() => {});
-  },
-
-  /** 虚拟支付未开通时的占位说明，避免出现「能点但付不了」的入口 */
-  rechargeSoon() {
-    wx.showModal({
-      title: '充值即将开放',
-      content: '平台正在接入微信虚拟支付，开通后即可在线充值。当前可通过兑换码获取点数，或在「意见反馈」留下联系方式。',
-      confirmText: '去兑换',
-      cancelText: '知道了',
-      success: (r) => {
-        if (r.confirm) this.openRedeem();
-      },
-    });
   },
 
   loadEntries() {
@@ -300,9 +286,17 @@ Page({
       .catch(() => {});
   },
 
+  /** 充值：统一走独立页（弹层在安卓上会被支付系统弹窗盖住，切页还会丢） */
   openRecharge() {
-    if (!this.data.showRecharge) return this.rechargeSoon();
-    this.setData({ sheet: 'recharge' });
+    motion.haptic();
+    wx.navigateTo({ url: '/pages/recharge/recharge' });
+  },
+
+  /** 点某个档位：直接带着这一档进充值页，少一次选择 */
+  openPackage(e) {
+    const id = e.currentTarget.dataset.id;
+    motion.haptic();
+    wx.navigateTo({ url: '/pages/recharge/recharge' + (id ? '?id=' + encodeURIComponent(id) : '') });
   },
 
   closeSheet() {
@@ -327,65 +321,6 @@ Page({
         wx.reLaunch({ url: '/pages/login/login' });
       },
     });
-  },
-
-  selectPackage(e) {
-    this.setData({ selectedId: e.currentTarget.dataset.id }, () => this.refreshPayText());
-  },
-
-  refreshPayText() {
-    const p = this.data.packages.find((x) => x.id === this.data.selectedId);
-    this.setData({ payText: p ? `微信支付 ¥${p.priceCny}` : '请选择档次' });
-  },
-
-  /** 全终端使用微信官方虚拟支付；未配置商户号时显式走联调发货 */
-  pay() {
-    const pkg = this.data.packages.find((p) => p.id === this.data.selectedId);
-    if (!pkg || this.data.paying) return;
-    this.setData({ paying: true });
-    api.createPayOrder(pkg.id)
-      .then((order) => {
-        if (order.mode === 'mock') {
-          return api.mockPaySuccess(order.order_id).then((r) => {
-            this.afterPaid(r.balance);
-            wx.showToast({ title: `联调到账 ${order.points} 点`, icon: 'none' });
-          });
-        }
-        return new Promise((resolve, reject) => {
-          if (!wx.requestVirtualPayment) {
-            wx.showToast({ title: '当前微信版本不支持虚拟支付，请升级', icon: 'none' });
-            reject(new Error('unsupported'));
-            return;
-          }
-          const p = order.requestVirtualPayment;
-          wx.requestVirtualPayment({
-            signData: p.signData,
-            paySig: p.paySig,
-            signature: p.signature,
-            mode: p.mode,
-            zoneId: p.zoneId,
-            success: () => {
-              // 发货以微信回调为准，这里主动查一次余额兜底
-              setTimeout(() => {
-                this.syncUser().then(() => {
-                  this.loadEntries();
-                  wx.showToast({ title: '充值成功', icon: 'none' });
-                  resolve();
-                });
-              }, 1200);
-            },
-            fail: (err) => {
-              if (err && err.errMsg && !/cancel/.test(err.errMsg)) {
-                wx.showToast({ title: '支付未完成', icon: 'none' });
-              }
-              reject(err);
-            },
-          });
-        });
-      })
-      .then(() => this.loadPackages())
-      .catch(() => {})
-      .then(() => this.setData({ paying: false }));
   },
 
   afterPaid(balance) {

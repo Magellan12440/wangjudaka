@@ -44,8 +44,13 @@ Page({
     motion.enter(this);
     // 从「我的」被踢出来时带上回跳目标
     this.redirect = query && query.redirect ? decodeURIComponent(query.redirect) : '';
+    // 「切换账号 → 添加另一个账号」：已经登录着也不能被弹回首页
+    this.addMode = !!(query && query.mode === 'add');
+    if (query && query.phone) {
+      try { this.setData({ phone: decodeURIComponent(query.phone) }); } catch (e) { /* ignore */ }
+    }
     const app = getApp();
-    if (app && app.globalData && app.globalData.userId) {
+    if (!this.addMode && app && app.globalData && app.globalData.userId) {
       // 已登录就没必要停在这一页
       wx.switchTab({ url: '/pages/index/index' });
     }
@@ -183,7 +188,7 @@ Page({
   },
 
   done() {
-    wx.showToast({ title: '登录成功', icon: 'none' });
+    wx.showToast({ title: this.addMode ? '已添加并切换' : '登录成功', icon: 'none' });
     if (this.redirect) {
       const tab = ['/pages/index/index', '/pages/create/create', '/pages/distribute/distribute', '/pages/mine/mine'];
       if (tab.some((t) => this.redirect.startsWith(t))) wx.switchTab({ url: this.redirect });

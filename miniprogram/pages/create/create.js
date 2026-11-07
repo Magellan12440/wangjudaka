@@ -112,6 +112,7 @@ Page({
     scriptText: '',
     scriptChars: 0,
     scriptName: '',
+    scriptReading: false,
     minAdaptChars: MIN_ADAPT_CHARS,
   },
 
@@ -371,33 +372,66 @@ Page({
    * 只支持 txt：docx 是压缩包，前端解不了——那条路走「建组后素材页选 DOCX 自动取正文」，
    * 这里如实提示，不假装能读。
    */
+  /**
+   * 上传本地文件当正文（V4.9.1）。
+   * 以前只能从聊天里选 .txt：稿子大多在 Word / PDF / 表格里，等于没这个功能。
+   * 现在任何文件都能选：能读出正文的直接回填（txt/md/docx/pdf/xlsx/csv/pptx），
+   * 读不出来的（图片、压缩包、扫描版）如实说清楚，让用户粘贴。
+   */
   pickScriptFile() {
     motion.haptic();
+    if (!wx.chooseMessageFile) {
+      wx.showToast({ title: '当前微信版本不支持选文件，请直接粘贴正文', icon: 'none' });
+      return;
+    }
     wx.chooseMessageFile({
       count: 1,
-      type: 'file',
-      extension: ['txt', 'md'],
+      type: 'all',
       success: (res) => {
         const f = res.tempFiles && res.tempFiles[0];
         if (!f) return;
-        if (f.size > 2 * 1024 * 1024) {
-          wx.showToast({ title: '文本超过 2MB，请拆分后再传', icon: 'none' });
+        if (f.size > 20 * 1024 * 1024) {
+          wx.showToast({ title: '文件超过 20MB，请拆分后再传', icon: 'none' });
           return;
         }
-        wx.getFileSystemManager().readFile({
-          filePath: f.path,
-          encoding: 'utf8',
-          success: (r) => {
-            const text = String(r.data || '').slice(0, 20000);
-            this.setData({
-              scriptText: text,
-              scriptChars: text.replace(/\s/g, '').length,
-              scriptName: f.name || '',
-            }, () => this.syncMeta());
-            wx.showToast({ title: `已读入 ${(f.name || '文本').slice(0, 12)}`, icon: 'none' });
-          },
-          fail: () => wx.showToast({ title: '这个文件读不出正文，可直接粘贴', icon: 'none' }),
-        });
+        const path = f.path || f.tempFilePath;
+        this.setData({ scriptReading: true, scriptName: f.name || '' });
+        api.extractTextFile(path, { maxChars: 20000 })
+          .then((d) => {
+            this.setData({ scriptReading: false });
+            if (!d || !d.ok) {
+              wx.showModal({
+                title: '这个文件读不出正文',
+                content: (d && d.reason) || '可以换一个 txt / docx / pdf 文件，或直接把正文粘贴到输入框。',
+                showCancel: false,
+                confirmText: '知道了',
+              });
+              return;
+            }
+            const patch = {
+              scriptText: d.text,
+              scriptChars: String(d.text).replace(/\s/g, '').length,
+              scriptName: d.name || f.name || '',
+            };
+            // 剧名还空着时，用文件名兜一个（用户可改），省一次输入
+            if (!this.data.title && d.name) {
+              patch.title = String(d.name).replace(/\.[^.]+$/, '').slice(0, 30);
+            }
+            this.setData(patch, () => this.syncMeta());
+            wx.showToast({
+              title: d.truncated ? `已读入前 ${patch.scriptChars} 字（原文更长）` : `已读入 ${patch.scriptChars} 字`,
+              icon: 'none',
+            });
+          })
+          .catch((e) => {
+            this.setData({ scriptReading: false });
+            wx.showModal({
+              title: '上传失败',
+              content: (e && e.message) || '网络异常，请重试；也可以直接把正文粘贴进来。',
+              showCancel: false,
+              confirmText: '知道了',
+            });
+          });
       },
       fail: () => {},
     });

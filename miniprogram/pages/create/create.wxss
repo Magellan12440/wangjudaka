@@ -44,6 +44,18 @@
 }
 .adapt-tools .tiny { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* 上传本地文件：做成实心按钮，别再藏在角落当链接 */
+.upload-cta {
+  color: #FFFFFF;
+  background: linear-gradient(135deg, #FFB971, #F2751E);
+  border-color: transparent;
+  font-weight: 650;
+  box-shadow: 0 10rpx 22rpx -14rpx rgba(232, 138, 58, 0.9);
+}
+.upload-hint { flex: 1; min-width: 0; }
+.upload-hint .tiny { display: block; line-height: 1.5; color: #8B95A5; }
+.upload-hint .tiny.on { color: #22B07D; }
+
 /* 创作页：步骤条 / 选项卡 / 提案卡 */
 
 .step-count { font-size: 40rpx; color: #E08A22; letter-spacing: 1rpx; }

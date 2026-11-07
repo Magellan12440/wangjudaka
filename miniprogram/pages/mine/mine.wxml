@@ -16,7 +16,7 @@
         <view class="me-id">ID {{uidText}} · {{loginMode === 'live' ? '微信登录' : '体验模式'}}</view>
         <view wx:if="{{!profileComplete}}" class="me-tip tap" hover-class="tap-on" bindtap="editProfile">补一个昵称，作品署名更好认 ›</view>
       </view>
-      <view class="me-edit tap" hover-class="tap-on" bindtap="goAccount">账号与额度</view>
+      <view class="me-edit tap" hover-class="tap-on" bindtap="goAccount">账号 · 切换</view>
     </view>
     <view wx:if="{{!hasPhone}}" class="login-bar tap" hover-class="tap-on" bindtap="goAccount">
       <text class="login-bar-dot"></text>
@@ -117,7 +117,7 @@
         class="pkg-card tap {{selectedId === item.id ? 'on' : ''}}"
         hover-class="tap-on"
         data-id="{{item.id}}"
-        bindtap="selectPackage"
+        bindtap="openPackage"
       >
         <view class="pkg-tag" wx:if="{{item.tag}}">{{item.tag}}</view>
         <view class="pkg-points num">{{item.total}}<text class="pkg-unit">点</text></view>
@@ -182,42 +182,6 @@
     </view>
     <view class="footer-note">
       网剧大咖 v{{version}} · 内容由 AI 生成并添加标识
-    </view>
-  </view>
-
-  <!-- 充值弹层 -->
-  <view wx:if="{{sheet === 'recharge'}}" class="sheet-mask" bindtap="closeSheet">
-    <view class="sheet" catchtap="noop">
-      <view class="sheet-bar"></view>
-      <view class="sheet-head">
-        <text class="sheet-title">充值点数</text>
-        <text class="sheet-close" bindtap="closeSheet">关闭</text>
-      </view>
-      <view class="sheet-scroll">
-        <view
-          wx:for="{{packages}}"
-          wx:key="id"
-          class="pkg-row tap {{selectedId === item.id ? 'on' : ''}}"
-          hover-class="tap-on"
-          data-id="{{item.id}}"
-          bindtap="selectPackage"
-        >
-          <view class="flex1">
-            <view class="pkg-row-points">{{item.total}} 点<text wx:if="{{item.bonus}}" class="pkg-bonus">含赠 {{item.bonus}}</text></view>
-            <view class="tiny">到账后可用于剧本、关键帧与视频</view>
-          </view>
-          <view class="pkg-row-price">¥{{item.priceCny}}</view>
-        </view>
-        <view wx:if="{{!packages.length}}" class="empty-sub" style="text-align:center;padding:40rpx 0">档位加载中…</view>
-        <view wx:if="{{!showRecharge}}" class="notice mt16">
-          <view class="dot"></view>
-          <view class="flex1">微信虚拟支付尚未开通，当前可用兑换码获取点数。</view>
-        </view>
-        <view class="pay-note">支付由微信官方虚拟支付完成，平台不接触你的支付信息</view>
-      </view>
-      <view class="btn btn-block mt16 {{paying || !showRecharge ? 'btn-disabled' : ''}}" bindtap="pay">
-        {{paying ? '处理中…' : (showRecharge ? payText : '暂未开放')}}
-      </view>
     </view>
   </view>
 

@@ -34,18 +34,40 @@ class VirtualPay {
 
   /**
    * 创建充值订单。
+   * @param {object} p
+   *   packageId：档位 id；不传时用 amountCny 走「自定义金额」（1 点 = cnyPerPoint 元，无赠送）
    * @returns 返回 wx.requestVirtualPayment 参数；mock 模式返回联调说明。
    */
-  createOrder({ userId, packageId, sessionKey = null }) {
+  createOrder({ userId, packageId = null, amountCny = null, sessionKey = null }) {
     if (!userId) fail(ERR.AUTH_REQUIRED, '请先登录');
-    const pkg = this.packages().find((p) => p.id === packageId || p.code === packageId);
-    if (!pkg) fail(ERR.BAD_REQUEST, `点数包不存在: ${packageId}`);
+    let pkg = null;
+    let points;
+    let priceCny;
+    let packageRef = null;
+
+    if (packageId) {
+      pkg = this.packages().find((p) => p.id === packageId || p.code === packageId);
+      if (!pkg) fail(ERR.BAD_REQUEST, `点数包不存在: ${packageId}`);
+      points = Number(pkg.points || 0) + Number(pkg.bonus ?? 0);
+      priceCny = Number(pkg.priceCny);
+      packageRef = pkg.id;
+    } else {
+      // 自定义金额：只按汇率兑点，不叠加赠送（赠送是档位专属福利）
+      const amt = Number(amountCny);
+      if (!Number.isFinite(amt) || amt <= 0) fail(ERR.BAD_REQUEST, '请选择档位或填写充值金额');
+      if (amt < 1) fail(ERR.BAD_REQUEST, '最低充值 1 元');
+      if (amt > 5000) fail(ERR.BAD_REQUEST, '单笔最多 5000 元，如需更多请联系客服');
+      priceCny = Math.round(amt * 100) / 100;
+      points = Math.floor(priceCny / config.credit.cnyPerPoint);
+      if (!(points > 0)) fail(ERR.BAD_REQUEST, '金额太小，不足 1 点');
+    }
+
     const order = db.insert(ORDERS, {
       id: newId('order'),
       user_id: userId,
-      package_id: pkg.id,
-      points: pkg.points + (pkg.bonus ?? 0),
-      amount_cny: pkg.priceCny,
+      package_id: packageRef,
+      points,
+      amount_cny: priceCny,
       status: 'pending',
       channel: 'wx_virtual_pay',
       wx_order_id: null,

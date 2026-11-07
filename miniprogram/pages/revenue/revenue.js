@@ -83,8 +83,8 @@ Page({
 
   goRecharge() {
     motion.haptic();
-    // 充值是「我的」页里的弹层，不是独立页
-    wx.switchTab({ url: '/pages/mine/mine' });
+    // 充值是独立页（弹层在安卓上会被支付系统弹窗盖住）
+    wx.navigateTo({ url: '/pages/recharge/recharge' });
   },
 
   /**

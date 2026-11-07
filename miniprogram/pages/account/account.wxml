@@ -36,7 +36,7 @@
       <view class="quota-card">
         <view class="between">
           <text class="quota-k">可用点数</text>
-          <text class="quota-link" bindtap="goMine">充值 / 兑换 ›</text>
+          <text class="quota-link" bindtap="goRecharge">去充值 ›</text>
         </view>
         <view class="quota-num">
           <text class="num">{{balance.points}}</text><text class="quota-unit">点</text>
@@ -72,6 +72,48 @@
             <view class="qa-value">{{alertLabel}}<text class="qa-arrow">›</text></view>
           </picker>
         </view>
+      </view>
+
+      <!-- 切换账号（本机账号簿） -->
+      <view class="cellgroup">
+        <view class="cellgroup-title">切换账号</view>
+
+        <view
+          wx:for="{{accounts}}"
+          wx:key="userId"
+          class="acc-row tap {{item.current ? 'on' : ''}}"
+          hover-class="tap-on"
+          data-id="{{item.userId}}"
+          bindtap="switchAccount"
+          bindlongpress="removeAccount"
+        >
+          <view class="acc-avatar {{item.current ? 'on' : ''}}">
+            <image wx:if="{{item.avatar}}" class="acc-img" src="{{item.avatar}}" mode="aspectFill" />
+            <text wx:else>{{item.initial}}</text>
+          </view>
+          <view class="cell-main">
+            <view class="acc-name">
+              {{item.nickname}}
+              <text wx:if="{{item.isAdmin}}" class="acc-tag">管理员</text>
+            </view>
+            <view class="cell-d">
+              {{item.phoneMasked || '未绑定手机号'}} · {{item.expired ? '需要重新登录' : item.usedText}}
+            </view>
+          </view>
+          <text wx:if="{{item.current}}" class="acc-now">使用中</text>
+          <text wx:elif="{{item.expired}}" class="acc-relogin">重新登录</text>
+          <text wx:else class="cell-arrow">›</text>
+        </view>
+
+        <view class="cell tap" hover-class="tap-on" bindtap="addAccount">
+          <view class="cell-icon plus">＋</view>
+          <view class="cell-main">
+            <view class="cell-k">添加另一个账号</view>
+            <view class="cell-d">不退出当前账号，登录后可一键来回切</view>
+          </view>
+          <text class="cell-arrow v">›</text>
+        </view>
+        <view wx:if="{{accounts.length > 1}}" class="cell-foot">长按某个账号可从这台设备移除</view>
       </view>
 
       <!-- 账号与安全 -->

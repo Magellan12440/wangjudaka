@@ -1,0 +1,168 @@
+/* 充值页（V4.9.1）：浅色、留白、把「多少钱买多少点」说清楚 */
+.pay-page {
+  padding: 24rpx 28rpx calc(220rpx + env(safe-area-inset-bottom));
+}
+
+/* —— 余额 —— */
+.pay-balance {
+  border-radius: 30rpx;
+  padding: 30rpx 30rpx 26rpx;
+  background: linear-gradient(146deg, #FFF7EC 0%, #FFFFFF 62%, #FFF3F0 100%);
+  border: 1rpx solid rgba(232, 145, 47, 0.18);
+  box-shadow: 0 18rpx 40rpx -30rpx rgba(180, 85, 26, 0.5);
+}
+.pb-k { font-size: 23rpx; color: #8A5210; letter-spacing: 1rpx; }
+.pb-rate { font-size: 21rpx; color: #B4551A; background: #FFF1DF; border-radius: 999rpx; padding: 5rpx 14rpx; }
+.pb-num { display: flex; align-items: baseline; margin-top: 14rpx; }
+.pb-num .num { font-size: 68rpx; font-weight: 700; color: #16233A; line-height: 1.05; letter-spacing: -1rpx; }
+.pb-unit { font-size: 24rpx; color: #8B95A5; margin-left: 8rpx; }
+.pb-hint { font-size: 21rpx; color: #7A6547; line-height: 1.7; margin-top: 6rpx; }
+
+/* —— 活动条 —— */
+.campaign-line {
+  display: flex; align-items: center; gap: 12rpx;
+  margin-top: 18rpx; padding: 16rpx 22rpx;
+  border-radius: 18rpx;
+  background: linear-gradient(100deg, #FFF2DC, #FFF9F0);
+  border: 1rpx solid rgba(232, 145, 47, 0.22);
+}
+.cl-dot {
+  width: 12rpx; height: 12rpx; border-radius: 50%; flex: none;
+  background: #F2751E; box-shadow: 0 0 0 6rpx rgba(242, 117, 30, 0.14);
+}
+.cl-text { font-size: 22rpx; color: #8A5210; line-height: 1.5; }
+
+/* —— 分区标题 —— */
+.section-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 34rpx 0 16rpx;
+}
+.sh-title { font-size: 28rpx; font-weight: 700; color: #16233A; }
+.sh-sub { font-size: 21rpx; color: #9AA5B5; }
+
+/* —— 档位 —— */
+.pkg-grid { display: flex; flex-wrap: wrap; gap: 18rpx; }
+.pkg-item {
+  position: relative;
+  width: calc(50% - 9rpx);
+  box-sizing: border-box;
+  padding: 26rpx 22rpx 22rpx;
+  border-radius: 24rpx;
+  background: #FFFFFF;
+  border: 1rpx solid rgba(22, 35, 58, 0.08);
+  transition: border-color 0.2s, box-shadow 0.24s, transform 0.2s;
+}
+.pkg-item.on {
+  border-color: #F5A34A;
+  background: linear-gradient(158deg, #FFF7EC, #FFFFFF 60%);
+  box-shadow: 0 20rpx 40rpx -26rpx rgba(232, 138, 58, 0.9);
+  transform: translateY(-3rpx);
+}
+.pkg-badge {
+  position: absolute; top: -12rpx; right: 16rpx;
+  font-size: 18rpx; color: #FFFFFF; font-weight: 600;
+  padding: 4rpx 12rpx; border-radius: 999rpx;
+  background: linear-gradient(120deg, #FFB971, #F2751E);
+  box-shadow: 0 8rpx 16rpx -10rpx rgba(232, 138, 58, 0.9);
+}
+.pkg-p { font-size: 46rpx; font-weight: 700; color: #16233A; line-height: 1.1; }
+.pkg-p-unit { font-size: 20rpx; font-weight: 400; color: #8B95A5; margin-left: 6rpx; }
+.pkg-name { font-size: 21rpx; color: #6E7B8E; margin-top: 8rpx; }
+.pkg-money { font-size: 28rpx; font-weight: 650; color: #D0641E; margin-top: 12rpx; }
+.pkg-sub { font-size: 19rpx; color: #9AA5B5; margin-top: 6rpx; line-height: 1.5; }
+.pkg-check {
+  position: absolute; right: 18rpx; top: 18rpx;
+  width: 32rpx; height: 32rpx; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20rpx; color: #FFFFFF;
+  background: linear-gradient(140deg, #FFA45B, #F2751E);
+}
+.pkg-empty {
+  width: 100%; padding: 48rpx 24rpx; text-align: center;
+  border-radius: 24rpx; background: #FFFFFF;
+  border: 1rpx dashed rgba(22, 35, 58, 0.12);
+}
+.pe-title { font-size: 25rpx; color: #4A566B; font-weight: 600; }
+.pe-sub { font-size: 21rpx; color: #9AA5B5; margin-top: 8rpx; }
+
+/* —— 自定义金额 —— */
+.custom-box {
+  display: flex; align-items: center; gap: 12rpx;
+  padding: 0 24rpx; height: 104rpx;
+  border-radius: 22rpx; background: #FFFFFF;
+  border: 1rpx solid rgba(22, 35, 58, 0.1);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.custom-box.on {
+  border-color: #F5A34A;
+  box-shadow: 0 14rpx 30rpx -24rpx rgba(232, 138, 58, 0.9);
+}
+.cb-yen { font-size: 34rpx; font-weight: 700; color: #D0641E; }
+.cb-input { flex: 1; min-width: 0; font-size: 38rpx; font-weight: 600; color: #16233A; }
+.cb-ph { color: #B9C3D0; font-size: 25rpx; font-weight: 400; }
+.cb-points { font-size: 22rpx; color: #22B07D; flex: none; }
+.cb-clear { font-size: 22rpx; color: #9AA5B5; flex: none; padding: 8rpx; }
+
+/* —— 内测提示 —— */
+.notice-line {
+  display: flex; gap: 12rpx; align-items: flex-start;
+  margin-top: 22rpx; padding: 20rpx 22rpx;
+  border-radius: 20rpx; background: #F2F6FE;
+  border: 1rpx solid rgba(74, 110, 200, 0.14);
+}
+.nl-tag {
+  flex: none; font-size: 18rpx; color: #FFFFFF; font-weight: 600;
+  background: #6C86C9; border-radius: 8rpx; padding: 3rpx 10rpx; margin-top: 2rpx;
+}
+.nl-text { font-size: 21rpx; color: #4A566B; line-height: 1.65; }
+
+/* —— 订单 —— */
+.order-list { border-radius: 24rpx; background: #FFFFFF; overflow: hidden; border: 1rpx solid rgba(22, 35, 58, 0.06); }
+.order-row {
+  display: flex; align-items: center; gap: 16rpx;
+  padding: 22rpx 24rpx;
+  border-bottom: 1rpx solid rgba(22, 35, 58, 0.05);
+}
+.order-row:last-child { border-bottom: none; }
+.or-main { font-size: 26rpx; font-weight: 650; color: #16233A; }
+.or-sub { font-size: 20rpx; color: #9AA5B5; margin-top: 6rpx; }
+.or-right { text-align: right; flex: none; }
+.or-money { font-size: 24rpx; color: #4A566B; }
+.or-status { font-size: 19rpx; margin-top: 6rpx; }
+.or-status.ok { color: #22B07D; }
+.or-status.wait { color: #D0641E; }
+.or-status.off { color: #9AA5B5; }
+.or-btn {
+  flex: none; font-size: 21rpx; color: #B4551A;
+  padding: 10rpx 18rpx; border-radius: 999rpx;
+  background: #FFF1DF; border: 1rpx solid rgba(232, 145, 47, 0.3);
+}
+.order-empty { padding: 40rpx 0; text-align: center; font-size: 22rpx; color: #9AA5B5; }
+
+/* —— 尾部说明 —— */
+.tail-tip { font-size: 20rpx; color: #9AA5B5; line-height: 1.75; margin-top: 30rpx; }
+.tail-row { display: flex; align-items: center; justify-content: center; gap: 14rpx; margin-top: 22rpx; }
+.tail-link { font-size: 22rpx; color: #C4691A; padding: 8rpx 6rpx; }
+.tail-sep { font-size: 20rpx; color: #C3CCDA; }
+
+/* —— 底部支付条 —— */
+.pay-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; align-items: center; gap: 20rpx;
+  padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1rpx solid rgba(22, 35, 58, 0.07);
+  box-shadow: 0 -12rpx 36rpx -28rpx rgba(24, 50, 102, 0.5);
+  backdrop-filter: blur(10rpx);
+}
+.pb-left { flex: 1; min-width: 0; }
+.pb-amount { font-size: 34rpx; font-weight: 700; color: #D0641E; line-height: 1.1; }
+.pb-desc { font-size: 20rpx; color: #8B95A5; margin-top: 6rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-btn {
+  flex: none; min-width: 260rpx; height: 88rpx; border-radius: 999rpx;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28rpx; font-weight: 700; color: #FFFFFF;
+  background: linear-gradient(135deg, #FFB971, #F2751E);
+  box-shadow: 0 16rpx 32rpx -18rpx rgba(232, 138, 58, 0.95);
+}
+.pb-btn.off { opacity: 0.6; }

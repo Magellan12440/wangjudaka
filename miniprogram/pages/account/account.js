@@ -2,6 +2,7 @@
 // 设计原则：只展示用户能理解的信息，内部口径（扣点倍率、结算方式）不上前台。
 const api = require('../../utils/api.js');
 const motion = require('../../utils/motion.js');
+const accounts = require('../../utils/accounts.js');
 
 const RESEND_SEC = 60;
 
@@ -46,6 +47,8 @@ Page({
     quota: { today: 0, week: 0, month: 0, avg_per_episode: 0 },
     runsLeft: 0,
     sessions: [],
+    // 本机账号簿（可一键切换）
+    accounts: [],
 
     alertOptions: ALERT_OPTIONS.map((o) => o.label),
     alertIndex: 0,
@@ -124,6 +127,7 @@ Page({
       quota,
       runsLeft: runsLeft > 999 ? '999+' : runsLeft,
       sessions,
+      accounts: getApp().accountList(),
       alertIndex,
       alertLabel: ALERT_OPTIONS[alertIndex].label,
     });
@@ -152,6 +156,85 @@ Page({
 
   goMine() {
     wx.switchTab({ url: '/pages/mine/mine' });
+  },
+
+  /** 充值 / 兑换统一进独立充值页 */
+  goRecharge() {
+    motion.haptic();
+    wx.navigateTo({ url: '/pages/recharge/recharge' });
+  },
+
+  /** 兑换码在「我的」页里（弹层） */
+  goRedeem() {
+    motion.haptic();
+    wx.switchTab({ url: '/pages/mine/mine' });
+    wx.showToast({ title: '点「兑换码」输入', icon: 'none' });
+  },
+
+  /* —— 切换账号 —— */
+  switchAccount(e) {
+    const userId = e.currentTarget.dataset.id;
+    if (!userId || userId === this.data.user.id) return;
+    const app = getApp();
+    const row = (this.data.accounts || []).find((a) => a.userId === userId);
+    if (row && row.expired) {
+      this.needRelogin(row);
+      return;
+    }
+    motion.haptic();
+    wx.showLoading({ title: '切换中…', mask: true });
+    app.switchAccount(userId)
+      .then(() => {
+        wx.hideLoading();
+        wx.showToast({ title: `已切换到 ${(row && row.nickname) || '新账号'}`, icon: 'none' });
+        this.load();
+        // 首页与「我的」都缓存了上个账号的数据，切回去重进一次最干净
+        setTimeout(() => wx.switchTab({ url: '/pages/index/index' }), 600);
+      })
+      .catch((err) => {
+        wx.hideLoading();
+        if (err && err.code === 'NEED_LOGIN') this.needRelogin(row);
+        else wx.showToast({ title: (err && err.message) || '切换失败，请重试', icon: 'none' });
+      });
+  },
+
+  /** token 已失效（改密/退出全部设备）：引导重新登录这个账号 */
+  needRelogin(row) {
+    wx.showModal({
+      title: '需要重新登录',
+      content: `${(row && row.nickname) || '这个账号'}的登录状态已失效（可能改过密码，或在这台设备退出过）。重新登录后即可切过去。`,
+      confirmText: '去登录',
+      success: (r) => {
+        if (!r.confirm) return;
+        getApp().toLogin({ add: true });
+      },
+    });
+  },
+
+  addAccount() {
+    motion.haptic();
+    getApp().toLogin({ add: true });
+  },
+
+  /** 长按移除一个已保存的账号（不动服务端会话，只是不再列出来） */
+  removeAccount(e) {
+    const userId = e.currentTarget.dataset.id;
+    const row = (this.data.accounts || []).find((a) => a.userId === userId);
+    if (!row) return;
+    if (row.current) {
+      wx.showToast({ title: '当前正在用的账号不能移除', icon: 'none' });
+      return;
+    }
+    wx.showModal({
+      title: '移除账号',
+      content: `从这台设备的账号列表里移除「${row.nickname}」？下次要用需要重新登录。`,
+      confirmText: '移除',
+      success: (r) => {
+        if (!r.confirm) return;
+        accounts.remove(userId);
+        this.setData({ accounts: getApp().accountList() });
+      },
+    });
   },
 
   /* —— 弹层 —— */

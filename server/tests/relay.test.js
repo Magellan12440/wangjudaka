@@ -47,8 +47,23 @@ test('不可商用模型用于交付被拒绝', () => {
 test('算力池：并发闸门生效', async () => {
   relayPool.maxConcurrency = 1;
   relayPool.inflight = 1;
-  await assert.rejects(() => relayPool.acquire({}), (e) => e.code === ERR.RELAY_RATE_LIMITED);
+  // waitMs: 0 = 不排队，立刻告诉我满了
+  await assert.rejects(() => relayPool.acquire({ waitMs: 0 }), (e) => e.code === ERR.RELAY_RATE_LIMITED);
   relayPool.inflight = 0;
+  relayPool.maxConcurrency = config.relay.maxConcurrency;
+});
+
+test('算力池：槽位满时先排队，腾出来后自动放行', async () => {
+  relayPool.maxConcurrency = 1;
+  relayPool.inflight = 1;
+  relayPool.windowStart = Date.now();
+  relayPool.windowCount = 0;
+  // 200ms 后一个槽位释放：排队中的请求应该成功，而不是直接报错
+  const timer = setTimeout(() => { relayPool.inflight = 0; }, 200);
+  const ok = await relayPool.acquire({ waitMs: 2000 });
+  clearTimeout(timer);
+  assert.equal(ok, true, '腾出槽位后应当放行');
+  relayPool.release();
   relayPool.maxConcurrency = config.relay.maxConcurrency;
 });
 

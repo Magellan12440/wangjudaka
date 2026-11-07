@@ -91,9 +91,13 @@
             <view class="counter {{scriptChars && scriptChars < minAdaptChars ? 'warn' : ''}}">{{scriptChars}}/20000</view>
           </view>
           <view class="adapt-tools">
-            <view class="ghost-mini tap" hover-class="tap-on" bindtap="pickScriptFile">从聊天选 TXT</view>
-            <text class="tiny" wx:if="{{scriptName}}">{{scriptName}}</text>
-            <text class="tiny" wx:else>DOCX 建组后可在素材页选，自动取正文</text>
+            <view class="ghost-mini upload-cta tap" hover-class="tap-on" bindtap="pickScriptFile">
+              {{scriptReading ? '正在读取…' : '上传本地文件'}}
+            </view>
+            <view class="upload-hint">
+              <text wx:if="{{scriptName}}" class="tiny on">已读入：{{scriptName}}</text>
+              <text wx:else class="tiny">支持 Word / PDF / TXT / 表格 / 演示稿，自动取正文</text>
+            </view>
           </view>
 
           <view class="field-label mt24"><text>改到什么程度</text><text class="opt">决定 AI 的改写权限</text></view>

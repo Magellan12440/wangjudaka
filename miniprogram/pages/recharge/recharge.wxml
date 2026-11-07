@@ -1,0 +1,125 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-a"></view>
+    <view class="aurora-c"></view>
+  </view>
+
+  <view class="layer pay-page">
+    <!-- 余额 -->
+    <view class="pay-balance">
+      <view class="between">
+        <text class="pb-k">当前可用</text>
+        <text class="pb-rate">1 点 = ¥{{cnyPerPoint}}</text>
+      </view>
+      <view class="pb-num">
+        <text class="num">{{balance}}</text><text class="pb-unit">点</text>
+      </view>
+      <view class="pb-hint" wx:for="{{usageHints}}" wx:key="*this">· {{item}}</view>
+    </view>
+
+    <view wx:if="{{campaign && campaign.active}}" class="campaign-line">
+      <text class="cl-dot"></text>
+      <text class="cl-text">充值加赠进行中{{campaign.note ? '：' + campaign.note : ''}}</text>
+    </view>
+
+    <!-- 档位 -->
+    <view class="section-head">
+      <text class="sh-title">选一个档位</text>
+      <text class="sh-sub">赠送点数自动计入</text>
+    </view>
+
+    <view wx:if="{{loading}}" class="pkg-grid">
+      <view class="pkg-item skeleton" style="height:200rpx"></view>
+      <view class="pkg-item skeleton" style="height:200rpx"></view>
+    </view>
+
+    <view wx:else class="pkg-grid">
+      <view
+        wx:for="{{packages}}"
+        wx:key="id"
+        class="pkg-item tap {{selectedId === item.id ? 'on' : ''}}"
+        hover-class="tap-on"
+        data-id="{{item.id}}"
+        bindtap="pickPackage"
+      >
+        <text wx:if="{{item.tag}}" class="pkg-badge">{{item.tag}}</text>
+        <view class="pkg-p num">{{item.total}}<text class="pkg-p-unit">点</text></view>
+        <view class="pkg-name">{{item.name || '点数包'}}</view>
+        <view class="pkg-money">¥{{item.priceText}}</view>
+        <view wx:if="{{item.bonus}}" class="pkg-sub">含赠送 {{item.bonus}} 点</view>
+        <view wx:else class="pkg-sub">{{item.points}} 点 + 0 赠送</view>
+        <view class="pkg-check" wx:if="{{selectedId === item.id}}">✓</view>
+      </view>
+      <view wx:if="{{!packages.length}}" class="pkg-empty">
+        <view class="pe-title">档位没加载出来</view>
+        <view class="pe-sub">下拉刷新一次，或稍后再试</view>
+      </view>
+    </view>
+
+    <!-- 自定义金额 -->
+    <view class="section-head">
+      <text class="sh-title">按金额充</text>
+      <text class="sh-sub">想充多少充多少</text>
+    </view>
+    <view class="custom-box {{custom ? 'on' : ''}}">
+      <text class="cb-yen">¥</text>
+      <input
+        class="cb-input"
+        type="digit"
+        value="{{custom}}"
+        placeholder="输入金额，最低 1 元"
+        placeholder-class="cb-ph"
+        bindinput="onCustom"
+      />
+      <text wx:if="{{customPoints > 0}}" class="cb-points">= {{customPoints}} 点</text>
+      <text wx:else class="cb-clear" bindtap="clearCustom">清空</text>
+    </view>
+
+    <view wx:if="{{!live}}" class="notice-line">
+      <text class="nl-tag">内测</text>
+      <text class="nl-text">当前未接入微信虚拟支付商户号，点支付会直接到账且不产生真实扣款。正式收款在后台配置后自动切换，无需更新小程序。</text>
+    </view>
+
+    <!-- 订单记录 -->
+    <view class="section-head">
+      <text class="sh-title">充值记录</text>
+      <text class="sh-sub">{{orders.length ? '最近 12 笔' : ''}}</text>
+    </view>
+    <view class="order-list">
+      <view wx:for="{{orders}}" wx:key="id" class="order-row">
+        <view class="flex1">
+          <view class="or-main">+{{item.points}} 点</view>
+          <view class="or-sub">{{item.timeText}}</view>
+        </view>
+        <view class="or-right">
+          <view class="or-money">¥{{item.amountText}}</view>
+          <view class="or-status {{item.statusCls}}">{{item.statusText}}</view>
+        </view>
+        <view wx:if="{{item.canPay}}" class="or-btn tap" hover-class="tap-on" data-id="{{item.id}}" bindtap="payAgain">去支付</view>
+      </view>
+      <view wx:if="{{!orders.length}}" class="order-empty">还没有充值记录</view>
+    </view>
+
+    <view class="tail-tip">
+      点数用于剧本、关键帧与视频生成，按真实用量结算，失败全额退回。
+      充值成功后可在「我的 → 账号 · 切换 → 可用点数」里查看明细。
+    </view>
+
+    <view class="tail-row">
+      <text class="tail-link tap" bindtap="openRedeem">我有兑换码</text>
+      <text class="tail-sep">·</text>
+      <text class="tail-link tap" bindtap="contact">批量采购</text>
+    </view>
+  </view>
+
+  <!-- 底部支付条 -->
+  <view class="pay-bar">
+    <view class="pb-left">
+      <view class="pb-amount">¥<text class="num">{{payAmount}}</text></view>
+      <view class="pb-desc">{{payText}}</view>
+    </view>
+    <view class="pb-btn tap {{paying ? 'off' : ''}}" hover-class="tap-on" bindtap="pay">
+      {{paying ? '处理中…' : (live ? '立即支付' : '内测直充')}}
+    </view>
+  </view>
+</view>

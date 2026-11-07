@@ -1025,7 +1025,7 @@ Page({
                 : (run.paused_reason || '编排已暂停，可继续。'),
               confirmText: '去充值',
               cancelText: '稍后',
-              success: (r) => { if (r.confirm) wx.switchTab({ url: '/pages/mine/mine' }); },
+              success: (r) => { if (r.confirm) wx.navigateTo({ url: '/pages/recharge/recharge' }); },
             });
           } else if (run.status === 'failed') {
             const bad = (run.steps || []).find((s) => s.status === 'failed');

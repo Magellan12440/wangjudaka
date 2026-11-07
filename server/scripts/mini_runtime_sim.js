@@ -118,6 +118,10 @@ function makeApp() {
     },
     refreshBalance() { return Promise.resolve(this.globalData.balance); },
     relogin() { return this.login(); },
+    // 账号簿（V4.9.1）：仿真环境里给一个空列表，账号页就不会因为缺方法而整页失败
+    accountList() { return []; },
+    switchAccount() { return Promise.resolve(this.globalData); },
+    toLogin(o) { navs.push(`navigateTo:/pages/login/login${o && o.add ? '?mode=add' : ''}`); },
     login() {
       this.readyPromise = fetch(`${BASE}/api/auth/login`, {
         method: 'POST',
@@ -372,10 +376,13 @@ async function main() {
     await sleep(900);
     ok('我的页用户信息就绪', Boolean(mine.data.userId) && mine.data.loading === false);
     ok('我的页点数档位可拉取', (mine.data.packages || []).length > 0);
-    ok('我的页充值文案已生成', /¥/.test(mine.data.payText || ''), mine.data.payText);
     ok('我的页余额为数字', typeof mine.data.balance === 'number');
+    navs.length = 0;
     mine.openRecharge();
-    ok('我的页充值弹层可打开', mine.data.sheet === 'recharge' || mine.data.sheet === '', mine.data.sheet);
+    ok('充值跳到独立充值页', navs.some((u) => u.includes('/pages/recharge/recharge')), navs.join(','));
+    navs.length = 0;
+    mine.openPackage({ currentTarget: { dataset: { id: 'PKG-500' } } });
+    ok('点档位带着档位号跳转', navs.some((u) => u.includes('id=PKG-500')), navs.join(','));
     mine.closeSheet();
     mine.openRedeem();
     ok('我的页兑换弹层可打开', mine.data.sheet === 'redeem');
@@ -400,6 +407,27 @@ async function main() {
     ok('登录设备弹层可打开', acc.data.sheet === 'devices', acc.data.sheet);
     ok('登录设备列表含当前设备', (acc.data.sessions || []).some((s) => s.current) || acc.data.sessions.length === 0);
     acc.closeSheet();
+
+    // 切换账号（V4.9.1）：账号簿 + 添加账号走登录页 add 模式
+    ok('账号页有账号簿', Array.isArray(acc.data.accounts));
+    navs.length = 0;
+    acc.addAccount();
+    ok('添加账号进登录页 add 模式', navs.some((u) => u.includes('mode=add')), navs.join(','));
+
+    // —— 6c. 充值页（V4.9.1）——
+    const pay = loadPage('pages/recharge/recharge.js');
+    pay.onLoad({});
+    await sleep(1000);
+    ok('充值页拉到档位', (pay.data.packages || []).length > 0, pay.data.error || '');
+    ok('充值页默认选中一档', Boolean(pay.data.selectedId));
+    ok('充值页余额为数字', typeof pay.data.balance === 'number');
+    pay.onCustom({ detail: { value: '30' } });
+    ok('自定义金额换算出点数', pay.data.customPoints === 30, String(pay.data.customPoints));
+    const balBefore = pay.data.balance;
+    pay.clearCustom();
+    pay.pay();
+    await sleep(1500);
+    ok('充值链路可走通并到账', pay.data.balance > balBefore, `${balBefore} → ${pay.data.balance}`);
 
     // —— 7. 邀请页（裂变）——
     const invite = loadPage('pages/invite/invite.js');

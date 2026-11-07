@@ -97,6 +97,56 @@ export class MaterialService {
       .map((m) => this.#view(m));
   }
 
+  /**
+   * 只抽正文、不入库（供「上传本地文件 → 直接生成剧本」使用）。
+   * 与 addFile 共用同一套解析器，所以格式支持范围完全一致：
+   *   txt/md/json/srt、docx、csv/tsv/xlsx、pptx、pdf，以及其它「读不出」的文件。
+   * 读不出正文不抛错，返回 { ok:false, reason }，由前端提示「可以直接粘贴正文」。
+   * @returns {{ok:boolean, name:string, kind:string, text:string, chars:number, total_chars:number, truncated:boolean, reason?:string}}
+   */
+  extractText({ filename, mime = '', buffer, maxChars = 20000 }) {
+    if (!buffer?.length) fail(ERR.MATERIAL_EMPTY, '文件为空');
+    const kind = kindOf(String(mime).toLowerCase(), filename);
+    const limit = MAX_BYTES[kind] ?? MAX_BYTES.file;
+    if (buffer.length > limit) {
+      fail(ERR.MATERIAL_TOO_LARGE, `文件超过 ${Math.round(limit / 1024 / 1024)}MB 限制，请拆分后再传`);
+    }
+    const name = safeName(filename);
+    if (!PARSED.has(kind)) {
+      return {
+        ok: false, name, kind, text: '', chars: 0, total_chars: 0, truncated: false,
+        reason: '这个格式读不出文字（图片/视频/压缩包等）。正文可以直接粘贴，或换 txt / docx / pdf 上传。',
+      };
+    }
+    let text = '';
+    try {
+      text = this.#toText(kind, buffer, filename) || '';
+    } catch (e) {
+      return {
+        ok: false, name, kind, text: '', chars: 0, total_chars: 0, truncated: false,
+        reason: `解析失败（${e?.message || '文件可能已加密或损坏'}），可以直接粘贴正文`,
+      };
+    }
+    text = String(text).replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    const chars = text.replace(/\s/g, '').length;
+    if (!text) {
+      return {
+        ok: false, name, kind, text: '', chars: 0, total_chars: 0, truncated: false,
+        reason: '没读到正文。扫描版 PDF / 老 .doc 需要先转成文字版，或直接粘贴正文。',
+      };
+    }
+    const cap = Math.max(1000, Number(maxChars) || 20000);
+    return {
+      ok: true,
+      name,
+      kind,
+      text: text.slice(0, cap),
+      chars: Math.min(chars, cap),
+      total_chars: chars,
+      truncated: text.length > cap,
+    };
+  }
+
   stats(projectId) {
     const rows = db.find(COL, (m) => m.project_id === projectId);
     const by = {
