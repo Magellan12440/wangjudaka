@@ -246,7 +246,16 @@ def cmd_deploy(cred):
 
     res = call('CreateCloudBaseRunServerVersion', payload, cred, timeout=90)
     if not show(res):
-        print('提交的参数：', json.dumps(payload, ensure_ascii=False))
+        msg = json.dumps(res, ensure_ascii=False)
+        if 'repo detail param is missing' in msg or 'package detail param is missing' in msg:
+            # 这条 API 走不通了：仓库授权只在控制台点「部署」时才带上，OpenAPI 拿不到
+            print('')
+            print('ℹ️  OpenAPI 建版本被拒（仓库授权只在控制台生效），改用控制台，30 秒搞定：')
+            print('    1) https://console.cloud.tencent.com/tcb  →  选环境 → 云托管 → 服务 express-r0ph')
+            print('    2) 「版本管理」→ 点「部署」→ 选 GitHub 仓库 Magellan12440/wangjudaka / main')
+            print('    3) 备注带上当前提交，构建完成后把流量切到新版本（本脚本会读版本列表校验）')
+            print('    4) 回来执行：python scripts/tcb_deploy.py info   确认状态 normal 且流量 100%')
+            print('')
         return 1
     vid = pick(res, 'RunId', 'VersionName', 'BuildId')
     print('✅ 已提交构建，版本 :', vid)
