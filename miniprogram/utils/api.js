@@ -21,20 +21,6 @@ function token() {
   }
 }
 
-// 通道偏好：一旦小程序内网通道成功过，后续优先走它（省掉一次必然失败的 http 请求）
-const CHANNEL_KEY = 'use_container';
-
-function preferContainer() {
-  try { return wx.getStorageSync(CHANNEL_KEY) === 1; } catch (e) { return false; }
-}
-
-function markContainer(ok) {
-  try {
-    if (ok) wx.setStorageSync(CHANNEL_KEY, 1);
-    else wx.removeStorageSync(CHANNEL_KEY);
-  } catch (e) { /* ignore */ }
-}
-
 /** 把 wx 的 errMsg 翻成人话，供页面分支与用户判断 */
 function classify(raw) {
   const s = String(raw || '');
@@ -88,7 +74,51 @@ function failWith(raw, opts, reject) {
   reject(err);
 }
 
-/** 通道 A：公网 HTTPS（wx.request）。域名没进白名单时会在 fail 里报 not in domain list。 */
+/** GET 参数统一拼到 query 上：两条通道对 data 的处理略有差异，手动拼最可控 */
+function withQuery(url, method, data) {
+  if (method !== 'GET' || !data) return url;
+  const keys = Object.keys(data).filter((k) => data[k] !== undefined && data[k] !== null);
+  if (!keys.length) return url;
+  const qs = keys
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(String(data[k]))}`)
+    .join('&');
+  if (!qs) return url;
+  return `${url}${url.indexOf('?') >= 0 ? '&' : '?'}${qs}`;
+}
+
+/**
+ * 通道 A：小程序内网调用（wx.cloud.callContainer）。
+ * 走微信内部链路到云托管，**不受 request 合法域名约束**——云托管默认域名
+ * 根本不允许配进小程序后台的服务器域名，所以这条才是正式环境的主通道。
+ *
+ * 硬限制（官方）：timeout 最大 15s（传更大的会被忽略），请求体 ≤100KiB，返回 ≤1000KiB。
+ */
+function viaContainer(opts) {
+  return new Promise((resolve, reject) => {
+    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callContainer) {
+      const err = new Error(CODE_TITLE.NO_CLOUD);
+      err.code = 'NO_CLOUD';
+      return reject(err);
+    }
+    const { url, method = 'GET', data = {}, timeout = 15000 } = opts;
+    wx.cloud.callContainer({
+      config: { env: config.cloudEnv },
+      path: withQuery(url, method, data),
+      method,
+      timeout: Math.min(Number(timeout) || 15000, 14000),
+      header: {
+        'X-WX-SERVICE': config.cloudService,
+        'Content-Type': 'application/json',
+        ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
+      },
+      data: method === 'GET' ? undefined : data,
+      success: (res) => handleResponse(res, opts, resolve, reject),
+      fail: (e) => failWith(e && e.errMsg, opts, reject),
+    });
+  });
+}
+
+/** 通道 B：公网 HTTPS（wx.request）。域名没进白名单必失败，只作本地联调与兜底。 */
 function viaHttp(opts) {
   return new Promise((resolve, reject) => {
     const { url, method = 'GET', data = {}, timeout = 30000 } = opts;
@@ -107,57 +137,28 @@ function viaHttp(opts) {
   });
 }
 
-/**
- * 通道 B：小程序内网调用（wx.cloud.callContainer）。
- * 走微信内部链路到云托管，**不受 request 合法域名约束**，也不需要公网域名。
- * 需要基础库 ≥ 2.23.1 且已在 onLaunch 里 wx.cloud.init。
- */
-function viaContainer(opts) {
-  return new Promise((resolve, reject) => {
-    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callContainer) {
-      const err = new Error(CODE_TITLE.NO_CLOUD);
-      err.code = 'NO_CLOUD';
-      return reject(err);
-    }
-    const { url, method = 'GET', data = {}, timeout = 30000 } = opts;
-    wx.cloud.callContainer({
-      config: { env: config.cloudEnv },
-      path: url,
-      method,
-      timeout,
-      header: {
-        'X-WX-SERVICE': config.cloudService,
-        'Content-Type': 'application/json',
-        ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
-      },
-      data,
-      success: (res) => handleResponse(res, opts, resolve, reject),
-      fail: (e) => failWith(e && e.errMsg, opts, reject),
-    });
-  });
+/** 本地联调（http:// 地址）时公网才是对的，其余一律先走内网 */
+function isLocalDev() {
+  return /^http:\/\//i.test(base());
 }
 
 /**
- * 请求入口：先走公网，遇到「域名未加白名单」或连不上，自动切内网通道重试一次。
- * 内网通道成功过就记住，后续直接走它——避免每次请求都先撞一次墙。
+ * 请求入口：默认先走内网通道，失败再退公网。
+ * 反过来会导致每次请求都先撞一次「域名未加白名单」，白费一次往返。
  */
 function request(opts) {
   const o = Object.assign({ retry: true }, opts);
-  const tryOrder = preferContainer() ? [viaContainer, viaHttp] : [viaHttp, viaContainer];
+  const tryOrder = isLocalDev() ? [viaHttp, viaContainer] : [viaContainer, viaHttp];
   const attempt = (i) => {
     if (i >= tryOrder.length) {
       return Promise.reject(Object.assign(new Error(CODE_TITLE.NETWORK_ERROR), { code: 'NETWORK_ERROR' }));
     }
     return tryOrder[i](o).catch((err) => {
-      // 业务错误（4xx/5xx 且服务端有返回）不换通道，换了也一样
+      // 业务错误（服务端有返回 4xx/5xx）不换通道，换了也一样
       if (err && err.status && err.code !== 'DOMAIN_NOT_ALLOWED') throw err;
       const retriable = ['DOMAIN_NOT_ALLOWED', 'NETWORK_ERROR', 'TIMEOUT', 'NO_CLOUD'].indexOf(err && err.code) >= 0;
       if (!retriable) throw err;
-      const switchedToContainer = tryOrder[i] === viaHttp && tryOrder[i + 1] === viaContainer;
-      return attempt(i + 1).then((d) => {
-        if (switchedToContainer) markContainer(true);
-        return d;
-      });
+      return attempt(i + 1);
     });
   };
   return attempt(0);
