@@ -19,6 +19,11 @@ import { newId, nowIso } from '../core/util.js';
 
 const AUDIT = 'wx_api_audit';
 const CG = 'https://api.weixin.qq.com';
+// 备用内网通道（明文 HTTP）。只在 HTTPS 被中间代理用自签证书拦截时才用：
+// 微信云托管的部分出口会把 api.weixin.qq.com 的 TLS 终止在代理上，
+// 容器侧拿到的是自签证书，Node 直接报 DEPTH_ZERO_SELF_SIGNED_CERT。
+// 容器本身是隔离环境，且这条链路本身就是被代理接管的，降级 HTTP 不会额外扩大暴露面。
+const CG_HTTP = 'http://api.weixin.qq.com';
 
 class WechatClient {
   constructor() {
@@ -42,13 +47,54 @@ class WechatClient {
     }
   }
 
+  /**
+   * 统一出站请求：把「fetch failed」这种无用信息翻译成可诊断的原因。
+   *
+   * 为什么要做：云托管容器里网络不通时，Node 的 fetch 只抛 `TypeError: fetch failed`，
+   * 真实原因藏在 err.cause（ENOTFOUND / ETIMEDOUT / ECONNREFUSED / CERT_*）。
+   * 不把它挖出来，线上只能看到「微信登录失败」，等于没信息。
+   */
+  async #fetchJson(url, { timeout = 10000, ...opts } = {}) {
+    const hit = (u) => fetch(u, { signal: AbortSignal.timeout(timeout), ...opts })
+      .then(async (res) => ({ res, json: await res.json().catch(() => ({})) }));
+
+    const viaHttp = (u) => (String(u).startsWith(CG) ? CG_HTTP + String(u).slice(CG.length) : u);
+    const tlsish = (code) => /SELF_SIGNED|CERT|TLS|SSL|UNABLE_TO_VERIFY/i.test(String(code));
+
+    try {
+      return await hit(this._viaHttp ? viaHttp(url) : url);
+    } catch (err) {
+      const cause = err?.cause || {};
+      const code = cause.code || cause.errno || err?.name || 'UNKNOWN';
+
+      // HTTPS 被自签证书拦截 → 自动切内网 HTTP 通道，之后整进程复用，不再反复撞墙
+      if (!this._viaHttp && tlsish(code)) {
+        try {
+          const r = await hit(viaHttp(url));
+          this._viaHttp = true;
+          this.#audit('tls_fallback_http', { code });
+          logger.warn(`[wechat] HTTPS 被自签证书拦截（${code}），已切内网 HTTP 通道`);
+          return r;
+        } catch (err2) {
+          const c2 = err2?.cause?.code || err2?.name || 'UNKNOWN';
+          this.#audit('fetch_failed', { code: `${code}/${c2}` });
+          fail(ERR.WX_API_ERROR, `连不上微信接口（${code}；内网 HTTP 也不通 ${c2}）`);
+          return null;
+        }
+      }
+
+      this.#audit('fetch_failed', { code });
+      fail(ERR.WX_API_ERROR, `连不上微信接口（${code} @ api.weixin.qq.com）`);
+      return null;
+    }
+  }
+
   /** 获取 access_token（缓存，提前 300s 续期） */
   async accessToken({ force = false } = {}) {
     if (!this.configured) return null;
     if (!force && this._token && Date.now() < this._token.expiresAt) return this._token.value;
     const url = `${CG}/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(config.wechat.appid)}&secret=${encodeURIComponent(config.wechat.secret)}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    const json = await res.json().catch(() => ({}));
+    const { res, json } = await this.#fetchJson(url);
     if (!res.ok || !json.access_token) {
       this.#audit('access_token_failed', { status: res.status, errcode: json.errcode });
       fail(ERR.WX_API_ERROR, `微信 access_token 获取失败（errcode ${json.errcode ?? res.status}）`);
@@ -74,14 +120,50 @@ class WechatClient {
       return { openid, unionid: null, sessionKey: null, mode: 'mock' };
     }
     const url = `${CG}/sns/jscode2session?appid=${encodeURIComponent(config.wechat.appid)}&secret=${encodeURIComponent(config.wechat.secret)}&js_code=${encodeURIComponent(code)}&grant_type=authorization_code`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    const json = await res.json().catch(() => ({}));
+    const { res, json } = await this.#fetchJson(url);
     if (!res.ok || json.errcode) {
       this.#audit('code2session_failed', { status: res.status, errcode: json.errcode });
-      fail(ERR.WX_AUTH_FAILED, `微信登录失败（errcode ${json.errcode ?? res.status}）`);
+      fail(ERR.WX_AUTH_FAILED, `微信登录失败（errcode ${json.errcode ?? res.status}${json.errmsg ? ` ${json.errmsg}` : ''}）`);
     }
     this.#audit('code2session', { ok: true });
     return { openid: json.openid, unionid: json.unionid ?? null, sessionKey: json.session_key ?? null, mode: 'live' };
+  }
+
+  /**
+   * 连通性自检（运维用）：真的去敲一次微信接口，而不是只看「配没配」。
+   *
+   * access_token 拿不到 → 多半是 appid/secret 不对或出网被拦；
+   * access_token 拿得到但 jscode2session 连不上 → 出网/证书问题；
+   * 两者都通但返回 errcode → 业务原因（如 code 已用过、AppID 与小程序不匹配）。
+   * 返回里绝不含 secret / token 原文。
+   */
+  async probe() {
+    // 字段名刻意避开 redact 的敏感词（access_token / session_key 等），
+    // 否则整段会被替换成 "***"，运维看到的就是一团马赛克。
+    const out = { configured: this.configured, mode: this.mode };
+    if (!this.configured) {
+      out.hint = '未配置 WX_APPID / WX_SECRET，微信能力处于 mock';
+      return out;
+    }
+    try {
+      const tk = await this.accessToken({ force: true });
+      out.auth = { ok: Boolean(tk), len: tk ? String(tk).length : 0 };
+      out.channel = this._viaHttp ? 'http（内网明文，HTTPS 被自签证书拦截后自动降级）' : 'https';
+    } catch (e) {
+      out.auth = { ok: false, error: e.message, code: e.code ?? null };
+      return out; // 连不上就不必继续测第二条链路
+    }
+    try {
+      const url = `${CG}/sns/jscode2session?appid=${encodeURIComponent(config.wechat.appid)}`
+        + `&secret=${encodeURIComponent(config.wechat.secret)}&js_code=DIAG_INVALID_CODE&grant_type=authorization_code`;
+      const { res, json } = await this.#fetchJson(url);
+      // 网络通就会拿到业务错误码（40029 code 无效 / 40163 已使用），这本身就是「通」的证据
+      out.login = { ok: true, http: res.status, errcode: json.errcode ?? 0, errmsg: json.errmsg ?? '' };
+      out.channel = this._viaHttp ? 'http（内网明文，HTTPS 被自签证书拦截后自动降级）' : 'https';
+    } catch (e) {
+      out.login = { ok: false, error: e.message, code: e.code ?? null };
+    }
+    return out;
   }
 
   /**
@@ -105,7 +187,7 @@ class WechatClient {
       return { pass: true, label: null, mode: 'degraded_no_openid', traceId: null };
     }
     const token = await this.accessToken();
-    const res = await fetch(`${CG}/wxa/msg_sec_check?access_token=${encodeURIComponent(token)}`, {
+    const { res, json } = await this.#fetchJson(`${CG}/wxa/msg_sec_check?access_token=${encodeURIComponent(token)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -114,9 +196,8 @@ class WechatClient {
         version: 2,
         content: String(content ?? '').slice(0, 2500),
       }),
-      signal: AbortSignal.timeout(10000),
+      timeout: 10000,
     });
-    const json = await res.json().catch(() => ({}));
     // errcode 87014 = 内容违规；0 = 通过；其他 = 接口异常
     if (json.errcode === 87014) {
       this.#audit('msgsec_block', { label: json?.result?.label ?? null, traceId: json.trace_id ?? null });
@@ -157,12 +238,12 @@ class WechatClient {
       const token = await this.accessToken();
       const form = new FormData();
       form.append('media', new Blob([buf]), 'check.jpg');
-      const res = await fetch(`${CG}/wxa/img_sec_check?access_token=${encodeURIComponent(token)}`, {
+      const r2 = await this.#fetchJson(`${CG}/wxa/img_sec_check?access_token=${encodeURIComponent(token)}`, {
         method: 'POST',
         body: form,
-        signal: AbortSignal.timeout(15000),
+        timeout: 15000,
       });
-      const json = await res.json().catch(() => ({}));
+      const { res, json } = r2;
       if (json.errcode === 87014) {
         this.#audit('imgsec_block', {});
         return { pass: false, mode: 'live' };

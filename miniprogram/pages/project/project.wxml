@@ -140,7 +140,7 @@
           <view class="between">
             <view>
               <view class="title">素材库</view>
-              <view class="tiny mt8">{{materialStats.by_kind.text}} 文本 · {{materialStats.by_kind.image}} 图 · {{materialStats.by_kind.video}} 视频 · {{materialStats.text_chars}} 字</view>
+              <view class="tiny mt8">{{materialStats.by_kind.text}} 文稿 · {{materialStats.by_kind.image}} 图 · {{materialStats.by_kind.video}} 视频 · {{materialStats.by_kind.file}} 存档 · {{materialStats.text_chars}} 字</view>
             </view>
             <view class="pill {{project.origin === 'material' ? 'pill-gold' : 'pill-violet'}} pill-no-dot">{{project.origin === 'material' ? '素材改编' : '创作输入'}}</view>
           </view>
@@ -163,8 +163,8 @@
             </view>
             <view class="upload-tile tap" hover-class="tap-on" bindtap="pickFiles">
               <view class="upload-icon">档</view>
-              <view class="upload-name">TXT / DOCX</view>
-              <view class="upload-sub">自动取正文</view>
+              <view class="upload-name">任意文件</view>
+              <view class="upload-sub">文稿 · 表格 · PDF</view>
             </view>
           </view>
 

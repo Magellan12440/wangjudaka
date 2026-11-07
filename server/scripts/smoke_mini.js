@@ -160,13 +160,25 @@ async function main() {
     ok('上传的图片可通过 /media 免鉴权访问', media.status === 200 && /image\/png/.test(media.headers.get('content-type') || ''),
       `${media.status} ${media.headers.get('content-type')}`);
 
+    // V4.9：素材不挑格式。读得出正文的（文稿/表格/幻灯片）转文本，读不出的（扫描版 PDF）存档并如实说明
+    const fdSheet = new FormData();
+    fdSheet.append('file', new Blob([Buffer.from('角色,身份\n林秋,女主\n', 'utf8')], { type: 'text/csv' }), '人物表.csv');
+    const sheetRes = await fetch(`${BASE}/api/projects/${projectId}/materials/upload`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fdSheet,
+    });
+    const sheetJson = sheetRes.status === 200 ? await sheetRes.json() : {};
+    const sheetItem = (sheetJson.data && sheetJson.data.items && sheetJson.data.items[0]) || {};
+    ok('CSV 素材被读成文本', sheetRes.status === 200 && sheetItem.has_text === true, `${sheetRes.status} ${JSON.stringify(sheetItem).slice(0, 100)}`);
+
     const fdBad = new FormData();
     fdBad.append('file', new Blob([Buffer.from('%PDF-1.4 fake')], { type: 'application/pdf' }), '剧本.pdf');
     const badRes = await fetch(`${BASE}/api/projects/${projectId}/materials/upload`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fdBad,
     });
     const badJson = await badRes.json();
-    ok('不支持的素材类型被拒', badRes.status === 415 && badJson.code === 'MATERIAL_UNSUPPORTED', `${badRes.status} ${badJson.code}`);
+    const badItem = (badJson.data && badJson.data.items && badJson.data.items[0]) || {};
+    ok('读不出正文的 PDF 转存档并如实标注', badRes.status === 200 && badItem.kind === 'file' && /已存档/.test(badItem.note || ''),
+      `${badRes.status} ${badItem.kind}`);
 
     const dg = await call('GET', `/api/projects/${projectId}/materials/digest`, undefined, true);
     ok('素材摘要可预检', dg.status === 200 && data(dg).chars > 0, JSON.stringify(data(dg)).slice(0, 100));

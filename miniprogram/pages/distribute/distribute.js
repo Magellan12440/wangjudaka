@@ -53,6 +53,7 @@ Page({
     viewsText: '0',
     // 平台详情弹层
     sheetPlatform: null,
+    taskEp: '',
     // 数据回填弹层
     statsTask: null,
     statsForm: { views: '', likes: '', completion: '' },
@@ -210,7 +211,30 @@ Page({
   openPlatform(e) {
     const code = e.currentTarget.dataset.code;
     const p = this.data.platforms.find((x) => x.code === code);
-    if (p) this.setData({ sheetPlatform: p });
+    if (p) {
+      const ep = this.data.taskEp || (this.data.films[0] && this.data.films[0].episode) || 'E01';
+      this.setData({ sheetPlatform: p, taskEp: ep });
+    }
+  },
+
+  /** 任务区右上角「新建」：先选平台，再进详情页挑集数 */
+  openCreate() {
+    const list = (this.data.platforms || []).slice(0, 6).map((p) => p.label);
+    if (!list.length) return;
+    wx.showActionSheet({
+      itemList: list,
+      success: (r) => {
+        const p = this.data.platforms[r.tapIndex];
+        if (!p) return;
+        const ep = this.data.taskEp || (this.data.films[0] && this.data.films[0].episode) || 'E01';
+        this.setData({ sheetPlatform: p, taskEp: ep });
+      },
+      fail: () => {},
+    });
+  },
+
+  pickTaskEp(e) {
+    this.setData({ taskEp: e.currentTarget.dataset.ep });
   },
 
   closeSheet() {
@@ -233,8 +257,9 @@ Page({
       wx.showToast({ title: '先创建一部剧', icon: 'none' });
       return;
     }
+    const ep = this.data.taskEp || 'E01';
     wx.showModal({
-      title: `创建分发任务：${platform.name}`,
+      title: `创建分发任务：${platform.name} · ${ep}`,
       content: '小程序不能内嵌第三方平台登录。上传、审核、签约与提现需在电脑端完成，本任务只用于跟踪状态与回填数据。',
       confirmText: '创建',
       success: (r) => {
@@ -242,7 +267,7 @@ Page({
         api.createDistribution({
           userId: getApp().globalData.userId,
           projectId: this.data.projectId,
-          episodeNo: 'E01',
+          episodeNo: ep,
           platformCode: platform.code,
         })
           .then(() => {
@@ -253,6 +278,52 @@ Page({
             this.loadProjectData();
           })
           .catch(() => {});
+      },
+    });
+  },
+
+  /** 一次把同一集铺到所有平台：省掉 8 次重复点击，之后各平台各自跟踪 */
+  createAll(e) {
+    const platforms = this.data.platforms || [];
+    if (!platforms.length) return;
+    if (!this.data.projectId) {
+      wx.showToast({ title: '先创建一部剧', icon: 'none' });
+      return;
+    }
+    const ep = this.data.taskEp || 'E01';
+    const existing = new Set(this.data.tasks.filter((t) => t.episode === ep).map((t) => t.platform || t.platform_code));
+    const todo = platforms.filter((p) => !existing.has(p.code));
+    if (!todo.length) {
+      wx.showToast({ title: `${ep} 已经在所有平台建过任务了`, icon: 'none' });
+      return;
+    }
+    wx.showModal({
+      title: `一次铺开 ${todo.length} 个平台`,
+      content: `${ep} 会在 ${todo.length} 个平台各建一个分发任务，之后各自上传、各自回填数据。`,
+      confirmText: '开始铺',
+      success: (r) => {
+        if (!r.confirm) return;
+        let done = 0;
+        wx.showLoading({ title: '创建中…', mask: true });
+        const step = (i) => {
+          if (i >= todo.length) {
+            wx.hideLoading();
+            wx.showToast({ title: `建好 ${done} 个任务`, icon: 'none' });
+            this.setData({ sheetPlatform: null });
+            this.loadProjectData();
+            return;
+          }
+          api.createDistribution({
+            userId: getApp().globalData.userId,
+            projectId: this.data.projectId,
+            episodeNo: ep,
+            platformCode: todo[i].code,
+          })
+            .then(() => { done += 1; })
+            .catch(() => {})
+            .then(() => step(i + 1));
+        };
+        step(0);
       },
     });
   },

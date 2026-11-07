@@ -39,6 +39,26 @@ test('OneShot 报价：先给成本与时长预估', () => {
   assert.ok(q.breakdown.video_per_shot > 0);
 });
 
+test('自定义集数/时长：报价按用户选的集数，不被总分钟取整带偏', () => {
+  // 3 集 × 90 秒 = 4.5 分钟。若先取整成 5 分钟再反推，会算成 4 集。
+  const q = blueprintEngine.quote({
+    prompt: 'x', styleCode: 'STY-DUSHI', totalMinutes: 4.5, episodeSec: 90, episodeCount: 3,
+  });
+  assert.equal(q.episodes, 3);
+  assert.equal(q.episode_sec, 90);
+  assert.equal(q.shots_per_episode, Math.ceil(90 / q.avg_shot_len));
+
+  // 不传 episodeCount 时退回按分钟反推，保持老行为
+  const legacy = blueprintEngine.quote({ prompt: 'x', styleCode: 'STY-DUSHI', totalMinutes: 9, episodeSec: 90 });
+  assert.equal(legacy.episodes, 6);
+
+  // 自定义超长集数也要能算，且不超过 200
+  const big = blueprintEngine.quote({
+    prompt: 'x', styleCode: 'STY-DUSHI', totalMinutes: 200, episodeSec: 60, episodeCount: 500,
+  });
+  assert.equal(big.episodes, 200);
+});
+
 test('高质档报价高于极速档', () => {
   const fast = blueprintEngine.quote({ prompt: 'x', styleCode: 'STY-DUSHI', totalMinutes: 10, preset: 'fast' });
   const premium = blueprintEngine.quote({ prompt: 'x', styleCode: 'STY-DUSHI', totalMinutes: 10, preset: 'premium' });

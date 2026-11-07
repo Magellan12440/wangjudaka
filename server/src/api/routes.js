@@ -37,7 +37,9 @@ import tryServeStatic, { staticStatus } from './static.js';
 import tryServeMedia from './media.js';
 import { parseMultipart, readRawBody } from './multipart.js';
 import materialService from '../assets/MaterialService.js';
+import objectStore from '../storage/ObjectStore.js';
 import authService from '../auth/AuthService.js';
+import accountCenter from '../auth/AccountCenter.js';
 import { resolveScope, resolveOwnership } from '../auth/scope.js';
 import * as relayRuntime from '../relay/RelayRuntime.js';
 import * as promptLibrary from '../prompts/PromptLibrary.js';
@@ -361,6 +363,7 @@ export const routes = [
       env: config.server.env,
       uptime_sec: Math.round(process.uptime()),
       relay: relayHealthSummary(),
+      storage: objectStore.status(),
       seeds: v.counts,
       // 种子不全时仍返回 200（否则容器会被判不健康反复重启，掩盖真实原因），
       // 但把诚实状态和缺失清单直接暴露出来，线上一眼可见。
@@ -472,7 +475,9 @@ export const routes = [
       const plan = db.findOne('director_plans', (x) => x.project_id === p.id);
       const gens = db.find('generations', (g) => g.project_id === p.id);
       const episodes = plan?.script?.episodes?.length
-        ?? Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90)));
+        ?? (Number(spec.episode_count) >= 1
+          ? Math.min(200, Math.floor(Number(spec.episode_count)))
+          : Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90))));
       const shots = plan?.storyboard?.stats?.shots ?? 0;
       const credits = gens.reduce((a, g) => a + (Number(g.actual_credits) || 0), 0) || (run?.total_credits ?? 0);
       const prog = runProgress(run);
@@ -1025,7 +1030,7 @@ export const routes = [
         throw new AppError('MATERIAL_TOO_LARGE', '文件超过 24MB 限制');
       }
       // 文本类先过机审（二进制无法机审，交给下游审核与人工）
-      if (/^(text\/|.*\.(txt|md)$)/i.test(f.mime) || /\.(txt|md|docx)$/i.test(f.filename)) {
+      if (/^(text\/|.*\.(txt|md|csv|tsv|json)$)/i.test(f.mime) || /\.(txt|md|csv|tsv|json)$/i.test(f.filename)) {
         const probe = f.data.slice(0, 2400).toString('utf8');
         await contentSecurity.assertText({
           content: probe,
@@ -1033,11 +1038,29 @@ export const routes = [
           bizType: 'material_file', bizId: p.id, scene: 1,
         });
       }
-      items.push(materialService.addFile({
+      items.push(await materialService.addFile({
         projectId: p.id, userId: p.user_id, filename: f.filename, mime: f.mime, buffer: f.data, note,
       }));
     }
     return { items, stats: materialService.stats(p.id) };
+  }],
+  /**
+   * 云存储直传登记（V4.8）。
+   * 小程序用 wx.cloud.uploadFile 把文件经微信内部链路直接放进云存储（不受服务器域名限制、
+   * 也绕开 callContainer 100KiB 的请求体上限），这里只负责「认领」并把它记成项目素材。
+   */
+  ['POST', '/api/projects/:id/materials/cloud', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const item = await materialService.addCloudFile({
+      projectId: p.id,
+      userId: p.user_id,
+      fileId: body.file_id,
+      filename: body.filename,
+      mime: body.mime,
+      note: body.note,
+      size: body.size,
+    });
+    return { item, stats: materialService.stats(p.id) };
   }],
   ['POST', '/api/projects/:id/materials/:materialId/remove', async ({ params, req }) => {
     projectOf(req, params.id);
@@ -1410,7 +1433,7 @@ export const routes = [
 
   // —— 微信登录（V3.5）：wx.login(code) → openid → 自签 session token ——
   ['POST', '/api/auth/login', async ({ body, req }) => {    const r = await authService.login({
-      code: body.code, nickname: body.nickname ?? null, avatar: body.avatar ?? null,
+      code: body.code, nickname: body.nickname ?? null, avatar: body.avatar ?? null, req,
     });
     // 新用户带邀请码注册 → 建立邀请关系（有效性在此判定，不通过则如实返回原因）
     let invite = null;
@@ -1438,10 +1461,57 @@ export const routes = [
   // —— 账号体系（V4.4）：短信验证码 / 手机号密码 / 绑定手机 ——
   ['POST', '/api/auth/sms', async ({ body }) => authService.sendCode({ phone: body.phone })],
   ['POST', '/api/auth/login/code', async ({ body, req }) => {
-    const r = authService.loginByCode({ phone: body.phone, code: body.code, nickname: body.nickname ?? null });
+    const r = authService.loginByCode({ phone: body.phone, code: body.code, nickname: body.nickname ?? null, req });
     return { ...r, invite: null };
   }],
-  ['POST', '/api/auth/login/password', async ({ body }) => authService.loginByPassword({ phone: body.phone, password: body.password })],
+  ['POST', '/api/auth/login/password', async ({ body, req }) => authService.loginByPassword({ phone: body.phone, password: body.password, req })],
+  // —— 注册（V4.9）：手机号 + 密码，验证码可选 ——
+  ['POST', '/api/auth/register', async ({ body, req }) => authService.register({
+    phone: body.phone,
+    password: body.password,
+    nickname: body.nickname ?? null,
+    code: body.code ?? null,
+    req,
+  })],
+  // —— 改密码（需旧密码）/ 忘记密码（验证码） ——
+  ['POST', '/api/auth/password/change', async ({ body, req }) => {
+    const user = authService.requireUser(req);
+    return authService.changePassword(user.id, {
+      oldPassword: body.oldPassword ?? '',
+      newPassword: body.newPassword ?? body.password,
+      sid: req.sessionId ?? null,
+    });
+  }],
+  ['POST', '/api/auth/password/reset', async ({ body }) => authService.resetPassword({
+    phone: body.phone, code: body.code, newPassword: body.newPassword ?? body.password,
+  })],
+  // —— 设备与登录态 ——
+  ['GET', '/api/account/overview', async ({ req }) => {
+    const user = authService.requireUser(req);
+    return accountCenter.overview(user.id, req.sessionId ?? null);
+  }],
+  ['POST', '/api/account/logout-all', async ({ req }) => {
+    const user = authService.requireUser(req);
+    return authService.logoutAll(user.id);
+  }],
+  ['POST', '/api/account/sessions/revoke', async ({ body, req }) => {
+    const user = authService.requireUser(req);
+    return authService.revokeSession(user.id, String(body.sessionId ?? ''));
+  }],
+  ['GET', '/api/account/quota', async ({ req }) => {
+    const user = authService.requireUser(req);
+    return accountCenter.quota(user.id);
+  }],
+  ['POST', '/api/account/alert', async ({ body, req }) => {
+    const user = authService.requireUser(req);
+    return accountCenter.setAlert(user.id, { threshold: body.threshold });
+  }],
+  ['POST', '/api/account/close', async ({ body, req }) => {
+    const user = authService.requireUser(req);
+    return authService.closeAccount(user.id, {
+      confirmText: body.confirmText, password: body.password, code: body.code,
+    });
+  }],
   ['POST', '/api/auth/password', async ({ body, req }) => {
     const user = authService.requireUser(req);
     return { user: authService.setPassword(user.id, { password: body.password }) };
@@ -1531,6 +1601,22 @@ export const routes = [
   ['POST', '/api/admin/login', async ({ body }) => adminConsole.login(body ?? {})],
 
   // —— 管理员后台（V3.6）：X-Admin-Token 或 role=admin 的登录态，二者其一 ——
+  // —— 运维诊断（V4.8.1）：微信登录到底卡在哪一环，别靠猜 ——
+  ['GET', '/api/admin/diag/wechat', async ({ req }) => {
+    adminConsole.assertAdmin(req);
+    return wechatClient.probe();
+  }],
+  ['GET', '/api/admin/diag/sms', async ({ req }) => {
+    adminConsole.assertAdmin(req);
+    return {
+      provider: config.sms?.provider || '',
+      signName: config.sms?.signName || '',
+      configured: Boolean(config.sms?.provider),
+      hint: config.sms?.provider
+        ? '已配置短信服务商'
+        : '未配置 SMS_PROVIDER，手机验证码登录不可用（只能微信登录/密码登录）',
+    };
+  }],
   ['GET', '/api/admin/stats', async ({ req }) => {
     adminConsole.assertAdmin(req);
     return adminConsole.stats();

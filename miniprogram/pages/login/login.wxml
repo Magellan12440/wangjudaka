@@ -9,7 +9,7 @@
     <view class="brand">
       <view class="brand-mark">网</view>
       <view class="brand-name">网剧大咖</view>
-      <view class="brand-slogan">输入一个剧名，剩下的交给流水线</view>
+      <view class="brand-slogan">说出你的故事，剩下的交给剧组</view>
     </view>
 
     <view class="glass card">
@@ -21,7 +21,7 @@
 
       <!-- 微信 -->
       <block wx:if="{{mode === 'wechat'}}">
-        <view class="wx-hint">用微信授权登录，不需要记密码。换手机时可在「我的 → 账号安全」绑定手机号找回。</view>
+        <view class="wx-hint">用微信授权登录，不需要记密码。换手机时可在「我的 → 账号与额度」绑定手机号找回。</view>
         <view class="btn btn-block tap {{busy ? 'btn-disabled' : ''}}" hover-class="tap-on" bindtap="wechatLogin">
           {{busy ? '登录中…' : '微信一键登录'}}
         </view>
@@ -29,12 +29,12 @@
 
       <!-- 验证码 -->
       <block wx:elif="{{mode === 'code'}}">
-        <view class="field {{focusField === 'phone' ? 'focus' : ''}}">
+        <view class="field-row {{focusField === 'phone' ? 'focus' : ''}}">
           <input class="field-input" type="number" maxlength="11" value="{{phone}}" placeholder="手机号"
                  placeholder-class="field-ph" data-field="phone" bindinput="onPhone"
                  bindfocus="onFocus" bindblur="onBlur" />
         </view>
-        <view class="field {{focusField === 'code' ? 'focus' : ''}}">
+        <view class="field-row {{focusField === 'code' ? 'focus' : ''}}">
           <input class="field-input" type="number" maxlength="6" value="{{code}}" placeholder="6 位验证码"
                  placeholder-class="field-ph" data-field="code" bindinput="onCode"
                  bindfocus="onFocus" bindblur="onBlur" />
@@ -42,6 +42,7 @@
             {{countdown > 0 ? countdown + 's 后重发' : (sending ? '发送中…' : '获取验证码')}}
           </view>
         </view>
+        <view wx:if="{{smsNote}}" class="sms-note">{{smsNote}}</view>
         <view wx:if="{{devCode}}" class="dev-code">
           <text class="tag gold">测试码</text>
           <text class="dev-num">{{devCode}}</text>
@@ -55,12 +56,12 @@
 
       <!-- 密码 -->
       <block wx:else>
-        <view class="field {{focusField === 'phone' ? 'focus' : ''}}">
+        <view class="field-row {{focusField === 'phone' ? 'focus' : ''}}">
           <input class="field-input" type="number" maxlength="11" value="{{phone}}" placeholder="手机号"
                  placeholder-class="field-ph" data-field="phone" bindinput="onPhone"
                  bindfocus="onFocus" bindblur="onBlur" />
         </view>
-        <view class="field {{focusField === 'pwd' ? 'focus' : ''}}">
+        <view class="field-row {{focusField === 'pwd' ? 'focus' : ''}}">
           <input class="field-input" password value="{{password}}" placeholder="密码（至少 6 位）"
                  placeholder-class="field-ph" data-field="pwd" bindinput="onPassword"
                  bindfocus="onFocus" bindblur="onBlur" />
@@ -68,10 +69,91 @@
         <view class="btn btn-block mt24 tap {{busy ? 'btn-disabled' : ''}}" hover-class="tap-on" bindtap="loginByPassword">
           {{busy ? '登录中…' : '登录'}}
         </view>
-        <view class="hint mt12">还没设过密码？先用「验证码」登录，再在「我的 → 账号安全」里设置密码。</view>
+        <view class="alt-row">
+          <text class="alt-link" bindtap="openForgot">忘记密码</text>
+          <text class="alt-sep">·</text>
+          <text class="alt-link" bindtap="openRegister">注册新账号</text>
+        </view>
+        <view class="hint mt12">还没设过密码？先用「验证码」登录，再在「我的 → 账号与额度」里设置。</view>
       </block>
 
       <view wx:if="{{error}}" class="err">{{error}}</view>
+    </view>
+
+    <!-- 注册 -->
+    <view wx:if="{{sheet === 'register'}}" class="sheet-mask" bindtap="closeSheet">
+      <view class="sheet" catchtap="noop">
+        <view class="sheet-bar"></view>
+        <view class="sheet-head">
+          <text class="sheet-title">创建账号</text>
+          <text class="sheet-close" bindtap="closeSheet">关闭</text>
+        </view>
+        <view class="sheet-tip">手机号 + 密码即可开工，作品与点数都记在这个账号下。</view>
+        <view class="field-row">
+          <input class="field-input" type="number" maxlength="11" value="{{regPhone}}" placeholder="11 位手机号"
+                 placeholder-class="field-ph" data-key="regPhone" bindinput="onRegInput" />
+        </view>
+        <view class="field-row">
+          <input class="field-input" type="number" maxlength="6" value="{{regCode}}" placeholder="验证码（可稍后验证）"
+                 placeholder-class="field-ph" data-key="regCode" bindinput="onRegInput" />
+          <view class="field-btn {{regCountdown > 0 ? 'off' : ''}}" bindtap="sendRegCode">
+            {{regCountdown > 0 ? regCountdown + 's' : '获取验证码'}}
+          </view>
+        </view>
+        <view class="field-row">
+          <input class="field-input" password value="{{regPwd}}" placeholder="设置密码（6-64 位）"
+                 placeholder-class="field-ph" data-key="regPwd" bindinput="onRegInput" />
+        </view>
+        <view class="field-row">
+          <input class="field-input" value="{{regName}}" placeholder="昵称（可留空）" maxlength="20"
+                 placeholder-class="field-ph" data-key="regName" bindinput="onRegInput" />
+        </view>
+        <view wx:if="{{regNote}}" class="sms-note">{{regNote}}</view>
+        <view wx:if="{{regDevCode}}" class="dev-code">
+          <text class="tag gold">测试码</text>
+          <text class="dev-num">{{regDevCode}}</text>
+        </view>
+        <view wx:if="{{regError}}" class="err mt12">{{regError}}</view>
+        <view class="btn btn-block mt24 {{regBusy ? 'btn-disabled' : ''}}" bindtap="doRegister">
+          {{regBusy ? '创建中…' : '创建并登录'}}
+        </view>
+      </view>
+    </view>
+
+    <!-- 找回密码 -->
+    <view wx:if="{{sheet === 'forgot'}}" class="sheet-mask" bindtap="closeSheet">
+      <view class="sheet" catchtap="noop">
+        <view class="sheet-bar"></view>
+        <view class="sheet-head">
+          <text class="sheet-title">重置密码</text>
+          <text class="sheet-close" bindtap="closeSheet">关闭</text>
+        </view>
+        <view class="sheet-tip">用注册手机号收一个验证码，验证后直接设新密码。所有设备会退出登录。</view>
+        <view class="field-row">
+          <input class="field-input" type="number" maxlength="11" value="{{fgPhone}}" placeholder="11 位手机号"
+                 placeholder-class="field-ph" data-key="fgPhone" bindinput="onRegInput" />
+        </view>
+        <view class="field-row">
+          <input class="field-input" type="number" maxlength="6" value="{{fgCode}}" placeholder="6 位验证码"
+                 placeholder-class="field-ph" data-key="fgCode" bindinput="onRegInput" />
+          <view class="field-btn {{fgCountdown > 0 ? 'off' : ''}}" bindtap="sendFgCode">
+            {{fgCountdown > 0 ? fgCountdown + 's' : '获取验证码'}}
+          </view>
+        </view>
+        <view class="field-row">
+          <input class="field-input" password value="{{fgPwd}}" placeholder="新密码（6-64 位）"
+                 placeholder-class="field-ph" data-key="fgPwd" bindinput="onRegInput" />
+        </view>
+        <view wx:if="{{fgNote}}" class="sms-note">{{fgNote}}</view>
+        <view wx:if="{{fgDevCode}}" class="dev-code">
+          <text class="tag gold">测试码</text>
+          <text class="dev-num">{{fgDevCode}}</text>
+        </view>
+        <view wx:if="{{fgError}}" class="err mt12">{{fgError}}</view>
+        <view class="btn btn-block mt24 {{fgBusy ? 'btn-disabled' : ''}}" bindtap="doReset">
+          {{fgBusy ? '处理中…' : '设为新密码'}}
+        </view>
+      </view>
     </view>
 
     <view class="agree" bindtap="toggleAgree">

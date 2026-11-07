@@ -18,6 +18,26 @@ Page({
     busy: false,
     focusField: '',
     error: '',
+
+    // 注册 / 找回密码
+    sheet: '',
+    regPhone: '',
+    regCode: '',
+    regPwd: '',
+    regName: '',
+    regCountdown: 0,
+    regBusy: false,
+    regError: '',
+    regNote: '',
+    regDevCode: '',
+    fgPhone: '',
+    fgCode: '',
+    fgPwd: '',
+    fgCountdown: 0,
+    fgBusy: false,
+    fgError: '',
+    fgNote: '',
+    fgDevCode: '',
   },
 
   onLoad(query) {
@@ -33,6 +53,9 @@ Page({
 
   onUnload() {
     if (this.timer) clearInterval(this.timer);
+    for (const k of ['cd_regCountdown', 'cd_fgCountdown']) {
+      if (this[k]) { clearInterval(this[k]); this[k] = null; }
+    }
   },
 
   switchMode(e) {
@@ -96,13 +119,16 @@ Page({
     this.setData({ sending: true, error: '' });
     api.sendSms(phone)
       .then((d) => {
+        const unusable = !d.sent && !d.dev_code;
         this.setData({
           sending: false,
           countdown: d.sent || d.dev_code ? RESEND_SEC : 0,
-          // 后端未接短信服务商时会明确返回 dev 码，照实展示；线上则只会说明「暂未接入」
+          // 后端未接短信服务商时会明确返回 dev 码，照实展示；线上则只说明「暂未接入」。
+          // 这类「能力未开通」不是报错，别用红字吓人，单独一行提示该走哪条路。
           devCode: d.dev_code || '',
           devNote: d.sent ? '' : d.note || '未配置短信服务',
-          error: d.sent || d.dev_code ? '' : (d.note || '暂不可用'),
+          smsNote: unusable ? '验证码登录暂未开通，请用上面的「微信一键登录」，或改用手机号 + 密码登录' : '',
+          error: '',
         });
         if (d.sent || d.dev_code) this.tick();
         if (d.sent) wx.showToast({ title: '验证码已发送', icon: 'none' });
@@ -169,6 +195,114 @@ Page({
       if (pages.length > 1) wx.navigateBack();
       else wx.switchTab({ url: '/pages/mine/mine' });
     }, 300);
+  },
+
+  // —— 注册 / 找回密码 ——
+  openRegister() {
+    motion.haptic();
+    this.setData({
+      sheet: 'register', regError: '', regNote: '', regDevCode: '',
+      regPhone: this.data.phone || '', regCode: '', regPwd: '', regName: '',
+    });
+  },
+
+  openForgot() {
+    motion.haptic();
+    this.setData({
+      sheet: 'forgot', fgError: '', fgNote: '', fgDevCode: '',
+      fgPhone: this.data.phone || '', fgCode: '', fgPwd: '',
+    });
+  },
+
+  closeSheet() {
+    this.setData({ sheet: '' });
+  },
+
+  noop() {},
+
+  onRegInput(e) {
+    const key = e.currentTarget.dataset.key;
+    let v = e.detail.value || '';
+    if (key === 'regPhone' || key === 'fgPhone') v = v.replace(/\D/g, '').slice(0, 11);
+    if (key === 'regCode' || key === 'fgCode') v = v.replace(/\D/g, '').slice(0, 6);
+    this.setData({ [key]: v });
+  },
+
+  /** 验证码倒计时：两个弹层各记一份，避免互相干扰 */
+  startCd(key) {
+    if (this['cd_' + key]) clearInterval(this['cd_' + key]);
+    this.setData({ [key]: RESEND_SEC });
+    this['cd_' + key] = setInterval(() => {
+      const n = (this.data[key] || 0) - 1;
+      if (n <= 0) {
+        clearInterval(this['cd_' + key]);
+        this['cd_' + key] = null;
+        this.setData({ [key]: 0 });
+        return;
+      }
+      this.setData({ [key]: n });
+    }, 1000);
+  },
+
+  sendCodeTo(phone, cdKey, noteKey, devKey, errKey) {
+    if (!/^1[3-9]\d{9}$/.test(phone)) return this.setData({ [errKey]: '请输入正确的 11 位手机号' });
+    if (this.data[cdKey] > 0) return;
+    api.sendSms(phone)
+      .then((d) => {
+        const ok = d.sent || d.dev_code;
+        this.setData({
+          [devKey]: d.dev_code || '',
+          [noteKey]: ok ? '' : (d.note || '验证码服务暂未开通，可先设密码，稍后在账号页验证手机号'),
+          [errKey]: '',
+        });
+        if (ok) this.startCd(cdKey);
+        if (d.sent) wx.showToast({ title: '验证码已发送', icon: 'none' });
+      })
+      .catch((err) => this.setData({ [errKey]: err.message || '发送失败' }));
+  },
+
+  sendRegCode() {
+    this.sendCodeTo(this.data.regPhone, 'regCountdown', 'regNote', 'regDevCode', 'regError');
+  },
+
+  sendFgCode() {
+    this.sendCodeTo(this.data.fgPhone, 'fgCountdown', 'fgNote', 'fgDevCode', 'fgError');
+  },
+
+  doRegister() {
+    if (!this.checkAgree()) return;
+    const { regPhone, regCode, regPwd, regName } = this.data;
+    if (!/^1[3-9]\d{9}$/.test(regPhone)) return this.setData({ regError: '请输入正确的 11 位手机号' });
+    if (!regPwd || regPwd.length < 6) return this.setData({ regError: '密码至少 6 位' });
+    if (regPwd.length > 64) return this.setData({ regError: '密码最多 64 位' });
+    if (this.data.regBusy) return;
+    this.setData({ regBusy: true, regError: '' });
+    motion.haptic();
+    api.register({ phone: regPhone, password: regPwd, code: regCode || null, nickname: regName || null })
+      .then((d) => {
+        this.setData({ regBusy: false, sheet: '' });
+        const app = getApp();
+        app.globalData.token = d.token;
+        wx.setStorageSync('token', d.token);
+        app.applyUser(d);
+        this.done();
+      })
+      .catch((e) => this.setData({ regBusy: false, regError: e.message || '创建失败' }));
+  },
+
+  doReset() {
+    const { fgPhone, fgCode, fgPwd } = this.data;
+    if (!/^1[3-9]\d{9}$/.test(fgPhone)) return this.setData({ fgError: '请输入正确的 11 位手机号' });
+    if (!/^\d{4,6}$/.test(fgCode)) return this.setData({ fgError: '请输入验证码' });
+    if (!fgPwd || fgPwd.length < 6) return this.setData({ fgError: '新密码至少 6 位' });
+    if (this.data.fgBusy) return;
+    this.setData({ fgBusy: true, fgError: '' });
+    api.resetPassword(fgPhone, fgCode, fgPwd)
+      .then(() => {
+        this.setData({ fgBusy: false, sheet: '', phone: fgPhone, password: fgPwd, mode: 'password' });
+        wx.showToast({ title: '密码已重置，请登录', icon: 'none' });
+      })
+      .catch((e) => this.setData({ fgBusy: false, fgError: e.message || '重置失败' }));
   },
 
   checkAgree() {

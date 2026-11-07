@@ -38,7 +38,7 @@ test('验证码：错误码被拒且累计尝试次数，正确码可登录并�
   const r = authService.loginByCode({ phone, code });
   assert.ok(r.token);
   assert.equal(r.isNewUser, true, '新手机号应自动注册');
-  assert.equal(r.user.has_password, false);
+  assert.equal(r.user.pwd_set, false);
   assert.ok(r.user.phone_masked.includes('****'));
 });
 
@@ -50,7 +50,7 @@ test('密码：设置后可用手机号+密码登录，错误密码被拒且文�
 
   assert.throws(() => authService.setPassword(user.id, { password: '123' }), /至少 6 位/);
   const after = authService.setPassword(user.id, { password: 'goodpass123' });
-  assert.equal(after.has_password, true);
+  assert.equal(after.pwd_set, true);
 
   const ok = authService.loginByPassword({ phone, password: 'goodpass123' });
   assert.ok(ok.token);

@@ -26,19 +26,19 @@
     <view class="steps">
       <view class="step-node {{step >= 1 ? 'on' : ''}}">
         <view class="step-dot">1</view>
-        <text class="step-name">剧名</text>
+        <text class="step-name">起个名</text>
       </view>
       <view class="step-track"><view class="step-track-fill" style="width:{{step >= 2 ? 100 : 0}}%"></view></view>
       <view class="step-node {{step >= 2 ? 'on' : ''}}">
         <view class="step-dot">2</view>
-        <text class="step-name">设定</text>
+        <text class="step-name">定个调</text>
       </view>
     </view>
 
     <!-- STEP 1：先决定故事从哪来，再填剧名 -->
     <block wx:if="{{step === 1}}">
       <view class="h2 mt24">这个故事从哪来</view>
-      <view class="sub mt8">两条路都能拍。手上有现成的就选改编——系统会沿用你的人物和世界观，不另起炉灶。</view>
+      <view class="sub mt8">手上有写好的小说或剧本，就选「改编」；只有一个念头，就选「AI 想故事」。</view>
 
       <view class="origin-row mt16">
         <view
@@ -150,7 +150,7 @@
             <view class="counter {{prompt.length > 260 ? 'warn' : ''}}">{{prompt.length}}/300</view>
           </view>
 
-          <view class="field-label mt16"><text>没灵感？点一个开头</text><text class="opt">可直接改</text></view>
+          <view class="field-label mt16"><text>没灵感？点一个开头</text><text class="opt">可随意改</text></view>
           <view class="idea-grid">
             <view wx:for="{{ideas}}" wx:key="*this" class="idea-card tap" hover-class="tap-on" data-text="{{item}}" bindtap="pickIdea">
               <text class="idea-no">0{{index + 1}}</text>
@@ -162,11 +162,11 @@
 
       <view class="notice">
         <view class="dot"></view>
-        <view class="flex1">剧名与创意会经过内容安全机审。请勿输入违法、暴力、色情或侵犯他人权益的内容。</view>
+        <view class="flex1">请勿输入违法、暴力、色情或侵犯他人权益的内容，平台会做内容安全检查。</view>
       </view>
 
       <view class="btn btn-block mt32 {{canCreate ? 'tap' : 'btn-disabled'}}" hover-class="{{canCreate ? 'tap-on' : ''}}" bindtap="next">{{origin === 'material' ? '下一步：选风格与配比' : '下一步：选设定'}}</view>
-      <view class="footer-note">{{origin === 'material' ? '正文只用于本剧创作，不公开、不外传' : '这一步不产生任何点数消耗'}}</view>
+      <view class="footer-note">{{origin === 'material' ? '正文只用于本剧创作，不公开、不外传' : '这一步不扣点，放心填'}}</view>
     </block>
 
     <!-- STEP 2：设定 + 模型 + 剧壳 -->
@@ -211,15 +211,28 @@
       <view class="card mt16">
         <view class="field-label"><text>剧集数量</text><text class="opt">共 {{episodeCount}} 集</text></view>
         <view class="chips">
-          <view wx:for="{{episodeCountOpts}}" wx:key="*this" class="chip {{episodeCount === item ? 'on' : ''}}" data-field="episodeCount" data-value="{{item}}" bindtap="pick">{{item}} 集</view>
+          <view wx:for="{{episodeCountOpts}}" wx:key="*this" class="chip {{!countCustom && episodeCount === item ? 'on' : ''}}" data-field="episodeCount" data-value="{{item}}" bindtap="pick">{{item}} 集</view>
+          <view class="chip {{countCustom ? 'on' : ''}}" data-field="episodeCount" data-value="custom" bindtap="pick">自定义</view>
+        </view>
+        <view wx:if="{{countCustom}}" class="custom-row">
+          <input class="input custom-num" type="number" value="{{countInput}}" bindinput="onCountInput" bindblur="onCountBlur" placeholder="1 - 200" placeholder-class="input-ph" />
+          <text class="custom-unit">集</text>
+          <text class="custom-tip">1-200 集</text>
         </view>
 
         <view class="field-label mt24"><text>单集时长</text><text class="opt">{{episodeSec}} 秒</text></view>
         <view class="chips">
-          <view wx:for="{{episodeSecOpts}}" wx:key="*this" class="chip {{episodeSec === item ? 'on' : ''}}" data-field="episodeSec" data-value="{{item}}" bindtap="pick">{{item}}s</view>
+          <view wx:for="{{episodeSecOpts}}" wx:key="*this" class="chip {{!secCustom && episodeSec === item ? 'on' : ''}}" data-field="episodeSec" data-value="{{item}}" bindtap="pick">{{item}}s</view>
+          <view class="chip {{secCustom ? 'on' : ''}}" data-field="episodeSec" data-value="custom" bindtap="pick">自定义</view>
         </view>
+        <view wx:if="{{secCustom}}" class="custom-row">
+          <input class="input custom-num" type="number" value="{{secInput}}" bindinput="onSecInput" bindblur="onSecBlur" placeholder="15 - 600" placeholder-class="input-ph" />
+          <text class="custom-unit">秒</text>
+          <text class="custom-tip">15-600 秒，约 {{episodeSec >= 60 ? (episodeSec / 60) : episodeSec}}{{episodeSec >= 60 ? ' 分钟' : ' 秒'}}</text>
+        </view>
+        <view class="custom-sum">合计约 {{totalMinutesText}}</view>
 
-        <view class="field-label mt24"><text>成片形态</text><text class="opt">影响成本</text></view>
+        <view class="field-label mt24"><text>成片形态</text><text class="opt">决定画面怎么动</text></view>
         <view class="type-list">
           <view wx:for="{{typeOpts}}" wx:key="key" class="type-card {{videoType === item.key ? 'on' : ''}}" data-field="videoType" data-value="{{item.key}}" bindtap="pick">
             <view class="type-radio {{videoType === item.key ? 'on' : ''}}"></view>
@@ -231,11 +244,19 @@
         </view>
       </view>
 
-      <!-- 模型：每环节前五 -->
-      <view class="card mt16">
+      <!-- 模型与剪辑档位：属于专业参数，默认收起，避免把后端概念摊给第一次用的人 -->
+      <view class="adv-toggle tap" hover-class="tap-on" bindtap="toggleAdvanced">
+        <view class="flex1">
+          <view class="adv-title">高级设置</view>
+          <view class="adv-sub">{{showAdvanced ? '模型、剪辑档位与计费说明' : '一般不用改，默认已经选好'}}</view>
+        </view>
+        <text class="adv-arrow">{{showAdvanced ? '收起' : '展开'}}</text>
+      </view>
+
+      <view wx:if="{{showAdvanced}}" class="card mt16">
         <view class="between">
           <view class="field-label" style="margin-bottom:0"><text>用哪些模型</text></view>
-          <view class="tiny">仅显示已实测可用</view>
+          <view class="tiny">已实测可用</view>
         </view>
         <view wx:for="{{modelRoles}}" wx:key="key" class="mt24">
           <view class="field-label" style="margin-bottom:10rpx">
@@ -259,7 +280,7 @@
         <view class="chips">
           <view wx:for="{{editProfiles}}" wx:key="code" class="chip {{editProfile === item.code ? 'on' : ''}}" data-code="{{item.code}}" bindtap="pickEditProfile">{{item.label}}</view>
         </view>
-        <view class="hint mt8">全站统一计费：实际算力消耗 ×{{billingMultiplier}} 扣点，先预扣、按实际结算多退少补。</view>
+        <view class="hint mt8">按实际用量扣点，用多少扣多少；生成失败会全额退回。</view>
       </view>
 
       <!-- 剧壳 -->
@@ -267,7 +288,7 @@
         <view class="auto-box {{shellEnabled ? 'on' : ''}}">{{shellEnabled ? '✓' : ''}}</view>
         <view class="flex1">
           <view class="auto-title">生成剧壳（片头 + 片尾）</view>
-          <view class="auto-sub">系列剧的独特标识：片名卡、片尾引导。进项目后可改文案并单独生成。</view>
+          <view class="auto-sub">给系列剧加个片头和片尾，进项目后还能改文案。</view>
         </view>
       </view>
 
@@ -276,26 +297,26 @@
           <text class="proposal-kicker">ESTIMATE</text>
           <text class="pill pill-gold">{{episodeCount}} 集</text>
         </view>
-        <view class="proposal-title">按当前设定，整部剧预估消耗</view>
+        <view class="proposal-title">整部剧大概要花</view>
         <view class="price-row">
           <view class="price-value num">{{quote.credits_text}}<text class="price-unit">点</text></view>
           <view class="price-cny">≈ ¥{{quote.cny_text || quote.credits_text}}</view>
         </view>
-        <view class="price-note">预估 {{quote.time_text || '—'}} · 实际按每集真实消耗结算，余额不足会暂停在当前集</view>
+        <view class="price-note">约 {{quote.time_text || '—'}} · 按实际用量结算，余额不够会停在这一集</view>
       </view>
       <view wx:elif="{{quoteLoading}}" class="hint mt16">正在估算点数…</view>
 
       <view class="notice mt24">
         <view class="dot"></view>
-        <view class="flex1">建组后先上传素材（小说/参考图/视频），再生成剧本；每集可单独出片，也可以开托管自动逐集生成。</view>
+        <view class="flex1">建好之后先传点素材，再让 AI 写剧本；之后可以一集一集出片，也能交给托管自动跑。</view>
       </view>
 
       <view class="btn btn-block mt24 {{creating ? 'btn-disabled' : 'tap'}}" hover-class="{{creating ? '' : 'tap-on'}}" bindtap="create">
-        {{creating ? '正在创建…' : '开机，进入剧组'}}
+        {{creating ? '正在创建…' : '就按这个开始'}}
       </view>
       <view class="btn btn-block btn-ghost mt16 tap" hover-class="tap-on" bindtap="back">返回改剧名</view>
       <view class="balance-line">当前余额 {{balance}} 点</view>
-      <view class="footer-note">创建项目本身不扣点；生成剧本与画面时才按实际消耗计费</view>
+      <view class="footer-note">现在还不扣点，等真正生成剧本和画面时才计费</view>
     </block>
   </view>
 

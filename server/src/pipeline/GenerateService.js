@@ -17,8 +17,38 @@ import { db } from '../store/db.js';
 import { logger } from '../core/redact.js';
 import { newId, nowIso } from '../core/util.js';
 import { fail, ERR } from '../core/errors.js';
+import objectStore from '../storage/ObjectStore.js';
 
 const COL = 'generations';
+
+/**
+ * 产物归档（V4.8）：上游给的是临时外链，既会过期，域名也不在小程序白名单里
+ * （<image>/<video> 根本拉不到）。把内容转存到自己的云存储桶，换成 cloud:// 才能长期可看。
+ *
+ * 失败不影响生成结果：拿不到归档就保留原地址，并在日志里如实记一笔。
+ */
+async function archiveRemote(url, kind) {
+  if (!/^https?:\/\//i.test(String(url || ''))) return '';
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(120000) });
+    if (!res.ok) return '';
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!buf.length) return '';
+    const ct = String(res.headers.get('content-type') || '').toLowerCase();
+    const ext = kind === 'video'
+      ? '.mp4'
+      : ct.includes('png') ? '.png' : ct.includes('webp') ? '.webp' : '.jpg';
+    const saved = await objectStore.put(buf, {
+      ext,
+      mime: ct || (kind === 'video' ? 'video/mp4' : 'image/jpeg'),
+      prefix: kind === 'video' ? 'clips' : 'frames',
+    });
+    return saved.provider === 'cloud' ? saved.url : '';
+  } catch (err) {
+    logger.warn(`[generate] 产物归档失败，保留上游临时地址：${err?.message || err}`);
+    return '';
+  }
+}
 
 export class GenerateService {
   /**
@@ -76,6 +106,13 @@ export class GenerateService {
         assetLibrary.snapshot({ projectId, shotNo: meta.shotNo, assets: meta.assetsSnapshot });
       }
 
+      // 4.5) 产物归档：上游外链 → 自己的云存储（cloud:// 才能在小程序里长期可看）
+      let finalUrl = res.url;
+      if (kind === 'image' || kind === 'video') {
+        const archived = await archiveRemote(res.url, kind);
+        if (archived) finalUrl = archived;
+      }
+
       // 5) 一致性自检（图片/视频）：V3.3 起走独立质检服务，绝不假装通过
       let qc = null;
       if (kind === 'image' || kind === 'video') {
@@ -97,7 +134,8 @@ export class GenerateService {
       const settle = ledger.settle(hold.hold.id, res.actual_credits);
       db.update(COL, rec.id, {
         status: 'done',
-        result_url: res.url,
+        result_url: finalUrl,
+        source_url: finalUrl === res.url ? null : res.url,
         actual_credits: res.actual_credits,
         refunded: settle.refunded,
         seed: res.seed ?? payload.params?.seed ?? null,
@@ -113,7 +151,8 @@ export class GenerateService {
       return {
         ok: true,
         generationId: rec.id,
-        url: res.url,
+        url: finalUrl,
+        sourceUrl: finalUrl === res.url ? null : res.url,
         text: res.text,
         mock: !!res.mock,
         credits: res.actual_credits,

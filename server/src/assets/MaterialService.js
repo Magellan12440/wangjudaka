@@ -5,18 +5,19 @@
  *  - 只有「文本」会真正改写剧本 prompt（节选后注入，见 digest）；
  *  - 图片 / 视频作为视觉参考存档，并把用户备注一并写入 prompt ——
  *    当前上游是文本模型，不假装它能"看懂"画面；
- *  - 所有文件落在 DATA_DIR/uploads，文件名 24 位随机，URL 不可猜；
+ *  - 二进制素材落对象存储（云端 cloud:// fileID，未配置微信凭据时降级本地 /media/<name>），
+ *    文件名 24 位随机，URL 不可猜；容器本地只作兜底，重启会丢；
  *  - 单项目有条数与体积上限，避免 JSON 库被撑爆。
  */
-import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
-import { config } from '../config/env.js';
 import { db } from '../store/db.js';
 import { newId, nowIso } from '../core/util.js';
 import { fail, ERR } from '../core/errors.js';
 import { extractDocxText } from './docx.js';
-import { MEDIA_ROOT } from '../api/media.js';
+import {
+  csvToText, extractXlsxText, extractPptxText, extractPdfText,
+} from './office.js';
+import objectStore, { cloudEnvId } from '../storage/ObjectStore.js';
 
 const COL = 'materials';
 
@@ -26,6 +27,10 @@ const MAX_BYTES = {
   audio: 12 * 1024 * 1024,
   text: 1024 * 1024,
   docx: 10 * 1024 * 1024,
+  sheet: 10 * 1024 * 1024,
+  slides: 20 * 1024 * 1024,
+  pdf: 20 * 1024 * 1024,
+  file: 24 * 1024 * 1024,
 };
 const MAX_ITEMS = 24;
 const MAX_TEXT_CHARS = 120000;
@@ -35,25 +40,39 @@ const EXT = {
   image: ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic'],
   video: ['.mp4', '.mov', '.m4v', '.webm'],
   audio: ['.mp3', '.m4a', '.wav', '.aac'],
-  text: ['.txt', '.md', '.markdown', '.text'],
+  text: ['.txt', '.md', '.markdown', '.text', '.json', '.srt', '.log', '.xml', '.yaml', '.yml'],
+  sheet: ['.csv', '.tsv', '.xlsx'],
+  slides: ['.pptx'],
+  pdf: ['.pdf'],
 };
+
+/** 能抽出正文的格式：入库存纯文本，不保留二进制 */
+const PARSED = new Set(['text', 'docx', 'sheet', 'slides', 'pdf']);
 
 function extOf(filename) {
   return path.extname(String(filename || '')).toLowerCase();
 }
 
+/**
+ * 文件归类。
+ * 认不出来的不算错误，归为 'file'（只存档、不参与剧本改写）——
+ * 用户要求「什么文件都能传」，能读的读、读不了的诚实标注，别拒之门外。
+ */
 function kindOf(mime, filename) {
   const ext = extOf(filename);
-  if (mime.startsWith('image/') || EXT.image.includes(ext)) return 'image';
-  if (mime.startsWith('video/') || EXT.video.includes(ext)) return 'video';
-  if (mime.startsWith('audio/') || EXT.audio.includes(ext)) return 'audio';
-  if (mime.startsWith('text/') || EXT.text.includes(ext)) return 'text';
-  if (ext === '.docx' || mime.includes('officedocument.wordprocessingml')) return 'docx';
-  return null;
-}
-
-function storedName(ext) {
-  return `${crypto.randomBytes(12).toString('hex')}${ext}`;
+  for (const [kind, exts] of Object.entries(EXT)) {
+    if (exts.includes(ext)) return kind;
+  }
+  const m = String(mime || '').toLowerCase();
+  if (m.startsWith('image/')) return 'image';
+  if (m.startsWith('video/')) return 'video';
+  if (m.startsWith('audio/')) return 'audio';
+  if (m.startsWith('text/')) return 'text';
+  if (m === 'application/pdf') return 'pdf';
+  if (m.includes('officedocument.wordprocessingml') || ext === '.doc') return 'docx';
+  if (m.includes('officedocument.spreadsheetml') || m.includes('ms-excel')) return 'sheet';
+  if (m.includes('officedocument.presentationml') || m.includes('ms-powerpoint')) return 'slides';
+  return 'file';
 }
 
 function safeName(name) {
@@ -80,7 +99,9 @@ export class MaterialService {
 
   stats(projectId) {
     const rows = db.find(COL, (m) => m.project_id === projectId);
-    const by = { text: 0, image: 0, video: 0, audio: 0 };
+    const by = {
+      text: 0, image: 0, video: 0, audio: 0, sheet: 0, slides: 0, pdf: 0, file: 0,
+    };
     let chars = 0;
     for (const m of rows) {
       by[m.kind] = (by[m.kind] ?? 0) + 1;
@@ -120,39 +141,89 @@ export class MaterialService {
     return this.#view(rec);
   }
 
-  /** 二进制素材（图片 / 视频 / 音频 / txt / docx） */
-  addFile({ projectId, userId, filename, mime = '', buffer, note = '' }) {
+  /** 二进制素材（图片 / 视频 / 音频 / 文本 / 表格 / 幻灯片 / PDF / 其它任意文件） */
+  async addFile({ projectId, userId, filename, mime = '', buffer, note = '' }) {
     if (!buffer?.length) fail(ERR.MATERIAL_EMPTY, '文件为空');
     const kind = kindOf(String(mime).toLowerCase(), filename);
-    if (!kind) {
-      fail(ERR.MATERIAL_UNSUPPORTED, '暂不支持该格式：请上传图片、视频、音频、.txt 或 .docx');
-    }
-    const limit = MAX_BYTES[kind] ?? MAX_BYTES.image;
+    const limit = MAX_BYTES[kind] ?? MAX_BYTES.file;
     if (buffer.length > limit) {
       fail(ERR.MATERIAL_TOO_LARGE, `文件超过 ${Math.round(limit / 1024 / 1024)}MB 限制`);
     }
 
-    // 文本与 docx 转成纯文本入库，不再保留二进制（省空间，也便于注入 prompt）
-    if (kind === 'text' || kind === 'docx') {
-      const text = kind === 'docx' ? extractDocxText(buffer) : decodeText(buffer);
-      if (!text) fail(ERR.MATERIAL_EMPTY, '没有从文件中读到正文，请换一个文件或直接粘贴文本');
-      return this.addText({
-        projectId,
-        userId,
-        name: filename,
-        text,
-        note,
-        source: kind === 'docx' ? 'docx' : 'file',
+    // 能读正文的格式：转成纯文本入库，不保留二进制（省空间，也便于注入 prompt）
+    if (PARSED.has(kind)) {
+      let text = '';
+      try {
+        text = this.#toText(kind, buffer, filename);
+      } catch {
+        text = '';
+      }
+      if (text && text.trim()) {
+        return this.addText({
+          projectId,
+          userId,
+          name: filename,
+          text,
+          note: this.#parseNote(kind, note),
+          source: kind,
+        });
+      }
+      // 读不出来（扫描版 PDF / 老 .doc / 受保护文件）：不报错，转为存档并如实告知
+      return this.#archive({
+        projectId, userId, filename, mime, buffer, kind: 'file',
+        note: this.#archiveNote(kind, note),
       });
     }
 
+    return this.#archive({ projectId, userId, filename, mime, buffer, kind, note });
+  }
+
+  /** 抽正文：按类型分派，统一返回纯文本（失败返回 ''） */
+  #toText(kind, buffer, filename) {
+    if (kind === 'docx') return extractDocxText(buffer);
+    if (kind === 'sheet') {
+      const ext = extOf(filename);
+      if (ext === '.csv' || ext === '.tsv') {
+        return csvToText(decodeText(buffer), { sep: ext === '.tsv' ? '\t' : ',' });
+      }
+      return extractXlsxText(buffer);
+    }
+    if (kind === 'slides') return extractPptxText(buffer);
+    if (kind === 'pdf') return extractPdfText(buffer);
+    return decodeText(buffer);
+  }
+
+  #parseNote(kind, note) {
+    const base = String(note ?? '').slice(0, 260);
+    const tail = {
+      sheet: '（表格已转成文字读入：取表头与前若干行）',
+      slides: '（演示稿已按页转成文字读入）',
+      pdf: '（PDF 正文已抽取，排版信息已丢弃）',
+      docx: '（Word 正文已抽取）',
+    }[kind] || '';
+    return tail ? `${base}${base ? ' ' : ''}${tail}`.slice(0, 300) : base;
+  }
+
+  #archiveNote(kind, note) {
+    const base = String(note ?? '').slice(0, 230);
+    const label = {
+      pdf: '扫描版 PDF 读不到文字',
+      docx: '这份 Word 读不到正文（可能是旧版 .doc 或有密码）',
+      sheet: '这份表格读不到数据',
+      slides: '这份演示稿读不到文字',
+      text: '这个文本不是 UTF-8 编码',
+    }[kind] || '这类文件暂不支持解析';
+    const tail = `${label}，已存档，可作为参考但不会写进剧本。另存为 docx / xlsx / txt 或直接粘贴正文即可参与改写。`;
+    return `${base}${base ? ' ' : ''}${tail}`.slice(0, 300);
+  }
+
+  /** 落对象存储并登记（不解析正文） */
+  async #archive({ projectId, userId, filename, mime, buffer, kind, note }) {
     this.#assertQuota(projectId, kind);
     const ext = extOf(filename) || {
-      image: '.jpg', video: '.mp4', audio: '.mp3',
+      image: '.jpg', video: '.mp4', audio: '.mp3', file: '.bin',
     }[kind];
-    const stored = storedName(ext);
-    fs.mkdirSync(MEDIA_ROOT, { recursive: true });
-    fs.writeFileSync(path.join(MEDIA_ROOT, stored), buffer);
+    const saved = await objectStore.put(buffer, { ext, mime: mime || 'application/octet-stream' });
 
     const rec = db.insert(COL, {
       id: newId('mat'),
@@ -164,22 +235,82 @@ export class MaterialService {
       source: 'upload',
       mime: mime || 'application/octet-stream',
       size: buffer.length,
-      file: stored,
-      url: `/media/${stored}`,
+      file: saved.provider === 'local' ? saved.file : null,
+      url: saved.url,
+      storage: saved.provider,
       created_at: nowIso(),
     });
     return this.#view(rec);
   }
 
-  remove(projectId, id) {
-    const m = this.get(projectId, id);
-    if (m.file) {
-      try {
-        fs.unlinkSync(path.join(MEDIA_ROOT, m.file));
-      } catch { /* 文件已不在，忽略 */ }
+  /**
+   * 登记「小程序直传云存储」的素材（V4.8）。
+   *
+   * 为什么需要这条：`wx.uploadFile` 走公网，必须过 uploadFile 合法域名，
+   * 而云托管默认域名配不进白名单；`wx.cloud.uploadFile` 走微信内部链路，
+   * 不受域名限制，但文件直接进了云存储，后端只拿到 fileID。
+   *
+   * 安全性：只接受**本环境**的 fileID，并且回源 HEAD 核实文件真实存在与大小，
+   * 不信任前端自报的 size（否则可以绕开体积上限）。
+   */
+  async addCloudFile({ projectId, userId, fileId, filename, mime = '', note = '', size = 0 }) {
+    const id = String(fileId || '');
+    const env = cloudEnvId();
+    if (!id.startsWith('cloud://')) fail(ERR.MATERIAL_UNSUPPORTED, '云文件标识不合法');
+    if (!env) fail(ERR.MATERIAL_UNSUPPORTED, '服务端未配置云开发环境，无法接收直传文件');
+    // cloud://<env>.<bucket>/<path>：env 段必须一致，防止引用别人环境的对象
+    const head = id.slice('cloud://'.length).split('/')[0];
+    if (!head.startsWith(`${env}.`)) fail(ERR.MATERIAL_UNSUPPORTED, '云文件不属于当前环境');
+
+    const kind = kindOf(String(mime).toLowerCase(), filename);
+    const limit = MAX_BYTES[kind] ?? MAX_BYTES.file;
+    const real = await objectStore.headSize(id);
+    const bytes = real || Number(size) || 0;
+    if (!bytes) fail(ERR.MATERIAL_EMPTY, '云文件读取失败，请重新上传');
+    if (bytes > limit) fail(ERR.MATERIAL_TOO_LARGE, `文件超过 ${Math.round(limit / 1024 / 1024)}MB 限制`);
+
+    // 可解析的格式要先取回内容抽正文，再走普通入库（不保留二进制）
+    if (PARSED.has(kind)) {
+      const buf = await objectStore.read(id);
+      if (!buf?.length) fail(ERR.MATERIAL_EMPTY, '云文件下载失败，请重新上传');
+      return this.addFile({ projectId, userId, filename, mime, buffer: buf, note });
     }
+
+    this.#assertQuota(projectId, kind);
+    const rec = db.insert(COL, {
+      id: newId('mat'),
+      project_id: projectId,
+      user_id: userId ?? null,
+      kind,
+      name: safeName(filename),
+      note: String(note ?? '').slice(0, 300),
+      source: 'upload',
+      mime: mime || 'application/octet-stream',
+      size: bytes,
+      file: null,
+      url: id,
+      storage: 'cloud',
+      created_at: nowIso(),
+    });
+    return this.#view(rec);
+  }
+
+  /** 删除素材（含云存储/本地文件） */
+  async remove(projectId, id) {
+    const m = this.get(projectId, id);
+    if (m.url) await objectStore.remove(m.url);
     db.remove(COL, m.id);
     return { removed: true, id: m.id };
+  }
+
+  /** 项目删除/清空时清理文件（当前版本不提供项目删除，保留给运维脚本） */
+  async purge(projectId) {
+    const rows = db.find(COL, (m) => m.project_id === projectId);
+    for (const m of rows) {
+      if (m.url) await objectStore.remove(m.url);
+      db.remove(COL, m.id);
+    }
+    return rows.length;
   }
 
   /**
@@ -222,22 +353,13 @@ export class MaterialService {
     return { text: blocks.join('\n\n'), used, chars: usedChars };
   }
 
-  /** 项目删除/清空时清理文件（当前版本不提供项目删除，保留给运维脚本） */
-  purge(projectId) {
-    const rows = db.find(COL, (m) => m.project_id === projectId);
-    for (const m of rows) {
-      if (m.file) {
-        try { fs.unlinkSync(path.join(MEDIA_ROOT, m.file)); } catch { /* ignore */ }
-      }
-      db.remove(COL, m.id);
-    }
-    return rows.length;
-  }
-
   #assertQuota(projectId, kind) {
     const rows = db.find(COL, (m) => m.project_id === projectId);
     if (rows.length >= MAX_ITEMS) fail(ERR.MATERIAL_LIMIT, `单个项目最多 ${MAX_ITEMS} 个素材，请先删掉不用的`);
-    const same = rows.filter((m) => (kind === 'docx' ? 'text' : m.kind) === kind).length;
+    // 各类「被解析成文本」的素材共享 text 配额；纯存档文件（file）比较杂，放宽到总上限
+    if (kind === 'file') return;
+    const norm = (k) => (PARSED.has(k) ? 'text' : k);
+    const same = rows.filter((m) => norm(m.kind) === norm(kind)).length;
     if (same >= MAX_PER_KIND) fail(ERR.MATERIAL_LIMIT, `同类素材最多 ${MAX_PER_KIND} 个`);
   }
 

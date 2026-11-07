@@ -135,86 +135,10 @@ Page({
     });
   },
 
-  // —— 账号安全（V4.4）：绑手机 / 设密码 ——
-  openSecurity() {
+  // 账号与额度统一到独立页面：手机号、密码、登录设备、额度、注销都在那里
+  goAccount() {
     motion.haptic();
-    const hasPhone = this.data.hasPhone;
-    this.setData({
-      sheet: 'security',
-      secTab: hasPhone ? 'password' : 'phone',
-      secError: '',
-      secPhone: '',
-      secCode: '',
-      secPwd: '',
-      secPwd2: '',
-      secDevCode: '',
-    });
-  },
-
-  switchSec(e) {
-    this.setData({ secTab: e.currentTarget.dataset.tab, secError: '' });
-  },
-
-  onSecInput(e) {
-    const key = e.currentTarget.dataset.key;
-    let v = e.detail.value || '';
-    if (key === 'secPhone') v = v.replace(/\D/g, '').slice(0, 11);
-    if (key === 'secCode') v = v.replace(/\D/g, '').slice(0, 6);
-    this.setData({ [key]: v, secError: '' });
-  },
-
-  sendSecCode() {
-    if (this.data.secCountdown > 0) return;
-    const phone = this.data.secPhone;
-    if (!/^1[3-9]\d{9}$/.test(phone)) return this.setData({ secError: '请输入正确的手机号' });
-    api.sendSms(phone)
-      .then((d) => {
-        this.setData({
-          secCountdown: d.sent || d.dev_code ? 60 : 0,
-          secDevCode: d.dev_code || '',
-          secError: d.sent || d.dev_code ? '' : (d.note || '暂不可用'),
-        });
-        if (!d.sent && d.dev_code) this.setData({ secCode: d.dev_code });
-        if (this.secTimer) clearInterval(this.secTimer);
-        this.secTimer = setInterval(() => {
-          const n = this.data.secCountdown - 1;
-          if (n <= 0) { clearInterval(this.secTimer); this.secTimer = null; this.setData({ secCountdown: 0 }); return; }
-          this.setData({ secCountdown: n });
-        }, 1000);
-      })
-      .catch((e) => this.setData({ secError: e.message || '发送失败' }));
-  },
-
-  bindSecPhone() {
-    const { secPhone, secCode } = this.data;
-    if (!/^1[3-9]\d{9}$/.test(secPhone)) return this.setData({ secError: '请输入正确的手机号' });
-    if (!/^\d{6}$/.test(secCode)) return this.setData({ secError: '请输入 6 位验证码' });
-    this.setData({ secBusy: true });
-    api.bindPhone(secPhone, secCode)
-      .then((d) => {
-        this.setData({
-          secBusy: false,
-          hasPhone: !!d.user.has_phone,
-          phoneMasked: d.user.phone_masked || '',
-          secTab: 'password',
-          secCode: '',
-        });
-        wx.showToast({ title: '已绑定', icon: 'none' });
-      })
-      .catch((e) => this.setData({ secBusy: false, secError: e.message || '绑定失败' }));
-  },
-
-  saveSecPassword() {
-    const { secPwd, secPwd2 } = this.data;
-    if (secPwd.length < 6) return this.setData({ secError: '密码至少 6 位' });
-    if (secPwd !== secPwd2) return this.setData({ secError: '两次输入的密码不一致' });
-    this.setData({ secBusy: true });
-    api.setPassword(secPwd)
-      .then((d) => {
-        this.setData({ secBusy: false, hasPassword: !!d.user.has_password, secPwd: '', secPwd2: '' });
-        wx.showToast({ title: '密码已设置', icon: 'none' });
-      })
-      .catch((e) => this.setData({ secBusy: false, secError: e.message || '设置失败' }));
+    wx.navigateTo({ url: '/pages/account/account' });
   },
 
   /** 我的资产：所有已出成片（跨项目逐集汇总，方便一键分发） */
@@ -299,7 +223,7 @@ Page({
           profileComplete: !!d.user.profile_complete,
           hasPhone: !!d.user.has_phone,
           phoneMasked: d.user.phone_masked || '',
-          hasPassword: !!d.user.has_password,
+          hasPassword: !!d.user.pwd_set,
           isAdmin: d.user.is_admin === true || d.user.role === 'admin',
         });
         motion.countUp(this, 'balanceShow', d.user.balance_points || 0, { duration: 700 });

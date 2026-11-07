@@ -4,6 +4,7 @@
     "pages/create/create",
     "pages/distribute/distribute",
     "pages/mine/mine",
+    "pages/account/account",
     "pages/project/project",
     "pages/invite/invite",
     "pages/legal/legal",
@@ -13,12 +14,12 @@
   ],
   "window": {
     "backgroundTextStyle": "dark",
-    "navigationBarBackgroundColor": "#080A0F",
+    "navigationBarBackgroundColor": "#FFFFFF",
     "navigationBarTitleText": "网剧大咖",
-    "navigationBarTextStyle": "white",
-    "backgroundColor": "#080A0F",
-    "backgroundColorTop": "#080A0F",
-    "backgroundColorBottom": "#080A0F"
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#F4F7FD",
+    "backgroundColorTop": "#ECF3FF",
+    "backgroundColorBottom": "#FFFCF7"
   },
   "networkTimeout": {
     "request": 30000,
@@ -27,10 +28,10 @@
     "downloadFile": 60000
   },
   "tabBar": {
-    "color": "#8D97A9",
-    "selectedColor": "#F2C14E",
-    "backgroundColor": "#0B0E14",
-    "borderStyle": "black",
+    "color": "#929EB0",
+    "selectedColor": "#FF8A3D",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "white",
     "list": [
       {
         "pagePath": "pages/index/index",

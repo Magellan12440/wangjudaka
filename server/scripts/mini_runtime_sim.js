@@ -381,6 +381,26 @@ async function main() {
     ok('我的页兑换弹层可打开', mine.data.sheet === 'redeem');
     mine.closeSheet();
 
+    // —— 6b. 账号与额度（V4.9）——
+    const acc = loadPage('pages/account/account.js');
+    acc.onLoad();
+    acc.onShow();
+    await sleep(900);
+    ok('账号页拿到身份', Boolean(acc.data.user && acc.data.user.id) && acc.data.loading === false, acc.data.error || '');
+    ok('账号页展示可用点数', typeof (acc.data.balance || {}).points === 'number');
+    ok('账号页有安全状态', typeof (acc.data.security || {}).pwd_set === 'boolean');
+    ok('账号页给出额度用量', typeof (acc.data.quota || {}).today === 'number');
+    acc.openPassword();
+    ok('改密弹层可打开', acc.data.sheet === 'pwd', acc.data.sheet);
+    acc.setData({ oldPwd: '', newPwd: 'sim-pass-123', newPwd2: 'sim-pass-123' });
+    acc.savePassword();
+    await sleep(800);
+    ok('密码可设置/修改且不报错', !acc.data.formError, acc.data.formError);
+    acc.openDevices();
+    ok('登录设备弹层可打开', acc.data.sheet === 'devices', acc.data.sheet);
+    ok('登录设备列表含当前设备', (acc.data.sessions || []).some((s) => s.current) || acc.data.sessions.length === 0);
+    acc.closeSheet();
+
     // —— 7. 邀请页（裂变）——
     const invite = loadPage('pages/invite/invite.js');
     invite.onLoad();
@@ -550,8 +570,8 @@ async function main() {
       const lc = loginRes && loginRes.data;
       phoneToken = (lc && lc.token) || '';
       ok('手机号验证码登录成功', Boolean(phoneToken), String(JSON.stringify(loginRes && loginRes.error)).slice(0, 100));
-      ok('登录返回账号安全字段', Boolean(lc && lc.user && 'has_password' in lc.user && 'phone_masked' in lc.user),
-        JSON.stringify(lc && lc.user && { p: lc.user.phone_masked, w: lc.user.has_password }));
+      ok('登录返回账号安全字段', Boolean(lc && lc.user && 'pwd_set' in lc.user && 'phone_masked' in lc.user),
+        JSON.stringify(lc && lc.user && { p: lc.user.phone_masked, w: lc.user.pwd_set }));
     }
 
     if (phoneToken) {

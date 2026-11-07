@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.7.1: 重建发版（4.7.0 构建机推送镜像时网络失败 build_failed，代码内容与前版一致，仅版本号递增以便验证上线）"
+MSG = "v4.8.5: 短信登录「未开通」改为中性提示（不再当报错）并引导微信/密码登录；补出网 TLS 拦截排查文档"
 
 
 def api(method, path, payload=None, retries=3):
@@ -47,10 +47,49 @@ def api(method, path, payload=None, retries=3):
             sys.exit(f"{method} {path} -> {e}")
 
 
+# 关键：必须先把未跟踪文件纳入索引再枚举。
+# 历史事故：直接用 `git ls-files` 只拿到已跟踪文件，新增的目录（如 server/src/storage/）
+# 从未进仓库，容器启动直接 ERR_MODULE_NOT_FOUND，而本地一切正常、极难察觉。
+subprocess.check_call(["git", "add", "-A"], cwd=ROOT)
 files = subprocess.check_output(
     ["git", "-c", "core.quotepath=false", "ls-files"], cwd=ROOT, text=True, encoding="utf-8"
 ).splitlines()
-print(f"待上传文件: {len(files)}")
+untracked_before = subprocess.check_output(
+    ["git", "-c", "core.quotepath=false", "ls-files", "-o", "--exclude-standard"],
+    cwd=ROOT, text=True, encoding="utf-8",
+).splitlines()
+print(f"待上传文件: {len(files)}" + (f"（其中新增 {len(untracked_before)} 个）" if untracked_before else ""))
+
+
+def sanity_check(rel_list):
+    """本地 import 的相对路径若在待推送清单里找不到，直接中止。
+    宁可推不上去，也不要推一个「少文件」的版本让线上崩。"""
+    import re
+    missing = []
+    for rel in rel_list:
+        if not rel.endswith('.js'):
+            continue
+        fp = os.path.join(ROOT, rel.replace('/', os.sep))
+        try:
+            with open(fp, encoding='utf-8') as f:
+                src = f.read()
+        except Exception:
+            continue
+        for spec in re.findall(r"from\s+['\"](\.[^'\"]+)['\"]", src):
+            base = os.path.normpath(os.path.join(os.path.dirname(rel), spec)).replace(os.sep, '/')
+            if base in rel_set or base + '.js' in rel_set or (base + '/index.js') in rel_set:
+                continue
+            missing.append(f'{rel} -> {spec}')
+    return missing
+
+
+rel_set = set(files)
+missing = sanity_check(files)
+if missing:
+    print('❌ 以下相对 import 在待推送清单里找不到，已中止（避免线上缺文件）：')
+    for x in missing[:20]:
+        print('   ', x)
+    sys.exit(1)
 
 # 空仓库的 git/blobs 接口会 409，先用 contents API 放一个 README 完成初始化
 try:

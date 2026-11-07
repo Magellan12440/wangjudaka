@@ -1,0 +1,258 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-a"></view>
+    <view class="aurora-b"></view>
+  </view>
+
+  <view class="layer acc">
+    <block wx:if="{{loading}}">
+      <view class="skeleton sk-block" style="height:180rpx"></view>
+      <view class="skeleton sk-line" style="width:60%"></view>
+      <view class="skeleton sk-block" style="height:300rpx"></view>
+    </block>
+
+    <block wx:elif="{{error}}">
+      <view class="card">
+        <view class="error-box"><view class="error-text">{{error}}</view></view>
+        <view class="btn btn-sm btn-ghost mt16" bindtap="load">重新加载</view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <!-- 身份 -->
+      <view class="who">
+        <view class="who-avatar">
+          <image wx:if="{{user.avatar}}" class="who-img" src="{{user.avatar}}" mode="aspectFill" />
+          <text wx:else class="who-char">{{initial}}</text>
+        </view>
+        <view class="flex1">
+          <view class="who-name">{{user.nickname || '创作者'}}</view>
+          <view class="who-id">ID {{uidText}}</view>
+        </view>
+        <view class="who-badge {{user.is_admin ? 'on' : ''}}">{{user.is_admin ? '管理员' : '创作者'}}</view>
+      </view>
+
+      <!-- 额度 -->
+      <view class="quota-card">
+        <view class="between">
+          <text class="quota-k">可用点数</text>
+          <text class="quota-link" bindtap="goMine">充值 / 兑换 ›</text>
+        </view>
+        <view class="quota-num">
+          <text class="num">{{balance.points}}</text><text class="quota-unit">点</text>
+          <text class="quota-cny">≈ ¥{{balanceCny}}</text>
+        </view>
+
+        <view class="quota-usage">
+          <view class="qu">
+            <view class="qu-v num">{{quota.today}}</view>
+            <view class="qu-l">今日消耗</view>
+          </view>
+          <view class="qu">
+            <view class="qu-v num">{{quota.week}}</view>
+            <view class="qu-l">近 7 天</view>
+          </view>
+          <view class="qu">
+            <view class="qu-v num">{{quota.month}}</view>
+            <view class="qu-l">近 30 天</view>
+          </view>
+        </view>
+
+        <view class="quota-forecast">
+          <text wx:if="{{quota.avg_per_episode > 0}}">一次生成平均约 {{quota.avg_per_episode}} 点，当前余额大约还能跑 {{runsLeft}} 次</text>
+          <text wx:else>还没有消耗记录，用起来后这里会估算「余额还能跑几次」</text>
+        </view>
+
+        <view class="quota-alert">
+          <view class="flex1">
+            <view class="qa-title">余额提醒</view>
+            <view class="qa-sub">余额低于所选值时，在首页提醒你</view>
+          </view>
+          <picker mode="selector" range="{{alertOptions}}" value="{{alertIndex}}" bindchange="onAlertChange">
+            <view class="qa-value">{{alertLabel}}<text class="qa-arrow">›</text></view>
+          </picker>
+        </view>
+      </view>
+
+      <!-- 账号与安全 -->
+      <view class="cellgroup">
+        <view class="cellgroup-title">账号与安全</view>
+
+        <view class="cell tap" hover-class="tap-on" bindtap="openPhone">
+          <view class="cell-icon">📱</view>
+          <view class="cell-main">
+            <view class="cell-k">手机号</view>
+            <view class="cell-d">{{security.has_phone ? (security.phone_verified ? '已验证，可用于找回账号' : '已绑定，尚未验证') : '绑定后可换设备登录、找回密码'}}</view>
+          </view>
+          <text class="cell-v">{{security.has_phone ? security.phone_masked : '未绑定'}}</text>
+          <text class="cell-arrow">›</text>
+        </view>
+
+        <view class="cell tap" hover-class="tap-on" bindtap="openPassword">
+          <view class="cell-icon">🔑</view>
+          <view class="cell-main">
+            <view class="cell-k">登录密码</view>
+            <view class="cell-d">{{security.pwd_set ? ('上次修改 ' + (security.pwd_updated_at || '—')) : '设置后可用手机号 + 密码登录'}}</view>
+          </view>
+          <text class="cell-v">{{security.pwd_set ? '已设置' : '未设置'}}</text>
+          <text class="cell-arrow">›</text>
+        </view>
+
+        <view class="cell tap" hover-class="tap-on" bindtap="openDevices">
+          <view class="cell-icon">💻</view>
+          <view class="cell-main">
+            <view class="cell-k">登录设备</view>
+            <view class="cell-d">查看最近登录过的设备，可单独下线</view>
+          </view>
+          <text class="cell-v">{{sessions.length}} 台</text>
+          <text class="cell-arrow">›</text>
+        </view>
+
+        <view class="cell tap" hover-class="tap-on" bindtap="logoutAll">
+          <view class="cell-icon warn">⎋</view>
+          <view class="cell-main">
+            <view class="cell-k">退出全部设备</view>
+            <view class="cell-d">怀疑账号被盗时用这个，所有设备立即失效</view>
+          </view>
+          <text class="cell-arrow v">›</text>
+        </view>
+      </view>
+
+      <!-- 数据与隐私 -->
+      <view class="cellgroup">
+        <view class="cellgroup-title">数据与隐私</view>
+        <view class="cell tap" hover-class="tap-on" bindtap="openLegal" data-type="privacy">
+          <view class="cell-icon">🛡</view>
+          <view class="cell-main">
+            <view class="cell-k">隐私政策</view>
+            <view class="cell-d">我们收集什么、怎么用、保存多久</view>
+          </view>
+          <text class="cell-arrow v">›</text>
+        </view>
+        <view class="cell tap" hover-class="tap-on" bindtap="openLegal" data-type="terms">
+          <view class="cell-icon">📄</view>
+          <view class="cell-main">
+            <view class="cell-k">用户协议</view>
+            <view class="cell-d">点数、作品归属与内容责任</view>
+          </view>
+          <text class="cell-arrow v">›</text>
+        </view>
+        <view class="cell tap" hover-class="tap-on" bindtap="openClose">
+          <view class="cell-icon danger">!</view>
+          <view class="cell-main">
+            <view class="cell-k">注销账号</view>
+            <view class="cell-d">注销后无法登录，作品与点数保留 30 天</view>
+          </view>
+          <text class="cell-arrow v">›</text>
+        </view>
+      </view>
+
+      <view class="footer-note">账号 ID 与昵称可随时在「我的」里修改 · 密码与手机号仅你本人可见</view>
+    </block>
+  </view>
+
+  <!-- 绑定手机 -->
+  <view wx:if="{{sheet === 'phone'}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">绑定手机号</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+      <view class="sheet-tip">绑定后可以用手机号 + 密码登录，换手机也能找回账号。</view>
+      <view class="field-row">
+        <input class="field-input" type="number" maxlength="11" value="{{phone}}" placeholder="11 位手机号"
+               placeholder-class="field-ph" bindinput="onInput" data-key="phone" />
+      </view>
+      <view class="field-row">
+        <input class="field-input" type="number" maxlength="6" value="{{code}}" placeholder="6 位验证码"
+               placeholder-class="field-ph" bindinput="onInput" data-key="code" />
+        <view class="field-btn {{countdown > 0 ? 'off' : ''}}" bindtap="sendCode">
+          {{countdown > 0 ? countdown + 's' : '获取验证码'}}
+        </view>
+      </view>
+      <view wx:if="{{smsNote}}" class="sheet-note">{{smsNote}}</view>
+      <view wx:if="{{devCode}}" class="sheet-note on">测试码：{{devCode}}</view>
+      <view wx:if="{{formError}}" class="sheet-err">{{formError}}</view>
+      <view class="btn btn-block mt24 {{busy ? 'btn-disabled' : ''}}" bindtap="bindPhone">{{busy ? '处理中…' : '确认绑定'}}</view>
+    </view>
+  </view>
+
+  <!-- 密码 -->
+  <view wx:if="{{sheet === 'pwd'}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">{{security.pwd_set ? '修改密码' : '设置密码'}}</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+      <view class="sheet-tip">{{security.pwd_set ? '修改后其它设备会自动退出登录，当前设备保持登录。' : '设置后可以用「手机号 + 密码」登录，不必每次等验证码。'}}</view>
+
+      <view wx:if="{{security.pwd_set}}" class="field-row">
+        <input class="field-input" password value="{{oldPwd}}" placeholder="当前密码"
+               placeholder-class="field-ph" bindinput="onInput" data-key="oldPwd" />
+      </view>
+      <view class="field-row">
+        <input class="field-input" password value="{{newPwd}}" placeholder="新密码（6-64 位）"
+               placeholder-class="field-ph" bindinput="onInput" data-key="newPwd" />
+      </view>
+      <view class="field-row">
+        <input class="field-input" password value="{{newPwd2}}" placeholder="再输入一次"
+               placeholder-class="field-ph" bindinput="onInput" data-key="newPwd2" />
+      </view>
+      <view wx:if="{{formError}}" class="sheet-err">{{formError}}</view>
+      <view class="btn btn-block mt24 {{busy ? 'btn-disabled' : ''}}" bindtap="savePassword">{{busy ? '处理中…' : '保存'}}</view>
+      <view class="hint mt12">密码只保存加密结果，我们看不到你的明文密码。</view>
+    </view>
+  </view>
+
+  <!-- 设备 -->
+  <view wx:if="{{sheet === 'devices'}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">登录设备</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+      <view wx:if="{{!sessions.length}}" class="sheet-tip">还没有登录记录。</view>
+      <view wx:for="{{sessions}}" wx:key="id" class="dev">
+        <view class="dev-main">
+          <view class="dev-name">
+            {{item.device}}
+            <text wx:if="{{item.current}}" class="dev-tag">当前设备</text>
+          </view>
+          <view class="dev-sub">{{item.timeText}}{{item.ip ? ' · ' + item.ip : ''}}</view>
+        </view>
+        <text wx:if="{{!item.current}}" class="dev-out" data-id="{{item.id}}" bindtap="revokeSession">下线</text>
+      </view>
+      <view class="btn btn-block btn-ghost mt24" bindtap="logoutAll">退出全部设备</view>
+    </view>
+  </view>
+
+  <!-- 注销 -->
+  <view wx:if="{{sheet === 'close'}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">注销账号</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+      <view class="danger-box">
+        <view class="danger-t">注销后会发生什么</view>
+        <view class="danger-l">· 立即无法登录，所有设备退出</view>
+        <view class="danger-l">· 作品与点数保留 30 天，可联系客服申诉恢复</view>
+        <view class="danger-l">· 30 天后数据不可恢复</view>
+      </view>
+      <view wx:if="{{security.pwd_set}}" class="field-row">
+        <input class="field-input" password value="{{closePwd}}" placeholder="输入登录密码确认"
+               placeholder-class="field-ph" bindinput="onInput" data-key="closePwd" />
+      </view>
+      <view class="field-row">
+        <input class="field-input" value="{{closeConfirm}}" placeholder="输入「注销」两个字"
+               placeholder-class="field-ph" bindinput="onInput" data-key="closeConfirm" />
+      </view>
+      <view wx:if="{{formError}}" class="sheet-err">{{formError}}</view>
+      <view class="btn btn-block btn-danger mt24" bindtap="doClose">{{busy ? '处理中…' : '确认注销'}}</view>
+    </view>
+  </view>
+</view>

@@ -21,6 +21,8 @@ import { logger } from '../core/redact.js';
 
 const USERS = 'users';
 const SMS = 'sms_codes';
+const SESSIONS = 'auth_sessions';
+const MAX_SESSIONS = 20;
 const SECRET = config.wechat.sessionSecret || crypto.randomBytes(32).toString('hex');
 
 
@@ -36,6 +38,23 @@ export function maskPhone(phone) {
   const p = String(phone ?? '');
   if (p.length !== 11) return '';
   return `${p.slice(0, 3)}****${p.slice(-4)}`;
+}
+
+/** 从 UA 里猜一个说人话的设备名（iOS / Android / 微信 / 开发者工具） */
+export function deviceName(ua) {
+  const s = String(ua || '');
+  if (!s) return '未知设备';
+  if (/MicroMessenger/i.test(s)) {
+    if (/iPhone|iPad|iOS/i.test(s)) return '微信 · iPhone';
+    if (/Android/i.test(s)) return '微信 · Android';
+    return '微信';
+  }
+  if (/wechatdevtools/i.test(s)) return '微信开发者工具';
+  if (/iPhone|iPad|iOS/i.test(s)) return 'iPhone';
+  if (/Android/i.test(s)) return 'Android';
+  if (/Windows/i.test(s)) return 'Windows 电脑';
+  if (/Macintosh|Mac OS/i.test(s)) return 'Mac';
+  return '未知设备';
 }
 
 function sha256(s) {
@@ -70,7 +89,7 @@ class AuthService {
    * 登录/注册（幂等）。
    * @returns {Promise<{token:string, user:object, mode:string, isNewUser:boolean}>}
    */
-  async login({ code, nickname = null, avatar = null } = {}) {
+  async login({ code, nickname = null, avatar = null, req = null } = {}) {
     const sess = await wechatClient.code2session(code);
     let user = db.findOne(USERS, (u) => u.openid === sess.openid);
     let isNewUser = false;
@@ -94,7 +113,8 @@ class AuthService {
       });
       user = db.findOne(USERS, (u) => u.id === user.id);
     }
-    const token = this.#sign(user.id);
+    const sid = this.recordSession(user, req, sess.mode || 'wechat');
+    const token = this.#sign(user.id, user, sid);
     return {
       token,
       mode: sess.mode,
@@ -103,10 +123,22 @@ class AuthService {
     };
   }
 
-  /** 自签 token：base64url(payload).sig */
-  #sign(userId) {
+  /**
+   * 自签 token：base64url(payload).sig
+   *
+   * payload 里除了 uid/exp，还带两个字段：
+   *  - tv：账号的 token 版本。改密码 / 退出所有设备时 +1，旧 token 立刻失效；
+   *  - sid：本次登录的设备会话号，用于「登录设备」列表里认出当前这台。
+   */
+  #sign(userId, user = null, sid = null) {
     const expiresAt = Date.now() + config.wechat.sessionTtlMs;
-    const payload = Buffer.from(JSON.stringify({ uid: userId, exp: expiresAt })).toString('base64url');
+    const sessionId = sid || crypto.randomBytes(8).toString('hex');
+    const payload = Buffer.from(JSON.stringify({
+      uid: userId,
+      exp: expiresAt,
+      tv: Number(user?.token_version) || 0,
+      sid: sessionId,
+    })).toString('base64url');
     const sig = crypto.createHmac('sha256', SECRET).update(payload).digest('base64url');
     return `${payload}.${sig}`;
   }
@@ -123,7 +155,7 @@ class AuthService {
     try {
       const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
       if (!data.uid || Date.now() > data.exp) return null;
-      return { userId: data.uid };
+      return { userId: data.uid, tv: Number(data.tv) || 0, sid: data.sid ?? null };
     } catch {
       return null;
     }
@@ -139,6 +171,13 @@ class AuthService {
     if (!user) fail(ERR.AUTH_TOKEN_INVALID, '用户不存在');
     // V4.7：被停用的账号立刻失效，不等 token 过期
     if (user.status === 'banned') fail(ERR.AUTH_TOKEN_INVALID, '账号已停用，请联系管理员');
+    if (user.status === 'closed') fail(ERR.AUTH_TOKEN_INVALID, '账号已注销');
+    // 改密码 / 退出所有设备后，旧 token 的版本号对不上，直接失效
+    if ((Number(user.token_version) || 0) !== v.tv) {
+      fail(ERR.AUTH_TOKEN_INVALID, '登录状态已变更，请重新登录');
+    }
+    // 把会话号挂在请求对象上，路由里可以判断「这台是不是当前设备」
+    try { if (req && v.sid) req.sessionId = v.sid; } catch { /* 只读请求不做强制 */ }
     return user;
   }
 
@@ -197,7 +236,7 @@ class AuthService {
   }
 
   /** 手机号 + 验证码登录（未注册则自动注册，符合「验证码即注册」的直觉） */
-  loginByCode({ phone, code, nickname = null } = {}) {
+  loginByCode({ phone, code, nickname = null, req = null } = {}) {
     const p = normalizePhone(phone);
     const row = db.find(SMS, (x) => x.phone === p && !x.used)
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
@@ -209,7 +248,7 @@ class AuthService {
       fail('CODE_INVALID', '验证码不对，请检查后重试');
     }
     db.update(SMS, row.id, { used: true, used_at: nowIso() });
-    return this.#loginOrCreate({ phone: p, nickname });
+    return this.#loginOrCreate({ phone: p, nickname, req });
   }
 
   /** 设置/修改密码（需已登录；旧密码不强制，因为微信用户本来就没密码） */
@@ -222,7 +261,7 @@ class AuthService {
   }
 
   /** 手机号 + 密码登录 */
-  loginByPassword({ phone, password } = {}) {
+  loginByPassword({ phone, password, req = null } = {}) {
     const p = normalizePhone(phone);
     const user = db.findOne(USERS, (u) => u.phone === p);
     // 不区分「没这个号」和「密码错」，避免被用来探测手机号是否注册
@@ -231,7 +270,9 @@ class AuthService {
       fail('LOGIN_FAILED', '手机号或密码不对');
     }
     db.update(USERS, user.id, { last_login_at: nowIso() });
-    return { token: this.#sign(user.id), user: this.publicUser(user), mode: 'password', isNewUser: false };
+    const fresh = db.findOne(USERS, (u) => u.id === user.id);
+    const sid = this.recordSession(fresh, req, 'password');
+    return { token: this.#sign(user.id, fresh, sid), user: this.publicUser(fresh), mode: 'password', isNewUser: false };
   }
 
   /** 绑定手机号（微信登录后补绑，便于换机找回） */
@@ -284,7 +325,7 @@ class AuthService {
   }
 
   /** 内部：手机号登录时没有账号就建一个（账本同时开户） */
-  #loginOrCreate({ phone, nickname = null }) {
+  #loginOrCreate({ phone, nickname = null, req = null }) {
     let user = db.findOne(USERS, (u) => u.phone === phone);
     let isNewUser = false;
     if (!user) {
@@ -303,7 +344,215 @@ class AuthService {
       db.update(USERS, user.id, { last_login_at: nowIso(), ...(nickname ? { nickname } : {}) });
       user = db.findOne(USERS, (u) => u.id === user.id);
     }
-    return { token: this.#sign(user.id), user: this.publicUser(user), mode: 'phone', isNewUser };
+    const sid = this.recordSession(user, req, 'phone');
+    return { token: this.#sign(user.id, user, sid), user: this.publicUser(user), mode: 'phone', isNewUser };
+  }
+
+  // ============================================================
+  // 会话与设备（V4.9）：谁在什么时候、用什么设备登录过
+  // ============================================================
+
+  /** 记录一次登录（只用于展示与自助下线，鉴权仍靠 token 里的 tv） */
+  recordSession(user, req, mode = 'unknown') {
+    const sid = crypto.randomBytes(8).toString('hex');
+    try {
+      const h = req?.headers ?? {};
+      const ua = String(h['user-agent'] ?? h['User-Agent'] ?? '').slice(0, 200);
+      const fwd = String(h['x-forwarded-for'] ?? '').split(',')[0].trim();
+      const ip = (fwd || req?.socket?.remoteAddress || '').replace(/^::ffff:/, '').slice(0, 46);
+      db.insert(SESSIONS, {
+        id: sid,
+        user_id: user.id,
+        mode,
+        ua,
+        ip,
+        device: deviceName(ua),
+        created_at: nowIso(),
+        last_seen_at: nowIso(),
+        revoked: false,
+      });
+      // 只留最近 N 条，避免 JSON 库无限增长
+      const rows = db.find(SESSIONS, (x) => x.user_id === user.id);
+      if (rows.length > MAX_SESSIONS) {
+        rows.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+        for (const r of rows.slice(0, rows.length - MAX_SESSIONS)) db.remove(SESSIONS, r.id);
+      }
+    } catch (e) {
+      logger.warn('登录会话记录失败（不影响登录）', { error: e.message });
+    }
+    return sid;
+  }
+
+  /** 登录设备列表（最新的在前） */
+  sessions(userId, currentSid = null) {
+    return db.find(SESSIONS, (x) => x.user_id === userId && !x.revoked)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .slice(0, 10)
+      .map((x) => ({
+        id: x.id,
+        device: x.device || '未知设备',
+        ua: x.ua || '',
+        ip: x.ip || '',
+        mode: x.mode || '',
+        created_at: x.created_at,
+        last_seen_at: x.last_seen_at,
+        current: Boolean(currentSid && x.id === currentSid),
+      }));
+  }
+
+  /** 让某个设备下线（需属于本人） */
+  revokeSession(userId, sessionId) {
+    const row = db.find(SESSIONS, (x) => x.id === sessionId && x.user_id === userId)[0];
+    if (!row) fail(ERR.NOT_FOUND, '设备不存在或已下线');
+    db.update(SESSIONS, row.id, { revoked: true, revoked_at: nowIso() });
+    return { revoked: true, id: row.id };
+  }
+
+  /**
+   * 退出所有设备：token_version + 1。
+   * 旧 token 的 tv 对不上，下一次请求就会被拒 —— 不需要维护黑名单。
+   */
+  logoutAll(userId) {
+    const user = db.findOne(USERS, (u) => u.id === userId);
+    if (!user) fail(ERR.AUTH_TOKEN_INVALID, '用户不存在');
+    db.update(USERS, userId, { token_version: (Number(user.token_version) || 0) + 1, logged_out_all_at: nowIso() });
+    for (const r of db.find(SESSIONS, (x) => x.user_id === userId && !x.revoked)) {
+      db.update(SESSIONS, r.id, { revoked: true, revoked_at: nowIso() });
+    }
+    return { ok: true };
+  }
+
+  // ============================================================
+  // 注册 / 密码管理（V4.9）
+  // ============================================================
+
+  /**
+   * 手机号 + 密码注册。
+   *
+   * 线上短信通道未接入时，不做「验证码注册」的假动作：直接开号，
+   * 但把 phone_verified 标成 false —— 后台与用户自己都能看到「手机号未验证」，
+   * 等短信通道开通后再走一次验证即可。
+   */
+  register({ phone, password, nickname = null, code = null, req = null } = {}) {
+    const p = normalizePhone(phone);
+    if (db.findOne(USERS, (u) => u.phone === p)) fail('PHONE_TAKEN', '这个手机号已经注册过了，直接登录即可');
+    const h = hashPassword(password);
+    // 给了验证码且真实有效 → 顺手标记已验证；否则留待后续验证
+    let verified = false;
+    if (code) {
+      const row = db.find(SMS, (x) => x.phone === p && !x.used)
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+      if (row && new Date(row.expires_at).getTime() >= Date.now()
+        && sha256(`${p}:${String(code).trim()}`) === row.code_hash) {
+        db.update(SMS, row.id, { used: true, used_at: nowIso() });
+        verified = true;
+      }
+    }
+    const user = db.insert(USERS, {
+      id: newId('user'),
+      openid: `phone_${sha256(p).slice(0, 20)}`,
+      phone: p,
+      phone_verified: verified,
+      phone_bound_at: nowIso(),
+      nickname: String(nickname ?? '').trim().slice(0, 20) || `创作者${p.slice(-4)}`,
+      avatar: null,
+      role: 'user',
+      token_version: 0,
+      ...h,
+      created_at: nowIso(),
+      last_login_at: nowIso(),
+    });
+    ledger.ensureAccount(user.id);
+    const sid = this.recordSession(user, req, 'register');
+    return { token: this.#sign(user.id, user, sid), user: this.publicUser(user), mode: 'password', isNewUser: true };
+  }
+
+  /**
+   * 改密码（已登录）。
+   * 已经设过密码的账号必须先验旧密码；纯微信用户第一次设密码则不需要。
+   */
+  changePassword(userId, { oldPassword = '', newPassword, sid = null } = {}) {
+    const user = db.findOne(USERS, (u) => u.id === userId);
+    if (!user) fail(ERR.AUTH_TOKEN_INVALID, '用户不存在');
+    if (user.password_hash) {
+      if (!oldPassword) fail('OLD_PASSWORD_REQUIRED', '请输入当前密码');
+      if (!verifyPassword(oldPassword, user.password_hash, user.password_salt)) {
+        fail('OLD_PASSWORD_WRONG', '当前密码不对');
+      }
+      if (verifyPassword(newPassword, user.password_hash, user.password_salt)) {
+        fail('PASSWORD_SAME', '新密码不能与当前密码相同');
+      }
+    }
+    const h = hashPassword(newPassword);
+    db.update(USERS, userId, {
+      ...h,
+      password_updated_at: nowIso(),
+      // 改密码即踢掉其它设备上的登录态
+      token_version: (Number(user.token_version) || 0) + 1,
+    });
+    for (const r of db.find(SESSIONS, (x) => x.user_id === userId && !x.revoked)) {
+      db.update(SESSIONS, r.id, { revoked: true, revoked_at: nowIso() });
+    }
+    const fresh = db.findOne(USERS, (u) => u.id === userId);
+    // 当前设备重新签发，避免用户改完密码把自己也踢下线
+    return { token: this.#sign(userId, fresh, sid), user: this.publicUser(fresh) };
+  }
+
+  /** 忘记密码：手机号 + 验证码重置（需要短信通道，未接入时走 dev 码） */
+  resetPassword({ phone, code, newPassword } = {}) {
+    const p = normalizePhone(phone);
+    const user = db.findOne(USERS, (u) => u.phone === p);
+    // 不暴露手机号是否注册：验证码校验失败时统一报「验证码不对」
+    const row = db.find(SMS, (x) => x.phone === p && !x.used)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    if (!row) fail('CODE_NOT_FOUND', '请先获取验证码');
+    if (new Date(row.expires_at).getTime() < Date.now()) fail('CODE_EXPIRED', '验证码已过期，请重新获取');
+    if (sha256(`${p}:${String(code ?? '').trim()}`) !== row.code_hash) {
+      db.update(SMS, row.id, { attempts: (row.attempts || 0) + 1 });
+      fail('CODE_INVALID', '验证码不对');
+    }
+    db.update(SMS, row.id, { used: true, used_at: nowIso() });
+    if (!user) fail('LOGIN_FAILED', '该手机号还没有账号，请先注册');
+    const h = hashPassword(newPassword);
+    db.update(USERS, p ? user.id : user.id, {
+      ...h,
+      password_updated_at: nowIso(),
+      token_version: (Number(user.token_version) || 0) + 1,
+    });
+    for (const r of db.find(SESSIONS, (x) => x.user_id === user.id && !x.revoked)) {
+      db.update(SESSIONS, r.id, { revoked: true, revoked_at: nowIso() });
+    }
+    return { ok: true, phone_masked: maskPhone(p) };
+  }
+
+  /** 注销账号：标记 closed 并踢掉所有登录态（数据保留，便于申诉恢复） */
+  closeAccount(userId, { confirmText, password = '', code = '' } = {}) {
+    const user = db.findOne(USERS, (u) => u.id === userId);
+    if (!user) fail(ERR.AUTH_TOKEN_INVALID, '用户不存在');
+    if (String(confirmText ?? '').trim() !== '注销') fail('CONFIRM_REQUIRED', '请输入「注销」两个字以确认');
+    if (user.password_hash) {
+      if (!password || !verifyPassword(password, user.password_hash, user.password_salt)) {
+        fail('LOGIN_FAILED', '密码不对，无法注销');
+      }
+    } else if (user.phone) {
+      const row = db.find(SMS, (x) => x.phone === user.phone && !x.used)
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+      if (!row || sha256(`${user.phone}:${String(code ?? '').trim()}`) !== row.code_hash) {
+        fail('CODE_INVALID', '验证码不对，无法注销');
+      }
+      db.update(SMS, row.id, { used: true, used_at: nowIso() });
+    } else {
+      fail('CONFIRM_REQUIRED', '请先在账号安全里绑定手机号或设置密码，再注销');
+    }
+    db.update(USERS, userId, {
+      status: 'closed',
+      closed_at: nowIso(),
+      token_version: (Number(user.token_version) || 0) + 1,
+    });
+    for (const r of db.find(SESSIONS, (x) => x.user_id === userId && !x.revoked)) {
+      db.update(SESSIONS, r.id, { revoked: true, revoked_at: nowIso() });
+    }
+    return { ok: true };
   }
 
   publicUser(user) {
@@ -315,8 +564,11 @@ class AuthService {
       // 新用户默认昵称是「创作者_xxxxxx」，头像为空 —— 前端据此提示补全资料
       profile_complete: Boolean(user.avatar) && !/^创作者_/.test(String(user.nickname ?? '')),
       phone_masked: maskPhone(user.phone),
-      has_password: Boolean(user.password_hash),
+      pwd_set: Boolean(user.password_hash),
       has_phone: Boolean(user.phone),
+      phone_verified: Boolean(user.phone_verified),
+      status: user.status || 'active',
+      pwd_updated_at: user.password_updated_at ?? null,
       // V4.7：管理员与普通用户的唯一区别就是这一位，前端据此决定是否显示「管理后台」
       role: user.role === 'admin' ? 'admin' : 'user',
       is_admin: user.role === 'admin',

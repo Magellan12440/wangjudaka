@@ -98,9 +98,14 @@ export class BlueprintEngine {
    * OneShot 提案卡：用户给一句话 → 产出成本与时长预估（§1.3）。
    * 关键：先给报价，用户确认后才开始花钱。
    */
-  quote({ prompt, styleCode, totalMinutes, episodeSec = 90, aspect = '9:16', quality = '1080p', preset = 'balanced', videoType = 'dynamic' }) {
+  quote({ prompt, styleCode, totalMinutes, episodeSec = 90, episodeCount = null, aspect = '9:16', quality = '1080p', preset = 'balanced', videoType = 'dynamic' }) {
     const style = seeds.style(styleCode) ?? seeds.style('STY-DUSHI');
-    const episodes = Math.max(1, Math.ceil((totalMinutes * 60) / episodeSec));
+    // 集数以用户显式选择为准。用 totalMinutes 反推会在自定义场景下失真：
+    // 3 集 × 90 秒 = 4.5 分钟，取整成 5 分钟再反推就变成 4 集。
+    const epByMinutes = Math.max(1, Math.ceil((Number(totalMinutes) * 60) / Number(episodeSec)));
+    const episodes = Number.isFinite(Number(episodeCount)) && Number(episodeCount) >= 1
+      ? Math.min(200, Math.floor(Number(episodeCount)))
+      : epByMinutes;
     const avgShotLen = Math.min(style.avg_shot_len, 10); // 视频模型单镜上限 10 秒
     const shotsPerEp = Math.ceil(episodeSec / avgShotLen);
     const totalShots = episodes * shotsPerEp;

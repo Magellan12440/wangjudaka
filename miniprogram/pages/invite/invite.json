@@ -2,6 +2,6 @@
   "navigationBarTitleText": "邀请好友",
   "enablePullDownRefresh": true,
   "backgroundTextStyle": "dark",
-  "backgroundColor": "#080A0F",
+  "backgroundColor": "#F4F7FD",
   "usingComponents": {}
 }

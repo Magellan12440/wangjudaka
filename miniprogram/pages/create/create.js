@@ -71,6 +71,12 @@ Page({
     quality: '1080p',
     episodeCount: 6,
     episodeSec: 90,
+    // V4.8.1：预设之外允许自定义，输入框内容单独存字符串，避免边输边被 Number 吃掉
+    countCustom: false,
+    secCustom: false,
+    countInput: '6',
+    secInput: '90',
+    totalMinutesText: '',
     videoType: 'dynamic',
     aspectOpts: ASPECTS,
     qualityOpts: QUALITIES,
@@ -84,6 +90,8 @@ Page({
     editProfile: 'ED-STD',
     billingMultiplier: 2,
     shellEnabled: true,
+    // 模型 / 剪辑档位属于专业参数：默认收起，不让第一次用的人一上来就面对一堆术语
+    showAdvanced: false,
     quote: null,
     quoteLoading: false,
     creating: false,
@@ -297,7 +305,45 @@ Page({
     const ready = d.origin === 'material'
       ? titled && String(d.scriptText || '').trim().length >= MIN_ADAPT_CHARS
       : titled;
-    this.setData({ canCreate: ready });
+    const mins = Math.max(1, Math.round((Number(d.episodeCount) * Number(d.episodeSec)) / 60));
+    this.setData({
+      canCreate: ready,
+      totalMinutesText: `${mins} 分钟（${d.episodeCount} 集 × ${d.episodeSec} 秒）`,
+    });
+  },
+
+  /** 集数自定义输入：只收 1-200 的整数，越界就夹紧（不弹错，避免打字时被打断） */
+  onCountInput(e) {
+    const raw = String(e.detail.value || '').replace(/[^\d]/g, '');
+    const n = Number(raw);
+    const patch = { countInput: raw };
+    if (raw && n >= 1 && n <= 200) patch.episodeCount = n;
+    this.setData(patch, () => this.syncMeta());
+  },
+
+  onCountBlur(e) {
+    const n = Math.min(200, Math.max(1, Number(String(e.detail.value || '').replace(/[^\d]/g, '')) || this.data.episodeCount));
+    this.setData({ countInput: String(n), episodeCount: n }, () => {
+      this.syncMeta();
+      if (this.data.step >= 2) this.refreshQuote();
+    });
+  },
+
+  /** 单集时长自定义输入：15-600 秒 */
+  onSecInput(e) {
+    const raw = String(e.detail.value || '').replace(/[^\d]/g, '');
+    const n = Number(raw);
+    const patch = { secInput: raw };
+    if (raw && n >= 15 && n <= 600) patch.episodeSec = n;
+    this.setData(patch, () => this.syncMeta());
+  },
+
+  onSecBlur(e) {
+    const n = Math.min(600, Math.max(15, Number(String(e.detail.value || '').replace(/[^\d]/g, '')) || this.data.episodeSec));
+    this.setData({ secInput: String(n), episodeSec: n }, () => {
+      this.syncMeta();
+      if (this.data.step >= 2) this.refreshQuote();
+    });
   },
 
   pickOrigin(e) {
@@ -388,7 +434,19 @@ Page({
     const { field } = e.currentTarget.dataset;
     let value = e.currentTarget.dataset.value;
     const patch = {};
-    if (['episodeCount', 'episodeSec'].includes(field)) value = Number(value);
+    if (field === 'episodeCount' || field === 'episodeSec') {
+      const isCount = field === 'episodeCount';
+      const customKey = isCount ? 'countCustom' : 'secCustom';
+      if (value === 'custom') {
+        // 切到自定义：保留当前数值作为输入框初值，用户再改
+        patch[customKey] = true;
+        patch[isCount ? 'countInput' : 'secInput'] = String(isCount ? this.data.episodeCount : this.data.episodeSec);
+        return this.setData(patch, () => this.syncMeta());
+      }
+      patch[customKey] = false;
+      patch[isCount ? 'countInput' : 'secInput'] = String(Number(value));
+      value = Number(value);
+    }
     patch[field] = value;
     if (field === 'styleCode') {
       const s = this.data.styles.find((x) => x.code === value);
@@ -422,6 +480,11 @@ Page({
     this.setData({ shellEnabled: !this.data.shellEnabled });
   },
 
+  toggleAdvanced() {
+    motion.haptic();
+    this.setData({ showAdvanced: !this.data.showAdvanced });
+  },
+
   toggleAllStyles() {
     motion.haptic();
     this.setData({ showAllStyles: !this.data.showAllStyles });
@@ -433,7 +496,8 @@ Page({
       aspect: d.aspect,
       quality: d.quality,
       episodeCount: d.episodeCount,
-      totalMinutes: Math.max(1, Math.round((d.episodeCount * d.episodeSec) / 60)),
+      // 不做整数取整：3 集 × 90 秒 = 4.5 分钟，取整会让服务端反推出 4 集
+      totalMinutes: Math.max(1, Number(((d.episodeCount * d.episodeSec) / 60).toFixed(2))),
       episodeSec: d.episodeSec,
       videoType: d.videoType,
       styleCode: d.styleCode,
@@ -450,6 +514,7 @@ Page({
       styleCode: spec.styleCode,
       totalMinutes: spec.totalMinutes,
       episodeSec: spec.episodeSec,
+      episodeCount: spec.episodeCount,
       aspect: spec.aspect,
       quality: spec.quality,
       videoType: spec.videoType,

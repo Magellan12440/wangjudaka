@@ -12,8 +12,8 @@
   border-radius: 32rpx;
   background:
     radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, 0.42), transparent 56%),
-    linear-gradient(145deg, #FFEFC9 0%, #F5CE87 44%, #E3AC55 100%);
-  box-shadow: 0 26rpx 64rpx rgba(226, 155, 63, 0.24), inset 0 2rpx 0 rgba(255, 255, 255, 0.7);
+    linear-gradient(145deg, #C57A1E 0%, #FFC978 44%, #FF9A45 100%);
+  box-shadow: 0 26rpx 64rpx rgba(251, 122, 52, 0.24), inset 0 2rpx 0 rgba(255, 255, 255, 0.7);
   animation: rise 0.56s cubic-bezier(0.16, 0.84, 0.28, 1) 0.05s both;
 }
 .ticket::after {
@@ -26,27 +26,27 @@
 @keyframes balSweep { 0%, 58% { transform: translateX(-130%); } 92%, 100% { transform: translateX(130%); } }
 
 .ticket-body { padding: 30rpx 32rpx 26rpx; position: relative; z-index: 2; }
-.ticket-label { font-size: 22rpx; color: #7B5F2B; letter-spacing: 2rpx; font-weight: 600; }
+.ticket-label { font-size: 22rpx; color: #8A5A20; letter-spacing: 2rpx; font-weight: 600; }
 .code-row {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 18rpx;
 }
 .code-text {
-  font-size: 62rpx; font-weight: 800; color: #2A1B05;
+  font-size: 62rpx; font-weight: 800; color: #6B3A0C;
   letter-spacing: 6rpx; line-height: 1.1;
 }
 .code-btn {
-  font-size: 22rpx; font-weight: 700; color: #FFE7B4;
+  font-size: 22rpx; font-weight: 700; color: #FFD79A;
   padding: 12rpx 24rpx; border-radius: 999rpx;
-  background: linear-gradient(140deg, #3B2A0B, #221604);
+  background: linear-gradient(140deg, #7A460F, #6B3A0C);
   box-shadow: 0 10rpx 22rpx rgba(42, 27, 5, 0.3);
 }
-.ticket-tip { font-size: 22rpx; color: #6B5A33; line-height: 1.66; margin-top: 16rpx; }
+.ticket-tip { font-size: 22rpx; color: #8A5A20; line-height: 1.66; margin-top: 16rpx; }
 
 .ticket-cut { display: flex; align-items: center; position: relative; z-index: 2; }
 .notch {
   width: 30rpx; height: 30rpx; border-radius: 50%;
-  background: #07080D; flex-shrink: 0;
+  background: #F4F7FD; flex-shrink: 0;
 }
 .notch-l { margin-left: -15rpx; }
 .notch-r { margin-right: -15rpx; }
@@ -64,8 +64,8 @@
   content: ""; position: absolute; left: 0; top: 6rpx; bottom: 6rpx; width: 1rpx;
   background: rgba(90, 65, 20, 0.16);
 }
-.tf-value { font-size: 40rpx; font-weight: 800; color: #2A1B05; line-height: 1.15; }
-.tf-label { font-size: 20rpx; color: #7B5F2B; margin-top: 6rpx; }
+.tf-value { font-size: 40rpx; font-weight: 800; color: #6B3A0C; line-height: 1.15; }
+.tf-label { font-size: 20rpx; color: #8A5A20; margin-top: 6rpx; }
 
 .ticket-actions {
   display: flex; padding: 24rpx 32rpx 30rpx;
@@ -75,7 +75,7 @@
 .ticket-actions .btn:last-child { margin-right: 0; }
 .ticket-actions .btn-plain {
   background: rgba(255, 255, 255, 0.56);
-  color: #4A360F;
+  color: #6B3A0C;
   border: 1rpx solid rgba(255, 255, 255, 0.7);
   line-height: 64rpx; padding: 0;
 }
@@ -90,39 +90,39 @@
 .step-dot {
   width: 40rpx; height: 40rpx; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 21rpx; font-weight: 700; color: #241705;
-  background: linear-gradient(145deg, #FFE2A6, #E8B75E);
-  box-shadow: 0 0 0 4rpx rgba(243, 201, 105, 0.12);
+  font-size: 21rpx; font-weight: 700; color: #6B3A0C;
+  background: linear-gradient(145deg, #FFC978, #FF9A45);
+  box-shadow: 0 0 0 4rpx rgba(232, 145, 47, 0.12);
   margin-top: 2rpx;
 }
 .step-line {
   flex: 1; width: 2rpx; margin: 8rpx 0;
-  background: linear-gradient(180deg, rgba(243, 201, 105, 0.42), rgba(255, 255, 255, 0.06));
+  background: linear-gradient(180deg, rgba(232, 145, 47, 0.42), rgba(22, 35, 58, 0.06));
 }
 .step-body { flex: 1; padding: 0 0 30rpx 18rpx; min-width: 0; }
 .step.last .step-body { padding-bottom: 0; }
-.step-title { font-size: 27rpx; color: #EDF1F8; font-weight: 600; }
-.step-desc { font-size: 22rpx; color: #7C8799; line-height: 1.66; margin-top: 8rpx; }
+.step-title { font-size: 27rpx; color: #22314A; font-weight: 600; }
+.step-desc { font-size: 22rpx; color: #8B95A5; line-height: 1.66; margin-top: 8rpx; }
 
 /* —— 邀请记录 —— */
 .inv-item {
   display: flex; align-items: center;
   padding: 22rpx 0;
-  border-bottom: 1rpx solid rgba(255, 255, 255, 0.055);
+  border-bottom: 1rpx solid rgba(22, 35, 58, 0.055);
 }
 .inv-item:first-child { padding-top: 4rpx; }
 .inv-item:last-child { border-bottom: none; padding-bottom: 4rpx; }
 .inv-avatar {
   width: 76rpx; height: 76rpx; border-radius: 24rpx; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-size: 30rpx; font-weight: 700; color: #B7C1D1;
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025));
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  font-size: 30rpx; font-weight: 700; color: #4A566B;
+  background: linear-gradient(150deg, rgba(22, 35, 58, 0.09), rgba(22, 35, 58, 0.025));
+  border: 1rpx solid rgba(22, 35, 58, 0.08);
   margin-right: 20rpx;
 }
-.inv-name { font-size: 27rpx; color: #EDF1F8; font-weight: 550; }
+.inv-name { font-size: 27rpx; color: #22314A; font-weight: 550; }
 
 /* —— 规则 —— */
 .rule-row { display: flex; align-items: flex-start; margin-top: 14rpx; }
-.rule-dot { color: #F3C969; margin-right: 12rpx; font-size: 24rpx; line-height: 1.5; }
-.rule-text { font-size: 23rpx; color: #98A3B6; line-height: 1.62; }
+.rule-dot { color: #E08A22; margin-right: 12rpx; font-size: 24rpx; line-height: 1.5; }
+.rule-text { font-size: 23rpx; color: #6E7B8E; line-height: 1.62; }

@@ -1,47 +1,47 @@
 /* 管理后台（V4.7）：深色控制台，数字优先，动作明确 */
 
-.adm-back { font-size: 26rpx; color: #A9B3C5; padding: 6rpx 12rpx 6rpx 0; }
-.adm-title { flex: 1; text-align: center; font-size: 30rpx; font-weight: 700; color: #F2F5FA; }
+.adm-back { font-size: 26rpx; color: #4A566B; padding: 6rpx 12rpx 6rpx 0; }
+.adm-title { flex: 1; text-align: center; font-size: 30rpx; font-weight: 700; color: #16233A; }
 .adm-badge {
   padding: 4rpx 14rpx;
   border-radius: 999rpx;
   font-size: 18rpx;
   letter-spacing: 2rpx;
-  color: #241705;
-  background: linear-gradient(140deg, #FFE2A6, #E9AC4C);
+  color: #6B3A0C;
+  background: linear-gradient(140deg, #FFC978, #FF9A45);
 }
 .adm-hero { margin-top: 40rpx; }
-.adm-kicker { font-size: 20rpx; letter-spacing: 4rpx; color: #8D97A9; }
+.adm-kicker { font-size: 20rpx; letter-spacing: 4rpx; color: #8B95A5; }
 .adm-h1 { margin-top: 16rpx; font-size: 46rpx; font-weight: 700; color: #F6F8FC; line-height: 1.25; }
-.adm-sub { margin-top: 14rpx; font-size: 24rpx; line-height: 1.7; color: #97A1B3; }
-.adm-note { margin-top: 20rpx; font-size: 21rpx; line-height: 1.7; color: #7A8496; text-align: center; }
+.adm-sub { margin-top: 14rpx; font-size: 24rpx; line-height: 1.7; color: #6E7B8E; }
+.adm-note { margin-top: 20rpx; font-size: 21rpx; line-height: 1.7; color: #8B95A5; text-align: center; }
 
 .adm-grid { display: flex; flex-wrap: wrap; gap: 16rpx; }
 .adm-cell {
   width: calc(50% - 8rpx);
   padding: 26rpx 22rpx;
   border-radius: 22rpx;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  background: rgba(22, 35, 58, 0.04);
+  border: 1rpx solid rgba(22, 35, 58, 0.08);
 }
-.adm-num { font-size: 42rpx; font-weight: 700; color: #FFE9C0; font-variant-numeric: tabular-nums; }
-.adm-lab { margin-top: 8rpx; font-size: 22rpx; color: #A9B3C5; }
-.adm-hint { margin-top: 6rpx; font-size: 19rpx; color: #6E7A8E; }
+.adm-num { font-size: 42rpx; font-weight: 700; color: #B4551A; font-variant-numeric: tabular-nums; }
+.adm-lab { margin-top: 8rpx; font-size: 22rpx; color: #4A566B; }
+.adm-hint { margin-top: 6rpx; font-size: 19rpx; color: #8B95A5; }
 
-.adm-li { margin-top: 12rpx; font-size: 23rpx; line-height: 1.7; color: #B6C0D0; }
-.adm-li.dim { color: #7A8496; }
+.adm-li { margin-top: 12rpx; font-size: 23rpx; line-height: 1.7; color: #4A566B; }
+.adm-li.dim { color: #8B95A5; }
 
 .adm-search { display: flex; gap: 14rpx; }
 .adm-search-input {
   flex: 1; height: 84rpx; padding: 0 24rpx;
-  border-radius: 18rpx; font-size: 26rpx; color: #E9EEF7;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1rpx solid rgba(255, 255, 255, 0.1);
+  border-radius: 18rpx; font-size: 26rpx; color: #22314A;
+  background: rgba(22, 35, 58, 0.06);
+  border: 1rpx solid rgba(22, 35, 58, 0.1);
 }
 .adm-search-btn {
   padding: 0 30rpx; line-height: 84rpx;
-  border-radius: 18rpx; font-size: 25rpx; color: #241705;
-  background: linear-gradient(140deg, #FFE2A6, #E9AC4C);
+  border-radius: 18rpx; font-size: 25rpx; color: #6B3A0C;
+  background: linear-gradient(140deg, #FFC978, #FF9A45);
 }
 
 .adm-u { margin-top: 16rpx; }
@@ -51,16 +51,16 @@
   padding: 2rpx 12rpx;
   border-radius: 8rpx;
   font-size: 18rpx;
-  color: #8D97A9;
-  background: rgba(255, 255, 255, 0.07);
+  color: #8B95A5;
+  background: rgba(22, 35, 58, 0.07);
 }
-.adm-role.on { color: #241705; background: linear-gradient(140deg, #FFE2A6, #E9AC4C); }
-.adm-uname { font-size: 27rpx; color: #EDF1F8; }
-.adm-bal { font-size: 28rpx; font-weight: 700; color: #F3C969; font-variant-numeric: tabular-nums; }
-.adm-warn { font-size: 20rpx; color: #FF8E8E; }
-.adm-dot { font-size: 20rpx; color: #FF8E8E; flex: none; }
-.adm-dot.on { color: #7BE0A8; }
+.adm-role.on { color: #6B3A0C; background: linear-gradient(140deg, #FFC978, #FF9A45); }
+.adm-uname { font-size: 27rpx; color: #22314A; }
+.adm-bal { font-size: 28rpx; font-weight: 700; color: #E08A22; font-variant-numeric: tabular-nums; }
+.adm-warn { font-size: 20rpx; color: #D8453C; }
+.adm-dot { font-size: 20rpx; color: #D8453C; flex: none; }
+.adm-dot.on { color: #22B07D; }
 
-.err { color: #FF8E8E; font-size: 23rpx; }
-.lrow-arrow { font-size: 30rpx; color: #5E6879; margin-left: 16rpx; }
-.sheet-cancel { margin-top: 18rpx; text-align: center; font-size: 24rpx; color: #7C8699; padding: 14rpx 0; }
+.err { color: #D8453C; font-size: 23rpx; }
+.lrow-arrow { font-size: 30rpx; color: #9AA5B5; margin-left: 16rpx; }
+.sheet-cancel { margin-top: 18rpx; text-align: center; font-size: 24rpx; color: #8B95A5; padding: 14rpx 0; }

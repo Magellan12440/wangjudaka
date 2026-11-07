@@ -262,7 +262,11 @@ export class ProductionService {
 
   #guessEpisodes(project) {
     const spec = project.spec ?? {};
-    const n = Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90)));
+    // 用户显式选了集数就用它；按分钟反推只在没选时兜底
+    const explicit = Number(spec.episode_count);
+    const n = Number.isFinite(explicit) && explicit >= 1
+      ? Math.min(200, Math.floor(explicit))
+      : Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90)));
     return Array.from({ length: n }, (_, i) => `E${String(i + 1).padStart(2, '0')}`);
   }
 

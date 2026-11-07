@@ -63,7 +63,7 @@
       <!-- 数据看板 -->
       <view class="board-card">
         <view class="between">
-          <view class="eyebrow" style="color:#E0BD77">OVERVIEW</view>
+          <view class="eyebrow" style="color:#B4551A">OVERVIEW</view>
           <text class="tiny">{{projectTitle || '全部项目'}}</text>
         </view>
         <view class="board-grid">
@@ -183,7 +183,7 @@
           <text class="section-title">分发任务</text>
           <text class="section-sub" wx:if="{{tasks.length}}">{{tasks.length}} 个</text>
         </view>
-        <text class="section-more" data-code="PLT-HONGGUO" bindtap="openPlatform">新建 +</text>
+        <text class="section-more" bindtap="openCreate">新建 +</text>
       </view>
 
       <view wx:if="{{tasks.length === 0}}" class="card empty">
@@ -362,7 +362,22 @@
         <view class="hint" wx:for="{{sheetPlatform.tips}}" wx:key="*this">· {{item}}</view>
       </view>
 
-      <view class="btn btn-block mt24" data-code="{{sheetPlatform.code}}" bindtap="createTask">在此平台创建分发任务</view>
+      <block wx:if="{{films.length}}">
+        <view class="field-label mt16"><text>投哪一集</text><text class="opt">{{films.length}} 集已出片</text></view>
+        <scroll-view class="proj-scroll" scroll-x show-scrollbar="{{false}}" enable-flex>
+          <view
+            wx:for="{{films}}"
+            wx:key="id"
+            class="chip chip-sm tap {{taskEp === item.episode ? 'on' : ''}}"
+            hover-class="tap-on"
+            data-ep="{{item.episode}}"
+            bindtap="pickTaskEp"
+          >{{item.episode}}</view>
+        </scroll-view>
+      </block>
+
+      <view class="btn btn-block mt24" data-code="{{sheetPlatform.code}}" bindtap="createTask">在{{sheetPlatform.name}}建任务 · {{taskEp || 'E01'}}</view>
+      <view class="btn btn-block btn-ghost mt16" bindtap="createAll">一次铺到所有平台</view>
       <view class="btn btn-block btn-ghost mt16" bindtap="copyLink">复制创作者中心入口</view>
       <view class="hint mt16">入口：{{sheetPlatform.creator_url}}</view>
     </view>

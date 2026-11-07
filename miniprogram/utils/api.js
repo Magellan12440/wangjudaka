@@ -171,15 +171,143 @@ function mediaUrl(p) {
   const s = String(p || '');
   if (!s) return '';
   if (/^https?:\/\//.test(s) || s.startsWith('wxfile://') || s.startsWith('ttfile://')) return s;
+  // cloud:// 是云存储 fileID，不能拼域名，必须先换临时链接（见 resolveMedia）
+  if (s.startsWith('cloud://')) return s;
   return base() + (s.startsWith('/') ? s : `/${s}`);
 }
 
+// 云存储临时链接缓存：同一次会话内避免反复换链（临时链接默认 2 小时有效，这里保守存 10 分钟）
+const mediaCache = {};
+
 /**
- * 上传素材：wx.uploadFile 走 multipart，不能用普通 request。
- * 服务端会按文件类型分流（文本入库 / 图片视频落盘）。
+ * 批量把媒体标识解析成可直接渲染的 https 地址（V4.8）。
+ *
+ * 为什么需要：素材与产物现在存在云存储，服务端返回的是 cloud:// fileID。
+ * <image>/<video> 不认 fileID，必须先换临时链接；而 wx.cloud.getTempFileURL
+ * 走云开发 SDK，不受 downloadFile 合法域名限制 —— 这正好绕开云托管默认域名配不进白名单的问题。
+ *
+ * @param {string[]} urls 原始标识（cloud://、/media/x、https://）
+ * @returns {Promise<Record<string,string>>} 原标识 → 可渲染地址（失败给空串，页面显示占位）
+ */
+function resolveMedia(urls) {
+  const uniq = [...new Set((urls || []).filter((x) => typeof x === 'string' && x))];
+  const out = {};
+  const need = [];
+  const now = Date.now();
+  for (const u of uniq) {
+    if (!u.startsWith('cloud://')) {
+      out[u] = mediaUrl(u);
+      continue;
+    }
+    const hit = mediaCache[u];
+    if (hit && hit.exp > now) out[u] = hit.value;
+    else need.push(u);
+  }
+  if (!need.length) return Promise.resolve(out);
+
+  const batch = need.slice(0, 50);
+  return new Promise((resolve) => {
+    const done = (extra) => {
+      const merged = Object.assign(out, extra || {});
+      if (need.length > 50) {
+        resolveMedia(need.slice(50)).then((rest) => resolve(Object.assign(merged, rest)));
+      } else {
+        resolve(merged);
+      }
+    };
+    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.getTempFileURL) {
+      for (const u of batch) out[u] = '';
+      return done({});
+    }
+    wx.cloud.getTempFileURL({
+      fileList: batch,
+      success: (res) => {
+        for (const f of (res && res.fileList) || []) {
+          const id = f.fileID || f.fileid;
+          if (f.tempFileURL) {
+            out[id] = f.tempFileURL;
+            mediaCache[id] = { value: f.tempFileURL, exp: Date.now() + 10 * 60 * 1000 };
+          } else {
+            out[id] = '';
+          }
+        }
+        for (const u of batch) if (!(u in out)) out[u] = '';
+        done({});
+      },
+      fail: () => {
+        for (const u of batch) out[u] = '';
+        done({});
+      },
+    });
+  });
+}
+
+/** 按扩展名猜 mime：wx.cloud.uploadFile 不给 mime，服务端要靠它判类型 */
+function mimeOf(name) {
+  const ext = (String(name).match(/\.([a-z0-9]{2,5})$/i) || [])[1];
+  const map = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+    gif: 'image/gif', heic: 'image/heic', mp4: 'video/mp4', mov: 'video/quicktime',
+    m4v: 'video/x-m4v', webm: 'video/webm', mp3: 'audio/mpeg', m4a: 'audio/mp4',
+    wav: 'audio/wav', aac: 'audio/aac',
+    txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
+    json: 'application/json', srt: 'text/plain',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    pdf: 'application/pdf',
+  };
+  return map[String(ext || '').toLowerCase()] || 'application/octet-stream';
+}
+
+function randomName(ext) {
+  let s = '';
+  const chars = 'abcdef0123456789';
+  for (let i = 0; i < 24; i += 1) s += chars[Math.floor(Math.random() * 16)];
+  return `${s}${ext || '.bin'}`;
+}
+
+/**
+ * 上传素材：优先走云存储直传，失败回落普通上传。
+ *
+ * 为什么改：wx.uploadFile 走公网，必须过 uploadFile 合法域名，而云托管默认域名
+ * 配不进白名单；wx.cloud.uploadFile 走微信内部链路，不受域名限制，也没有
+ * callContainer 100KiB 的请求体上限 —— 大视频也能传。
+ *
+ * 两条路返回同一结构 { items, stats }，页面无需分支。
  */
 function uploadMaterial(projectId, filePath, note) {
-  return new Promise((resolve, reject) => {
+  const cloudFirst = () => new Promise((resolve, reject) => {
+    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.uploadFile) {
+      return reject(Object.assign(new Error('云存储不可用'), { code: 'NO_CLOUD' }));
+    }
+    const name = String(filePath || '').split('/').pop() || '素材';
+    const ext = (name.match(/\.[a-z0-9]{2,5}$/i) || ['.bin'])[0].toLowerCase();
+    const d = new Date();
+    const cloudPath = `media/${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${randomName(ext)}`;
+    wx.cloud.uploadFile({
+      cloudPath,
+      filePath,
+      success: (res) => {
+        if (!res || !res.fileID) {
+          return reject(Object.assign(new Error('云存储上传失败'), { code: 'UPLOAD_FAILED' }));
+        }
+        request({
+          url: `/api/projects/${enc(projectId)}/materials/cloud`,
+          method: 'POST',
+          data: { file_id: res.fileID, filename: name, mime: mimeOf(name), note: note || '' },
+        }).then((data) => resolve({
+          items: data.items ? data.items : [data.item],
+          stats: data.stats,
+        }), reject);
+      },
+      fail: (e) => reject(Object.assign(new Error('云存储上传失败'), {
+        code: 'CLOUD_UPLOAD_FAILED', detail: { errMsg: String((e && e.errMsg) || '') },
+      })),
+    });
+  });
+
+  const httpUpload = () => new Promise((resolve, reject) => {
     wx.uploadFile({
       url: `${base()}/api/projects/${enc(projectId)}/materials/upload`,
       filePath,
@@ -206,12 +334,20 @@ function uploadMaterial(projectId, filePath, note) {
       },
     });
   });
+
+  return cloudFirst().catch((err) => {
+    // 只有「通道不可用」才降级；服务端明确拒绝（格式/超限）要如实抛给页面
+    if (err && err.status) throw err;
+    if (err && ['NO_CLOUD', 'CLOUD_UPLOAD_FAILED', 'NETWORK_ERROR'].indexOf(err.code) < 0) throw err;
+    return httpUpload();
+  });
 }
 
 // 说明：小程序页面统一用 require，因此这里必须是 CommonJS 导出（不能写 export default）
 module.exports = {
   request,
   mediaUrl,
+  resolveMedia,
   baseUrl: base,
 
   // —— 登录态 ——
@@ -425,6 +561,23 @@ module.exports = {
     request({ url: '/api/auth/password', method: 'POST', data: { password }, toast: true }),
   bindPhone: (phone, code) =>
     request({ url: '/api/auth/bind-phone', method: 'POST', data: { phone, code }, toast: true }),
+
+  // —— 账号中心（V4.9）——
+  register: (payload) =>
+    request({ url: '/api/auth/register', method: 'POST', data: payload, retry: false }),
+  accountOverview: () => request({ url: '/api/account/overview' }),
+  accountQuota: () => request({ url: '/api/account/quota' }),
+  changePassword: (oldPassword, newPassword) =>
+    request({ url: '/api/auth/password/change', method: 'POST', data: { oldPassword, newPassword } }),
+  resetPassword: (phone, code, newPassword) =>
+    request({ url: '/api/auth/password/reset', method: 'POST', data: { phone, code, newPassword }, toast: true }),
+  logoutAll: () => request({ url: '/api/account/logout-all', method: 'POST', data: {}, toast: true }),
+  revokeSession: (sessionId) =>
+    request({ url: '/api/account/sessions/revoke', method: 'POST', data: { sessionId }, toast: true }),
+  setAlert: (threshold) =>
+    request({ url: '/api/account/alert', method: 'POST', data: { threshold } }),
+  closeAccount: (payload) =>
+    request({ url: '/api/account/close', method: 'POST', data: payload, toast: true }),
 
   // —— 收益看板（V4.4） ——
   revenue: () => request({ url: '/api/me/revenue' }),

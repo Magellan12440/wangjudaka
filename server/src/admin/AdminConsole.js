@@ -235,7 +235,7 @@ export class AdminConsole {
         phone_masked: maskPhone(u.phone),
         role: u.role === 'admin' ? 'admin' : 'user',
         status: u.status === 'banned' ? 'banned' : 'active',
-        has_password: Boolean(u.password_hash),
+        pwd_set: Boolean(u.password_hash),
         balance_points: this.#balanceOf(u.id),
         projects: projCount.get(u.id) ?? 0,
         created_at: u.created_at ?? null,

@@ -27,8 +27,8 @@
       <view>一句灵感，</view>
       <view class="accent">开机一部网剧</view>
     </view>
-    <view class="hero-desc">先建组，再开拍。小说、参考图、参考视频都放进项目，</view>
-    <view class="hero-desc" style="margin-top:2rpx">剧本、分镜、关键帧与成片在同一条流水线上跑完。</view>
+    <view class="hero-desc">先给故事起个名字，再慢慢补素材；</view>
+    <view class="hero-desc" style="margin-top:2rpx">剧本、画面和成片，都会在同一个项目里长出来。</view>
 
     <view class="card stat-strip rise d2">
       <view class="stat">
@@ -63,12 +63,12 @@
         </view>
         <view class="pill pill-gold pill-no-dot">先建项目</view>
       </view>
-      <view class="sub mt8">只要一个剧名就能开工：素材、剧本、分镜、成片都归属这部戏。</view>
+      <view class="sub mt8">先写一个你喜欢的名字就够了，素材和细节之后随时补。</view>
 
       <view class="prompt-wrap mt24">
         <textarea
           class="textarea prompt-area {{typing ? 'input-focus' : ''}}"
-          placeholder="剧名，例如：长夜归人"
+          placeholder="给这部剧起个名字，例如：长夜归人"
           placeholder-class="input-ph"
           value="{{prompt}}"
           maxlength="30"
@@ -95,7 +95,7 @@
       </scroll-view>
 
       <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="startCreate">用这个名字开剧</view>
-      <view class="create-note">剧名可随时改；素材、参考片、风格与时长在建好后再补</view>
+      <view class="create-note">名字随时能改 · 下一步再选风格和集数</view>
     </view>
 
     <!-- 进行中 -->
@@ -180,39 +180,39 @@
       <view class="card empty rise d4">
         <view class="empty-icon float">剧</view>
         <view class="empty-title">还没有剧组</view>
-        <view class="empty-sub">写下一句话，先建项目；</view>
-        <view class="empty-sub" style="margin-top:0">再上传小说或参考图，生成剧本与分镜。</view>
+        <view class="empty-sub">先写个剧名把项目建起来，</view>
+        <view class="empty-sub" style="margin-top:0">再上传小说或参考图，就能开始写剧本。</view>
         <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="goCreate">建第一个项目</view>
       </view>
     </block>
 
     <!-- 流水线说明 -->
     <view class="section">
-      <text class="section-title">一部剧的四个现场</text>
+      <text class="section-title">从这里开始，四步出片</text>
     </view>
     <view class="flow-strip">
       <view class="flow-item">
         <view class="flow-no">01</view>
-        <view class="flow-title">建项目</view>
-        <view class="flow-sub">定风格与体量</view>
+        <view class="flow-title">起个名</view>
+        <view class="flow-sub">选风格与集数</view>
       </view>
       <view class="flow-line"></view>
       <view class="flow-item">
         <view class="flow-no">02</view>
-        <view class="flow-title">上传素材</view>
-        <view class="flow-sub">小说 / 图 / 视频</view>
+        <view class="flow-title">加料</view>
+        <view class="flow-sub">小说 / 图 / 表格</view>
       </view>
       <view class="flow-line"></view>
       <view class="flow-item">
         <view class="flow-no">03</view>
         <view class="flow-title">写剧本</view>
-        <view class="flow-sub">总谱 + 分镜</view>
+        <view class="flow-sub">自动拆成几集</view>
       </view>
       <view class="flow-line"></view>
       <view class="flow-item">
         <view class="flow-no">04</view>
-        <view class="flow-title">逐镜出片</view>
-        <view class="flow-sub">关键帧 → 视频</view>
+        <view class="flow-title">出成片</view>
+        <view class="flow-sub">一集一集生成</view>
       </view>
     </view>
 

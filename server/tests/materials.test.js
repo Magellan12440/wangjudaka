@@ -108,31 +108,70 @@ test('空文本被拒；超长文本被拒', () => {
   );
 });
 
-test('图片素材：落盘、URL 可解析、删除时清理文件', () => {
+test('图片素材：落盘、URL 可解析、删除时清理文件', async () => {
   const pid = mkProject();
   const buf = Buffer.from('89504e470d0a1a0a-fake-png', 'hex');
-  const m = materialService.addFile({ projectId: pid, filename: '女主.png', mime: 'image/png', buffer: buf, note: '参考造型' });
+  const m = await materialService.addFile({ projectId: pid, filename: '女主.png', mime: 'image/png', buffer: buf, note: '参考造型' });
   assert.equal(m.kind, 'image');
+  // 测试环境没有微信凭据 → 落本地 /media，且 provider 必须如实标注 local
   assert.match(m.url, /^\/media\/[a-f0-9]{24}\.png$/);
+  assert.equal(m.storage, 'local');
   const file = resolveMediaPath(m.url.replace('/media/', ''));
   assert.ok(file && fs.existsSync(file), '素材文件应真实落盘');
   assert.equal(mediaMime(file), 'image/png');
   assert.equal(m.note, '参考造型');
 
-  materialService.remove(pid, m.id);
+  await materialService.remove(pid, m.id);
   assert.equal(fs.existsSync(file), false, '删除素材应同时删文件');
   assert.equal(materialService.stats(pid).total, 0);
 });
 
-test('不支持的格式被拒绝（PDF 不做假装解析）', () => {
+test('读不出正文的 PDF 转为存档，并如实标注原因', async () => {
   const pid = mkProject();
-  assert.throws(
-    () => materialService.addFile({ projectId: pid, filename: '投稿.pdf', mime: 'application/pdf', buffer: Buffer.from('%PDF-1.4') }),
-    /暂不支持/,
+  const m = await materialService.addFile({
+    projectId: pid, filename: '投稿.pdf', mime: 'application/pdf', buffer: Buffer.from('%PDF-1.4'),
+  });
+  assert.equal(m.kind, 'file', '抽不到文字时按存档处理，而不是假装读懂');
+  assert.equal(m.has_text, false);
+  assert.match(m.note, /已存档/);
+  assert.ok(m.url, '存档文件要能从存储取回');
+});
+
+test('表格素材：CSV 转成文字读入 prompt', async () => {
+  const pid = mkProject();
+  const m = await materialService.addFile({
+    projectId: pid,
+    filename: '人物表.csv',
+    mime: 'text/csv',
+    buffer: Buffer.from('角色,身份\n林秋,女主\n陈默,男主\n', 'utf8'),
+  });
+  assert.equal(m.kind, 'text');
+  assert.equal(m.has_text, true);
+  assert.match(m.preview, /角色/);
+});
+
+test('任意格式都不拒收：未知扩展名存档且不报错', async () => {
+  const pid = mkProject();
+  const m = await materialService.addFile({
+    projectId: pid,
+    filename: '参考素材.zip',
+    mime: 'application/zip',
+    buffer: Buffer.from('PK\u0003\u0004 fake zip', 'utf8'),
+  });
+  assert.equal(m.kind, 'file');
+  assert.ok(m.url);
+  assert.ok(materialService.stats(pid).by_kind.file >= 1, '统计里要能看出「存档」数量');
+});
+
+test('云存储直传登记：拒绝跨环境 fileID 与文本类', async () => {
+  const pid = mkProject();
+  await assert.rejects(
+    () => materialService.addCloudFile({ projectId: pid, fileId: 'https://evil.example.com/x.png', filename: 'x.png', mime: 'image/png' }),
+    /不合法/,
   );
 });
 
-test('docx：零依赖抽取正文并转成文本素材', () => {
+test('docx：零依赖抽取正文并转成文本素材', async () => {
   const xml = '<?xml version="1.0"?><w:document><w:body>'
     + '<w:p><w:r><w:t>第一场 雨夜</w:t></w:r></w:p>'
     + '<w:p><w:r><w:t>林川推开门，雨水顺着伞骨落下。</w:t></w:r><w:r><w:tab/><w:t>他没有说话。</w:t></w:r></w:p>'
@@ -144,7 +183,7 @@ test('docx：零依赖抽取正文并转成文本素材', () => {
   assert.match(text, /\t他没有说话/);
 
   const pid = mkProject();
-  const m = materialService.addFile({ projectId: pid, filename: '原著.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: zip });
+  const m = await materialService.addFile({ projectId: pid, filename: '原著.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: zip });
   assert.equal(m.kind, 'text');
   assert.equal(m.source, 'docx');
   assert.match(m.preview, /林川推开门/);

@@ -57,7 +57,7 @@ export class StoryEngine {
       reference ? `以下是用户上传的参考素材，请优先沿用其中的人物关系、世界观与关键情节，不要另起炉灶：\n${reference}` : '',
       // 改编强度（V4.6）：素材改编路线下用户要能选「照原著拍」还是「按竖屏短剧重排」
       adaptInstruction(spec, Boolean(reference)),
-      `总时长：${spec.total_minutes} 分钟，单集 ${spec.episode_sec} 秒`,
+      `集数：${spec.episode_count || Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90)))} 集，单集 ${spec.episode_sec} 秒（总时长约 ${Math.round(((Number(spec.episode_count) || 0) * (Number(spec.episode_sec) || 90)) / 60) || spec.total_minutes} 分钟）`,
       '输出 JSON 结构：',
       '{"title":"","logline":"","characters":[{"code":"CH01","name":"","role":"","traits":"","locks":["","","",""]}],',
       '"episodes":[{"no":1,"goal":"","hook":{"code":"HOOK-01","micro_hook":true,"shots":3},',
@@ -376,10 +376,17 @@ export class StoryEngine {
   }
 
   #fallbackOutline({ prompt, spec, style, director }) {
-    const totalSec = (spec.total_minutes ?? 10) * 60;
     const stdEpSec = spec.episode_sec ?? 90;
-    const episodes = Math.max(1, Math.ceil(totalSec / stdEpSec));
-    const lastEpSec = round2(totalSec - (episodes - 1) * stdEpSec);
+    // 用户显式给了集数就按它来（自定义集数/时长时，按总分钟反推会错一集）
+    const explicitEp = Number(spec.episode_count);
+    const episodes = Number.isFinite(explicitEp) && explicitEp >= 1
+      ? Math.min(200, Math.floor(explicitEp))
+      : Math.max(1, Math.ceil(((spec.total_minutes ?? 10) * 60) / stdEpSec));
+    // 总时长仍以 spec.total_minutes 为准（下游总谱自检会核对偏差 ≤2%），
+    // 只是把这一段固定时长按「用户选的集数」均分，避免取整导致集数对不上。
+    const totalSec = Number(spec.total_minutes ?? 10) * 60;
+    const epSec = round2(totalSec / episodes);
+    const lastEpSec = round2(totalSec - (episodes - 1) * epSec);
     const hooks = seeds.rhythmByCat('hook');
     const conflicts = seeds.rhythmByCat('conflict');
     const reversals = seeds.rhythmByCat('reversal');
@@ -422,7 +429,7 @@ export class StoryEngine {
               : [],
         empathy: empathySet.has(i) ? [{ code: empathies[Math.floor(rnd() * empathies.length)].code }] : [],
         ending_hook: '悬念未解',
-        duration_sec: i === episodes ? lastEpSec : stdEpSec,
+        duration_sec: i === episodes ? lastEpSec : epSec,
       });
     }
 

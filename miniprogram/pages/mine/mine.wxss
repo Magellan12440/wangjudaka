@@ -15,27 +15,27 @@
   position: relative;
   width: 116rpx; height: 116rpx; border-radius: 36rpx; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(150deg, #FFE2A6, #E29B3F 62%, #B97325);
-  box-shadow: 0 18rpx 42rpx rgba(226, 155, 63, 0.28), inset 0 2rpx 0 rgba(255, 255, 255, 0.6);
+  background: linear-gradient(150deg, #FFC978, #FB7A34 62%, #B97325);
+  box-shadow: 0 18rpx 42rpx rgba(251, 122, 52, 0.28), inset 0 2rpx 0 rgba(255, 255, 255, 0.6);
   overflow: hidden;
 }
 .me-avatar::after {
   content: ""; position: absolute; inset: 0;
-  background: linear-gradient(148deg, rgba(255, 255, 255, 0.34), transparent 46%);
+  background: linear-gradient(148deg, rgba(255, 255, 255, 0.36), transparent 48%);
   pointer-events: none;
 }
 .me-avatar-img { width: 100%; height: 100%; }
-.me-avatar-char { font-size: 50rpx; font-weight: 800; color: #2A1B05; letter-spacing: 2rpx; }
-.me-name { font-size: 38rpx; font-weight: 750; color: #FFFFFF; letter-spacing: 0.4rpx; }
+.me-avatar-char { font-size: 50rpx; font-weight: 800; color: #6B3A0C; letter-spacing: 2rpx; }
+.me-name { font-size: 38rpx; font-weight: 750; color: #16233A; letter-spacing: 0.4rpx; }
 .me-id {
-  font-size: 21rpx; color: #6E7A8E; margin-top: 8rpx;
+  font-size: 21rpx; color: #8B95A5; margin-top: 8rpx;
   font-family: "SF Mono", Menlo, Consolas, monospace; letter-spacing: 0.6rpx;
 }
 .me-edit {
-  flex-shrink: 0; font-size: 23rpx; color: #B7C1D1;
+  flex-shrink: 0; font-size: 23rpx; color: #4A566B;
   padding: 10rpx 22rpx; border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1rpx solid rgba(255, 255, 255, 0.09);
+  background: rgba(22, 35, 58, 0.05);
+  border: 1rpx solid rgba(22, 35, 58, 0.09);
 }
 
 /* —— 余额卡 —— */
@@ -43,9 +43,9 @@
   position: relative; overflow: hidden;
   padding: 32rpx 30rpx 28rpx; border-radius: 32rpx;
   background:
-    radial-gradient(120% 100% at 100% 0%, rgba(255, 255, 255, 0.5), transparent 58%),
-    linear-gradient(140deg, #FFEFC9 0%, #F6D491 42%, #E7B45F 100%);
-  box-shadow: 0 24rpx 60rpx rgba(226, 155, 63, 0.24), inset 0 2rpx 0 rgba(255, 255, 255, 0.72);
+    radial-gradient(120% 100% at 100% 0%, rgba(255, 255, 255, 0.62), transparent 60%),
+    linear-gradient(140deg, #FFD79A 0%, #FFC078 44%, #FF9A45 100%);
+  box-shadow: 0 24rpx 60rpx rgba(251, 122, 52, 0.24), inset 0 2rpx 0 rgba(255, 255, 255, 0.72);
   animation: rise 0.54s cubic-bezier(0.16, 0.84, 0.28, 1) 0.05s both;
 }
 .balance-card::before {
@@ -63,14 +63,14 @@
 }
 @keyframes balSweep { 0%, 58% { transform: translateX(-130%); } 92%, 100% { transform: translateX(130%); } }
 .balance-num { display: flex; align-items: baseline; margin-top: 20rpx; position: relative; z-index: 2; }
-.balance-num .num { font-size: 86rpx; font-weight: 800; color: #2A1B05; letter-spacing: -1rpx; line-height: 1; }
-.balance-unit { font-size: 26rpx; color: #7B5F2B; font-weight: 600; margin-left: 10rpx; }
+.balance-num .num { font-size: 86rpx; font-weight: 800; color: #6B3A0C; letter-spacing: -1rpx; line-height: 1; }
+.balance-unit { font-size: 26rpx; color: #8A5A20; font-weight: 600; margin-left: 10rpx; }
 .balance-card .tiny { position: relative; z-index: 2; margin-top: 12rpx; }
 .balance-actions { display: flex; margin-top: 28rpx; position: relative; z-index: 2; }
 .b-action {
   flex: 1; text-align: center; height: 72rpx; line-height: 72rpx;
   border-radius: 20rpx; font-size: 25rpx; font-weight: 600;
-  color: #4A360F;
+  color: #6B3A0C;
   background: rgba(255, 255, 255, 0.5);
   border: 1rpx solid rgba(255, 255, 255, 0.7);
   margin-right: 16rpx;
@@ -78,9 +78,9 @@
 }
 .b-action:last-child { margin-right: 0; }
 .b-action.primary {
-  background: linear-gradient(140deg, #3B2A0B, #221604);
-  color: #FFE1A5; border-color: rgba(0, 0, 0, 0.2);
-  box-shadow: 0 10rpx 24rpx rgba(42, 27, 5, 0.32);
+  background: #FFFFFF;
+  color: #B4551A; border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 10rpx 22rpx -12rpx rgba(120, 62, 12, 0.7);
 }
 
 /* —— 档位横滑 —— */
@@ -89,28 +89,28 @@
   position: relative; display: inline-block; vertical-align: top;
   width: 206rpx; margin-right: 18rpx; padding: 26rpx 20rpx 22rpx;
   border-radius: 26rpx; text-align: left; box-sizing: border-box;
-  background: linear-gradient(158deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.014));
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(158deg, rgba(22, 35, 58, 0.06), rgba(22, 35, 58, 0.014));
+  border: 1rpx solid rgba(22, 35, 58, 0.08);
   transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.2s, box-shadow 0.24s;
   white-space: normal;
 }
 .pkg-card:last-child { margin-right: 0; }
 .pkg-card.on {
-  border-color: rgba(243, 201, 105, 0.66);
-  background: linear-gradient(158deg, rgba(243, 201, 105, 0.2), rgba(243, 201, 105, 0.04));
-  box-shadow: 0 18rpx 40rpx rgba(243, 201, 105, 0.18);
+  border-color: rgba(232, 145, 47, 0.66);
+  background: linear-gradient(158deg, rgba(232, 145, 47, 0.2), rgba(232, 145, 47, 0.04));
+  box-shadow: 0 18rpx 40rpx rgba(232, 145, 47, 0.18);
   transform: translateY(-4rpx);
 }
 .pkg-card .pkg-tag {
   position: absolute; top: -12rpx; right: 14rpx;
   font-size: 17rpx; padding: 3rpx 10rpx;
 }
-.pkg-points { font-size: 38rpx; color: #FFFFFF; line-height: 1.1; }
-.pkg-unit { font-size: 19rpx; color: #8D97A9; font-weight: 400; margin-left: 4rpx; }
-.pkg-price { font-size: 25rpx; color: #F3C969; margin-top: 10rpx; font-weight: 600; }
-.pkg-note { font-size: 19rpx; color: #6E7A8E; margin-top: 8rpx; }
+.pkg-points { font-size: 38rpx; color: #16233A; line-height: 1.1; }
+.pkg-unit { font-size: 19rpx; color: #8B95A5; font-weight: 400; margin-left: 4rpx; }
+.pkg-price { font-size: 25rpx; color: #E08A22; margin-top: 10rpx; font-weight: 600; }
+.pkg-note { font-size: 19rpx; color: #8B95A5; margin-top: 8rpx; }
 .pkg-empty {
-  display: inline-block; padding: 40rpx 24rpx; font-size: 23rpx; color: #626D80;
+  display: inline-block; padding: 40rpx 24rpx; font-size: 23rpx; color: #9AA5B5;
 }
 
 /* —— 快捷入口 —— */
@@ -118,8 +118,8 @@
 .tool {
   flex: 1; margin-right: 16rpx; padding: 26rpx 18rpx 22rpx;
   border-radius: 24rpx; text-align: center;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1rpx solid rgba(255, 255, 255, 0.07);
+  background: rgba(22, 35, 58, 0.035);
+  border: 1rpx solid rgba(22, 35, 58, 0.07);
   animation: rise 0.5s cubic-bezier(0.16, 0.84, 0.28, 1) both;
 }
 .tool:nth-child(1) { animation-delay: 0.06s; }
@@ -127,18 +127,18 @@
 .tool:nth-child(3) { animation-delay: 0.16s; margin-right: 0; }
 .tool-icon {
   width: 62rpx; height: 62rpx; line-height: 62rpx; margin: 0 auto 14rpx;
-  border-radius: 20rpx; font-size: 30rpx; color: #F3C969;
-  background: rgba(243, 201, 105, 0.1);
-  border: 1rpx solid rgba(243, 201, 105, 0.2);
+  border-radius: 20rpx; font-size: 30rpx; color: #E08A22;
+  background: rgba(232, 145, 47, 0.1);
+  border: 1rpx solid rgba(232, 145, 47, 0.2);
 }
-.tool-name { font-size: 24rpx; color: #E6ECF6; font-weight: 600; }
-.tool-sub { font-size: 18rpx; color: #626D80; margin-top: 6rpx; }
+.tool-name { font-size: 24rpx; color: #2A3446; font-weight: 600; }
+.tool-sub { font-size: 18rpx; color: #9AA5B5; margin-top: 6rpx; }
 
 /* —— 账单 —— */
 .bill {
   display: flex; align-items: center;
   padding: 22rpx 0;
-  border-bottom: 1rpx solid rgba(255, 255, 255, 0.055);
+  border-bottom: 1rpx solid rgba(22, 35, 58, 0.055);
 }
 .bill:first-child { padding-top: 4rpx; }
 .bill:last-child { border-bottom: none; padding-bottom: 4rpx; }
@@ -146,42 +146,42 @@
   width: 14rpx; height: 14rpx; border-radius: 50%; flex-shrink: 0;
   margin-right: 20rpx;
 }
-.bill-dot.in { background: #4BDFA4; box-shadow: 0 0 14rpx rgba(75, 223, 164, 0.6); }
-.bill-dot.out { background: #7C8699; box-shadow: none; }
-.bill-title { font-size: 26rpx; color: #E2E8F2; }
-.bill-sub { font-size: 20rpx; color: #626D80; margin-top: 6rpx; }
+.bill-dot.in { background: #22B07D; box-shadow: 0 0 14rpx rgba(75, 223, 164, 0.6); }
+.bill-dot.out { background: #8B95A5; box-shadow: none; }
+.bill-title { font-size: 26rpx; color: #2A3446; }
+.bill-sub { font-size: 20rpx; color: #9AA5B5; margin-top: 6rpx; }
 .bill-points { font-size: 30rpx; font-weight: 700; margin-left: 16rpx; }
-.bill-points.in { color: #4BDFA4; }
-.bill-points.out { color: #9AA5B8; }
+.bill-points.in { color: #22B07D; }
+.bill-points.out { color: #6E7B8E; }
 
 /* —— 协议行 —— */
 .legal-row {
   display: flex; align-items: center; justify-content: center;
   margin-top: 36rpx; font-size: 22rpx;
 }
-.legal-sep { color: #3B4453; margin: 0 16rpx; }
+.legal-sep { color: #C3CCDA; margin: 0 16rpx; }
 
 /* —— 充值弹层内的档位行 —— */
 .pkg-row {
   display: flex; align-items: center;
   padding: 24rpx 24rpx; border-radius: 22rpx; margin-bottom: 14rpx;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1rpx solid rgba(255, 255, 255, 0.07);
+  background: rgba(22, 35, 58, 0.035);
+  border: 1rpx solid rgba(22, 35, 58, 0.07);
   transition: border-color 0.2s, background 0.2s;
 }
 .pkg-row.on {
-  border-color: rgba(243, 201, 105, 0.66);
-  background: rgba(243, 201, 105, 0.12);
+  border-color: rgba(232, 145, 47, 0.66);
+  background: rgba(232, 145, 47, 0.12);
 }
-.pkg-row-points { font-size: 28rpx; color: #FFFFFF; font-weight: 600; }
+.pkg-row-points { font-size: 28rpx; color: #16233A; font-weight: 600; }
 .pkg-bonus {
-  font-size: 19rpx; color: #241705; font-weight: 700;
-  background: linear-gradient(120deg, #FFE2A6, #F3C969);
+  font-size: 19rpx; color: #6B3A0C; font-weight: 700;
+  background: linear-gradient(120deg, #FFC978, #E08A22);
   padding: 2rpx 10rpx; border-radius: 7rpx; margin-left: 12rpx;
 }
-.pkg-row-price { font-size: 30rpx; color: #F3C969; font-weight: 700; margin-left: 16rpx; }
+.pkg-row-price { font-size: 30rpx; color: #E08A22; font-weight: 700; margin-left: 16rpx; }
 .pay-note {
-  font-size: 20rpx; color: #566176; text-align: center;
+  font-size: 20rpx; color: #9AA5B5; text-align: center;
   line-height: 1.66; margin-top: 22rpx;
 }
 
@@ -190,8 +190,8 @@
 .redeem-history { margin-top: 26rpx; }
 .redeem-item {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16rpx 0; font-size: 23rpx; color: #9AA5B8;
-  border-bottom: 1rpx solid rgba(255, 255, 255, 0.05);
+  padding: 16rpx 0; font-size: 23rpx; color: #6E7B8E;
+  border-bottom: 1rpx solid rgba(22, 35, 58, 0.05);
 }
 .redeem-item:last-child { border-bottom: none; }
 
@@ -200,21 +200,20 @@
 .about-row {
   display: flex; align-items: center; justify-content: space-between;
   padding: 22rpx 0; margin-top: 6rpx;
-  border-top: 1rpx solid rgba(255, 255, 255, 0.06);
+  border-top: 1rpx solid rgba(22, 35, 58, 0.06);
 }
 .about-row .tiny { max-width: 60%; text-align: right; line-height: 1.5; }
 /* 网络自检结果：正常金、失败红，一眼可辨 */
-.about-row .net-good { color: #F3C969; }
-.about-row .net-bad { color: #FF8E8E; }
+.about-row .net-good { color: #E08A22; }
+.about-row .net-bad { color: #D8453C; }
 
 /* 兑换输入：给 input 一个呼吸位 */
 .input-wrap { margin-top: 6rpx; }
 
 /* —— 资料完善提示 —— */
 .me-tip {
-  margin-top: 6rpx;
-  font-size: 20rpx; color: #E0BD77;
-  text-decoration: underline;
+  margin-top: 8rpx;
+  font-size: 21rpx; color: #C57A1E;
 }
 
 /* —— 充值活动条 —— */
@@ -222,38 +221,38 @@
   display: flex; align-items: center;
   margin-top: 8rpx; padding: 18rpx 20rpx;
   border-radius: 20rpx;
-  background: rgba(243, 201, 105, 0.09);
-  border: 1rpx solid rgba(243, 201, 105, 0.26);
+  background: rgba(232, 145, 47, 0.09);
+  border: 1rpx solid rgba(232, 145, 47, 0.26);
 }
 .campaign-dot {
   width: 12rpx; height: 12rpx; border-radius: 50%;
   margin-right: 16rpx; flex: none;
-  background: #F3C969;
-  box-shadow: 0 0 12rpx rgba(243, 201, 105, 0.8);
+  background: #E08A22;
+  box-shadow: 0 0 12rpx rgba(232, 145, 47, 0.8);
 }
-.campaign-title { font-size: 24rpx; font-weight: 600; color: #FFE0A3; }
-.campaign-sub { font-size: 20rpx; color: #A99260; margin-top: 4rpx; line-height: 1.5; }
+.campaign-title { font-size: 24rpx; font-weight: 600; color: #C57A1E; }
+.campaign-sub { font-size: 20rpx; color: #B08A4E; margin-top: 4rpx; line-height: 1.5; }
 
 /* —— 我的资产 —— */
 .film-row {
   display: flex; align-items: center;
   padding: 18rpx 0;
-  border-bottom: 1rpx solid rgba(255, 255, 255, 0.055);
+  border-bottom: 1rpx solid rgba(22, 35, 58, 0.055);
 }
 .film-row:last-child { border-bottom: none; }
 .film-main { flex: 1; min-width: 0; }
-.film-title { font-size: 25rpx; color: #E7ECF5; }
+.film-title { font-size: 25rpx; color: #2A3446; }
 .film-idx {
-  font-size: 20rpx; color: #FFE0A3; margin-right: 10rpx;
+  font-size: 20rpx; color: #C57A1E; margin-right: 10rpx;
   font-family: "SF Mono", Menlo, monospace;
 }
-.film-sub { font-size: 20rpx; color: #7D8899; margin-top: 6rpx; }
+.film-sub { font-size: 20rpx; color: #8B95A5; margin-top: 6rpx; }
 .film-copy {
   flex: none; margin-left: 16rpx;
   padding: 8rpx 20rpx; border-radius: 999rpx;
-  font-size: 21rpx; color: #C6CFDD;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1rpx solid rgba(255, 255, 255, 0.1);
+  font-size: 21rpx; color: #4A566B;
+  background: rgba(22, 35, 58, 0.05);
+  border: 1rpx solid rgba(22, 35, 58, 0.1);
 }
 
 /* —— V4.4 账号安全 / 收益入口 —— */
@@ -266,34 +265,34 @@
 }
 .login-bar-dot {
   width: 10rpx; height: 10rpx; border-radius: 50%;
-  background: #FF8E8E; box-shadow: 0 0 10rpx rgba(255, 142, 142, .8);
+  background: #D8453C; box-shadow: 0 0 10rpx rgba(255, 142, 142, .8);
 }
-.login-bar-text { font-size: 21rpx; color: #E8A9A9; }
+.login-bar-text { font-size: 21rpx; color: #D8453C; }
 
 .rev-card {
   display: flex; align-items: center;
   margin-top: 18rpx; padding: 24rpx 24rpx;
   border-radius: 24rpx;
-  background: linear-gradient(140deg, rgba(126, 102, 255, 0.14), rgba(255, 255, 255, 0.03));
+  background: linear-gradient(140deg, rgba(126, 102, 255, 0.14), rgba(22, 35, 58, 0.03));
   border: 1rpx solid rgba(126, 102, 255, 0.26);
 }
 .rev-left { flex: 1; min-width: 0; }
-.rev-label { font-size: 27rpx; font-weight: 600; color: #E6E1FF; }
-.rev-sub { margin-top: 6rpx; font-size: 20rpx; color: #9C95C6; }
+.rev-label { font-size: 27rpx; font-weight: 600; color: #4A3FB0; }
+.rev-sub { margin-top: 6rpx; font-size: 20rpx; color: #6B5FC4; line-height: 1.5; }
 .rev-right { text-align: right; flex: none; }
-.rev-num { font-size: 34rpx; font-weight: 700; color: #F7E4B4; font-variant-numeric: tabular-nums; }
-.rev-more { margin-top: 4rpx; font-size: 20rpx; color: #C3B6FF; }
+.rev-num { font-size: 34rpx; font-weight: 700; color: #B4551A; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.rev-more { margin-top: 4rpx; font-size: 20rpx; color: #6B57D6; }
 
 .sec-state { display: flex; gap: 16rpx; margin-top: 6rpx; }
 .sec-item {
   flex: 1; padding: 18rpx 18rpx; border-radius: 18rpx;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1rpx solid rgba(255, 255, 255, 0.07);
+  background: rgba(22, 35, 58, 0.04);
+  border: 1rpx solid rgba(22, 35, 58, 0.07);
 }
-.sec-k { font-size: 20rpx; color: #8B95A6; }
-.sec-v { margin-top: 6rpx; font-size: 26rpx; color: #E9EEF7; }
-.sec-dev { margin-top: 12rpx; font-size: 20rpx; color: #A99260; }
-.sec-err { margin-top: 16rpx; font-size: 22rpx; color: #FF8E8E; }
+.sec-k { font-size: 20rpx; color: #8B95A5; }
+.sec-v { margin-top: 6rpx; font-size: 26rpx; color: #22314A; }
+.sec-dev { margin-top: 12rpx; font-size: 20rpx; color: #B08A4E; }
+.sec-err { margin-top: 16rpx; font-size: 22rpx; color: #D8453C; }
 
 /* —— 管理后台入口（V4.7）—— */
 .adm-entry {
@@ -302,9 +301,9 @@
   padding: 24rpx 26rpx;
   border-radius: 24rpx;
   background:
-    radial-gradient(120% 100% at 100% 0%, rgba(243, 201, 105, 0.16), rgba(243, 201, 105, 0) 62%),
-    rgba(255, 255, 255, 0.05);
-  border: 1rpx solid rgba(243, 201, 105, 0.26);
+    radial-gradient(120% 100% at 100% 0%, rgba(232, 145, 47, 0.16), rgba(232, 145, 47, 0) 62%),
+    rgba(22, 35, 58, 0.05);
+  border: 1rpx solid rgba(232, 145, 47, 0.26);
 }
 .adm-entry-left { display: flex; align-items: center; gap: 18rpx; flex: 1; min-width: 0; }
 .adm-entry-tag {
@@ -313,9 +312,9 @@
   border-radius: 8rpx;
   font-size: 17rpx;
   letter-spacing: 2rpx;
-  color: #241705;
-  background: linear-gradient(140deg, #FFE2A6, #E9AC4C);
+  color: #6B3A0C;
+  background: linear-gradient(140deg, #FFC978, #FF9A45);
 }
-.adm-entry-title { font-size: 29rpx; font-weight: 700; color: #FFE9C0; }
-.adm-entry-sub { margin-top: 6rpx; font-size: 21rpx; color: #97A1B3; }
-.adm-entry-arrow { font-size: 34rpx; color: #F3C969; margin-left: 12rpx; }
+.adm-entry-title { font-size: 29rpx; font-weight: 700; color: #B4551A; }
+.adm-entry-sub { margin-top: 6rpx; font-size: 21rpx; color: #6E7B8E; }
+.adm-entry-arrow { font-size: 34rpx; color: #E08A22; margin-left: 12rpx; }

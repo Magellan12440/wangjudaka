@@ -204,4 +204,20 @@ App({
     this.globalData.token = '';
     return this.login();
   },
+
+  /** 主动退出：清干净本地登录态，页面负责跳登录页（不自动重登，否则等于没退） */
+  logout() {
+    try {
+      wx.removeStorageSync('token');
+      wx.removeStorageSync('tokenAt');
+    } catch (e) { /* ignore */ }
+    this.globalData.token = '';
+    this.globalData.user = null;
+    this.globalData.userId = '';
+    this.globalData.balance = 0;
+    this.globalData.loginMode = '';
+    this.globalData.profileComplete = false;
+    this.readyPromise = null;
+    return Promise.resolve();
+  },
 });
