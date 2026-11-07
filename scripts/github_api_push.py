@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.8.2: 微信登录诊断接口字段避开脱敏层（原 access_token 被替换成***看不到真因），出网失败统一翻译成可诊断错误码"
+MSG = "v4.8.3: 诊断接口字段避开脱敏层（v4.8.2 未被构建，重推）；微信出网失败翻译成可诊断错误码"
 
 
 def api(method, path, payload=None, retries=3):
