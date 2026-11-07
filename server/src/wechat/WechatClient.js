@@ -42,13 +42,34 @@ class WechatClient {
     }
   }
 
+  /**
+   * 统一出站请求：把「fetch failed」这种无用信息翻译成可诊断的原因。
+   *
+   * 为什么要做：云托管容器里网络不通时，Node 的 fetch 只抛 `TypeError: fetch failed`，
+   * 真实原因藏在 err.cause（ENOTFOUND / ETIMEDOUT / ECONNREFUSED / CERT_*）。
+   * 不把它挖出来，线上只能看到「微信登录失败」，等于没信息。
+   */
+  async #fetchJson(url, { timeout = 10000, ...opts } = {}) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(timeout), ...opts });
+      const json = await res.json().catch(() => ({}));
+      return { res, json };
+    } catch (err) {
+      const cause = err?.cause || {};
+      const code = cause.code || cause.errno || err?.name || 'UNKNOWN';
+      const host = cause.hostname || 'api.weixin.qq.com';
+      this.#audit('fetch_failed', { code, host });
+      fail(ERR.WX_API_ERROR, `连不上微信接口（${code} @ ${host}）`);
+      return null;
+    }
+  }
+
   /** 获取 access_token（缓存，提前 300s 续期） */
   async accessToken({ force = false } = {}) {
     if (!this.configured) return null;
     if (!force && this._token && Date.now() < this._token.expiresAt) return this._token.value;
     const url = `${CG}/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(config.wechat.appid)}&secret=${encodeURIComponent(config.wechat.secret)}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    const json = await res.json().catch(() => ({}));
+    const { res, json } = await this.#fetchJson(url);
     if (!res.ok || !json.access_token) {
       this.#audit('access_token_failed', { status: res.status, errcode: json.errcode });
       fail(ERR.WX_API_ERROR, `微信 access_token 获取失败（errcode ${json.errcode ?? res.status}）`);
@@ -74,14 +95,46 @@ class WechatClient {
       return { openid, unionid: null, sessionKey: null, mode: 'mock' };
     }
     const url = `${CG}/sns/jscode2session?appid=${encodeURIComponent(config.wechat.appid)}&secret=${encodeURIComponent(config.wechat.secret)}&js_code=${encodeURIComponent(code)}&grant_type=authorization_code`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    const json = await res.json().catch(() => ({}));
+    const { res, json } = await this.#fetchJson(url);
     if (!res.ok || json.errcode) {
       this.#audit('code2session_failed', { status: res.status, errcode: json.errcode });
-      fail(ERR.WX_AUTH_FAILED, `微信登录失败（errcode ${json.errcode ?? res.status}）`);
+      fail(ERR.WX_AUTH_FAILED, `微信登录失败（errcode ${json.errcode ?? res.status}${json.errmsg ? ` ${json.errmsg}` : ''}）`);
     }
     this.#audit('code2session', { ok: true });
     return { openid: json.openid, unionid: json.unionid ?? null, sessionKey: json.session_key ?? null, mode: 'live' };
+  }
+
+  /**
+   * 连通性自检（运维用）：真的去敲一次微信接口，而不是只看「配没配」。
+   *
+   * access_token 拿不到 → 多半是 appid/secret 不对或出网被拦；
+   * access_token 拿得到但 jscode2session 连不上 → 出网/证书问题；
+   * 两者都通但返回 errcode → 业务原因（如 code 已用过、AppID 与小程序不匹配）。
+   * 返回里绝不含 secret / token 原文。
+   */
+  async probe() {
+    const out = { configured: this.configured, mode: this.mode };
+    if (!this.configured) {
+      out.hint = '未配置 WX_APPID / WX_SECRET，微信能力处于 mock';
+      return out;
+    }
+    try {
+      const token = await this.accessToken({ force: true });
+      out.access_token = { ok: Boolean(token), len: token ? String(token).length : 0 };
+    } catch (e) {
+      out.access_token = { ok: false, error: e.message };
+      return out; // 连不上就不必继续测第二条链路了
+    }
+    try {
+      const url = `${CG}/sns/jscode2session?appid=${encodeURIComponent(config.wechat.appid)}`
+        + `&secret=${encodeURIComponent(config.wechat.secret)}&js_code=DIAG_INVALID_CODE&grant_type=authorization_code`;
+      const { res, json } = await this.#fetchJson(url);
+      // 网络通就会拿到业务错误码（40029 code 无效 / 40163 code 已使用），这本身就是「通」的证据
+      out.code2session = { ok: true, http: res.status, errcode: json.errcode ?? 0, errmsg: json.errmsg ?? '' };
+    } catch (e) {
+      out.code2session = { ok: false, error: e.message };
+    }
+    return out;
   }
 
   /**

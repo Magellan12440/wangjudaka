@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "docs+tooling: 纠正云托管 OpenAPI 参数结论（FlowRatio/PolicyThreshold 为必填、CodeDetail 不可传、EnvParams 只能控制台改）；补 build_failed / deploy_failed 排错顺序"
+MSG = "v4.8.1: 支持自定义集数(1-200)与单集时长(15-600s)并以显式集数贯穿报价/剧本/制片；视频模型从2个扩到4个（新增Seedance 2.5 动漫 / 2.5 首尾帧，价格取自上游 pricing 接口）；新增微信/短信登录诊断接口与出网错误可视化"
 
 
 def api(method, path, payload=None, retries=3):

@@ -211,13 +211,26 @@
       <view class="card mt16">
         <view class="field-label"><text>剧集数量</text><text class="opt">共 {{episodeCount}} 集</text></view>
         <view class="chips">
-          <view wx:for="{{episodeCountOpts}}" wx:key="*this" class="chip {{episodeCount === item ? 'on' : ''}}" data-field="episodeCount" data-value="{{item}}" bindtap="pick">{{item}} 集</view>
+          <view wx:for="{{episodeCountOpts}}" wx:key="*this" class="chip {{!countCustom && episodeCount === item ? 'on' : ''}}" data-field="episodeCount" data-value="{{item}}" bindtap="pick">{{item}} 集</view>
+          <view class="chip {{countCustom ? 'on' : ''}}" data-field="episodeCount" data-value="custom" bindtap="pick">自定义</view>
+        </view>
+        <view wx:if="{{countCustom}}" class="custom-row">
+          <input class="input custom-num" type="number" value="{{countInput}}" bindinput="onCountInput" bindblur="onCountBlur" placeholder="1 - 200" placeholder-class="input-ph" />
+          <text class="custom-unit">集</text>
+          <text class="custom-tip">1-200 集</text>
         </view>
 
         <view class="field-label mt24"><text>单集时长</text><text class="opt">{{episodeSec}} 秒</text></view>
         <view class="chips">
-          <view wx:for="{{episodeSecOpts}}" wx:key="*this" class="chip {{episodeSec === item ? 'on' : ''}}" data-field="episodeSec" data-value="{{item}}" bindtap="pick">{{item}}s</view>
+          <view wx:for="{{episodeSecOpts}}" wx:key="*this" class="chip {{!secCustom && episodeSec === item ? 'on' : ''}}" data-field="episodeSec" data-value="{{item}}" bindtap="pick">{{item}}s</view>
+          <view class="chip {{secCustom ? 'on' : ''}}" data-field="episodeSec" data-value="custom" bindtap="pick">自定义</view>
         </view>
+        <view wx:if="{{secCustom}}" class="custom-row">
+          <input class="input custom-num" type="number" value="{{secInput}}" bindinput="onSecInput" bindblur="onSecBlur" placeholder="15 - 600" placeholder-class="input-ph" />
+          <text class="custom-unit">秒</text>
+          <text class="custom-tip">15-600 秒，约 {{episodeSec >= 60 ? (episodeSec / 60) : episodeSec}}{{episodeSec >= 60 ? ' 分钟' : ' 秒'}}</text>
+        </view>
+        <view class="custom-sum">合计约 {{totalMinutesText}}</view>
 
         <view class="field-label mt24"><text>成片形态</text><text class="opt">影响成本</text></view>
         <view class="type-list">

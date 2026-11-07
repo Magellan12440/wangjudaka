@@ -474,7 +474,9 @@ export const routes = [
       const plan = db.findOne('director_plans', (x) => x.project_id === p.id);
       const gens = db.find('generations', (g) => g.project_id === p.id);
       const episodes = plan?.script?.episodes?.length
-        ?? Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90)));
+        ?? (Number(spec.episode_count) >= 1
+          ? Math.min(200, Math.floor(Number(spec.episode_count)))
+          : Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90))));
       const shots = plan?.storyboard?.stats?.shots ?? 0;
       const credits = gens.reduce((a, g) => a + (Number(g.actual_credits) || 0), 0) || (run?.total_credits ?? 0);
       const prog = runProgress(run);
@@ -1551,6 +1553,22 @@ export const routes = [
   ['POST', '/api/admin/login', async ({ body }) => adminConsole.login(body ?? {})],
 
   // —— 管理员后台（V3.6）：X-Admin-Token 或 role=admin 的登录态，二者其一 ——
+  // —— 运维诊断（V4.8.1）：微信登录到底卡在哪一环，别靠猜 ——
+  ['GET', '/api/admin/diag/wechat', async ({ req }) => {
+    adminConsole.assertAdmin(req);
+    return wechatClient.probe();
+  }],
+  ['GET', '/api/admin/diag/sms', async ({ req }) => {
+    adminConsole.assertAdmin(req);
+    return {
+      provider: config.sms?.provider || '',
+      signName: config.sms?.signName || '',
+      configured: Boolean(config.sms?.provider),
+      hint: config.sms?.provider
+        ? '已配置短信服务商'
+        : '未配置 SMS_PROVIDER，手机验证码登录不可用（只能微信登录/密码登录）',
+    };
+  }],
   ['GET', '/api/admin/stats', async ({ req }) => {
     adminConsole.assertAdmin(req);
     return adminConsole.stats();

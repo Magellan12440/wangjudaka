@@ -313,3 +313,24 @@
   background: rgba(243, 201, 105, 0.12);
   font-variant-numeric: tabular-nums;
 }
+
+/* —— 自定义集数 / 单集时长（V4.8.1）—— */
+.custom-row {
+  display: flex; align-items: center;
+  margin-top: 6rpx; padding: 0 4rpx;
+}
+.custom-num {
+  width: 190rpx; text-align: center;
+  padding: 14rpx 16rpx; font-size: 28rpx;
+}
+.custom-unit {
+  margin-left: 14rpx; font-size: 24rpx; color: #9AA5B8;
+}
+.custom-tip {
+  margin-left: auto; font-size: 21rpx; color: #6B7688;
+}
+.custom-sum {
+  margin-top: 18rpx; padding-top: 16rpx;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.06);
+  font-size: 22rpx; color: #8C97A8;
+}
