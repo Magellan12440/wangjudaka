@@ -203,6 +203,9 @@
   border-top: 1rpx solid rgba(255, 255, 255, 0.06);
 }
 .about-row .tiny { max-width: 60%; text-align: right; line-height: 1.5; }
+/* 网络自检结果：正常金、失败红，一眼可辨 */
+.about-row .net-good { color: #F3C969; }
+.about-row .net-bad { color: #FF8E8E; }
 
 /* 兑换输入：给 input 一个呼吸位 */
 .input-wrap { margin-top: 6rpx; }

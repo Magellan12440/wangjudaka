@@ -37,6 +37,7 @@ import tryServeStatic, { staticStatus } from './static.js';
 import tryServeMedia from './media.js';
 import { parseMultipart, readRawBody } from './multipart.js';
 import materialService from '../assets/MaterialService.js';
+import objectStore from '../storage/ObjectStore.js';
 import authService from '../auth/AuthService.js';
 import { resolveScope, resolveOwnership } from '../auth/scope.js';
 import * as relayRuntime from '../relay/RelayRuntime.js';
@@ -361,6 +362,7 @@ export const routes = [
       env: config.server.env,
       uptime_sec: Math.round(process.uptime()),
       relay: relayHealthSummary(),
+      storage: objectStore.status(),
       seeds: v.counts,
       // 种子不全时仍返回 200（否则容器会被判不健康反复重启，掩盖真实原因），
       // 但把诚实状态和缺失清单直接暴露出来，线上一眼可见。
@@ -1033,11 +1035,29 @@ export const routes = [
           bizType: 'material_file', bizId: p.id, scene: 1,
         });
       }
-      items.push(materialService.addFile({
+      items.push(await materialService.addFile({
         projectId: p.id, userId: p.user_id, filename: f.filename, mime: f.mime, buffer: f.data, note,
       }));
     }
     return { items, stats: materialService.stats(p.id) };
+  }],
+  /**
+   * 云存储直传登记（V4.8）。
+   * 小程序用 wx.cloud.uploadFile 把文件经微信内部链路直接放进云存储（不受服务器域名限制、
+   * 也绕开 callContainer 100KiB 的请求体上限），这里只负责「认领」并把它记成项目素材。
+   */
+  ['POST', '/api/projects/:id/materials/cloud', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const item = await materialService.addCloudFile({
+      projectId: p.id,
+      userId: p.user_id,
+      fileId: body.file_id,
+      filename: body.filename,
+      mime: body.mime,
+      note: body.note,
+      size: body.size,
+    });
+    return { item, stats: materialService.stats(p.id) };
   }],
   ['POST', '/api/projects/:id/materials/:materialId/remove', async ({ params, req }) => {
     projectOf(req, params.id);

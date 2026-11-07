@@ -11,13 +11,13 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { db } from '../store/db.js';
 import { config } from '../config/env.js';
 import { fail, ERR } from '../core/errors.js';
 import { newId, nowIso } from '../core/util.js';
 import { logger } from '../core/redact.js';
 import { MEDIA_ROOT } from '../api/media.js';
+import objectStore from '../storage/ObjectStore.js';
 import { zipBuffer } from '../util/zip.js';
 import seeds from '../seeds/loader.js';
 import editService, { normalizeEpisodeNo } from '../pipeline/EditService.js';
@@ -27,16 +27,31 @@ import { shellService } from '../shell/ShellService.js';
 
 const PROJECTS = 'projects';
 
-function mediaFile(url) {
+/**
+ * 读取媒体内容（V4.8）。
+ * 本地 `/media/<name>` 直接读盘；云存储 `cloud://` 先换临时链接再回源下载。
+ * 返回 { buf, ext } 或 null —— 拿不到就当成「素材缺失」，不塞空文件进包。
+ */
+async function readMedia(url) {
   const s = String(url ?? '');
-  const m = s.match(/^\/media\/([A-Za-z0-9._-]+)$/);
-  if (!m) return null;
-  const p = path.join(MEDIA_ROOT, m[1]);
-  try {
-    return fs.statSync(p).isFile() ? p : null;
-  } catch {
-    return null;
+  if (!s) return null;
+  if (s.startsWith('/media/')) {
+    const m = s.match(/^\/media\/([A-Za-z0-9._-]+)$/);
+    if (!m) return null;
+    const p = path.join(MEDIA_ROOT, m[1]);
+    try {
+      if (!fs.statSync(p).isFile()) return null;
+      return { buf: fs.readFileSync(p), ext: path.extname(m[1]).replace('.', '') };
+    } catch {
+      return null;
+    }
   }
+  if (s.startsWith('cloud://')) {
+    const buf = await objectStore.read(s);
+    if (!buf?.length) return null;
+    return { buf, ext: path.extname(s.split('?')[0]).replace('.', '') || 'bin' };
+  }
+  return null;
 }
 
 function readText(p) {
@@ -63,17 +78,18 @@ export class SubmissionPack {
     const added = [];
     const missing = [];
 
-    if (film?.url && mediaFile(film.url)) {
-      entries.push({ name: `01_成片/${ep}.mp4`, data: fs.readFileSync(mediaFile(film.url)) });
-      added.push({ key: 'video_1080p', name: `${ep}.mp4`, bytes: fs.statSync(mediaFile(film.url)).size });
+    const filmMedia = film?.url ? await readMedia(film.url) : null;
+    if (filmMedia) {
+      entries.push({ name: `01_成片/${ep}.mp4`, data: filmMedia.buf });
+      added.push({ key: 'video_1080p', name: `${ep}.mp4`, bytes: filmMedia.buf.length });
     } else {
       missing.push({ key: 'video_1080p', label: '成片 MP4', hint: '先去「成片」把这一集渲染出来' });
     }
 
     for (const [key, field, ext] of [['subtitle', 'srt_url', 'srt'], ['editsheet', 'sheet_url', 'md']]) {
-      const f = film?.[field] ? mediaFile(film[field]) : null;
-      if (f) {
-        entries.push({ name: `02_字幕与剪辑单/${ep}.${ext}`, data: fs.readFileSync(f) });
+      const med = film?.[field] ? await readMedia(film[field]) : null;
+      if (med) {
+        entries.push({ name: `02_字幕与剪辑单/${ep}.${ext}`, data: med.buf });
         added.push({ key, name: `${ep}.${ext}` });
       }
     }
@@ -87,10 +103,10 @@ export class SubmissionPack {
     ];
     let coverAdded = false;
     for (const url of coverCandidates) {
-      const f = mediaFile(url);
-      if (!f) continue;
-      const ext = path.extname(f).replace('.', '') || 'jpg';
-      entries.push({ name: `03_封面/cover.${ext}`, data: fs.readFileSync(f) });
+      const med = await readMedia(url);
+      if (!med) continue;
+      const ext = med.ext || 'jpg';
+      entries.push({ name: `03_封面/cover.${ext}`, data: med.buf });
       added.push({ key: 'cover', name: `cover.${ext}` });
       coverAdded = true;
       break;
@@ -191,12 +207,9 @@ export class SubmissionPack {
     added.push({ key: 'platform_checklist', name: '平台材料清单.md' });
     added.push({ key: 'project_info', name: '剧壳与系列信息.json' });
 
-    // 5) 打包
+    // 5) 打包：落对象存储（容器本地盘重启即丢，分发包丢了用户就交不了片）
     const buf = zipBuffer(entries);
-    const name = `${crypto.randomBytes(12).toString('hex')}.zip`;
-    const out = path.join(MEDIA_ROOT, name);
-    fs.mkdirSync(MEDIA_ROOT, { recursive: true });
-    fs.writeFileSync(out, buf);
+    const saved = await objectStore.put(buf, { ext: '.zip', mime: 'application/zip', prefix: 'packs' });
 
     const rec = db.insert('submission_packs', {
       id: newId('sub'),
@@ -205,7 +218,7 @@ export class SubmissionPack {
       episode: ep,
       platform: platform?.code ?? null,
       platform_name: platform?.name ?? null,
-      zip_url: `/media/${name}`,
+      zip_url: saved.url,
       bytes: buf.length,
       files: added,
       missing,

@@ -33,6 +33,10 @@ Page({
     redeemCode: '',
     redeeming: false,
     paying: false,
+    // 网络自检（排查「网络异常」用）
+    netText: '检测 ›',
+    netOk: null,
+    netBusy: false,
     version: config.version,
     supportEmail: config.supportEmail,
     cnyPerPoint: 1,
@@ -104,6 +108,31 @@ Page({
   goAdmin() {
     motion.haptic();
     wx.navigateTo({ url: '/pages/admin/admin' });
+  },
+
+  /** 网络自检：同时探公网与内网两条通道，告诉用户哪条能用 */
+  runNetDiag() {
+    if (this.data.netBusy) return;
+    motion.haptic();
+    this.setData({ netBusy: true, netText: '检测中…' });
+    api.netDiag().then((r) => {
+      const ok = r.ok;
+      this.setData({
+        netBusy: false,
+        netOk: ok,
+        netText: ok ? `正常 · ${r.channel} · v${r.version || '?'}` : '失败 · 两条通道都不通',
+      });
+      const line = (n, x) => `${n}：${x.ok ? `通（${x.ms}ms）` : `不通 — ${x.reason || '未知'}`}`;
+      wx.showModal({
+        title: ok ? `后端连通（走${r.channel}通道）` : '后端连不上',
+        content: `${line('公网', r.http)}\n${line('内网', r.container)}\n`
+          + (ok ? `\n版本：${r.version || '未知'}\n算力：${r.relay || '未知'}`
+            : '\n公网要通，需在小程序后台把域名加进 request 合法域名；'
+              + '内网要通，需基础库 ≥2.23.1 且云开发已开通。'),
+        showCancel: false,
+        confirmText: '知道了',
+      });
+    });
   },
 
   // —— 账号安全（V4.4）：绑手机 / 设密码 ——

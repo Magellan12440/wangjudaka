@@ -5,18 +5,16 @@
  *  - 只有「文本」会真正改写剧本 prompt（节选后注入，见 digest）；
  *  - 图片 / 视频作为视觉参考存档，并把用户备注一并写入 prompt ——
  *    当前上游是文本模型，不假装它能"看懂"画面；
- *  - 所有文件落在 DATA_DIR/uploads，文件名 24 位随机，URL 不可猜；
+ *  - 二进制素材落对象存储（云端 cloud:// fileID，未配置微信凭据时降级本地 /media/<name>），
+ *    文件名 24 位随机，URL 不可猜；容器本地只作兜底，重启会丢；
  *  - 单项目有条数与体积上限，避免 JSON 库被撑爆。
  */
-import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
-import { config } from '../config/env.js';
 import { db } from '../store/db.js';
 import { newId, nowIso } from '../core/util.js';
 import { fail, ERR } from '../core/errors.js';
 import { extractDocxText } from './docx.js';
-import { MEDIA_ROOT } from '../api/media.js';
+import objectStore, { cloudEnvId } from '../storage/ObjectStore.js';
 
 const COL = 'materials';
 
@@ -50,10 +48,6 @@ function kindOf(mime, filename) {
   if (mime.startsWith('text/') || EXT.text.includes(ext)) return 'text';
   if (ext === '.docx' || mime.includes('officedocument.wordprocessingml')) return 'docx';
   return null;
-}
-
-function storedName(ext) {
-  return `${crypto.randomBytes(12).toString('hex')}${ext}`;
 }
 
 function safeName(name) {
@@ -121,7 +115,7 @@ export class MaterialService {
   }
 
   /** 二进制素材（图片 / 视频 / 音频 / txt / docx） */
-  addFile({ projectId, userId, filename, mime = '', buffer, note = '' }) {
+  async addFile({ projectId, userId, filename, mime = '', buffer, note = '' }) {
     if (!buffer?.length) fail(ERR.MATERIAL_EMPTY, '文件为空');
     const kind = kindOf(String(mime).toLowerCase(), filename);
     if (!kind) {
@@ -150,9 +144,7 @@ export class MaterialService {
     const ext = extOf(filename) || {
       image: '.jpg', video: '.mp4', audio: '.mp3',
     }[kind];
-    const stored = storedName(ext);
-    fs.mkdirSync(MEDIA_ROOT, { recursive: true });
-    fs.writeFileSync(path.join(MEDIA_ROOT, stored), buffer);
+    const saved = await objectStore.put(buffer, { ext, mime: mime || 'application/octet-stream' });
 
     const rec = db.insert(COL, {
       id: newId('mat'),
@@ -164,22 +156,84 @@ export class MaterialService {
       source: 'upload',
       mime: mime || 'application/octet-stream',
       size: buffer.length,
-      file: stored,
-      url: `/media/${stored}`,
+      file: saved.provider === 'local' ? saved.file : null,
+      url: saved.url,
+      storage: saved.provider,
       created_at: nowIso(),
     });
     return this.#view(rec);
   }
 
-  remove(projectId, id) {
-    const m = this.get(projectId, id);
-    if (m.file) {
-      try {
-        fs.unlinkSync(path.join(MEDIA_ROOT, m.file));
-      } catch { /* 文件已不在，忽略 */ }
+  /**
+   * 登记「小程序直传云存储」的素材（V4.8）。
+   *
+   * 为什么需要这条：`wx.uploadFile` 走公网，必须过 uploadFile 合法域名，
+   * 而云托管默认域名配不进白名单；`wx.cloud.uploadFile` 走微信内部链路，
+   * 不受域名限制，但文件直接进了云存储，后端只拿到 fileID。
+   *
+   * 安全性：只接受**本环境**的 fileID，并且回源 HEAD 核实文件真实存在与大小，
+   * 不信任前端自报的 size（否则可以绕开体积上限）。
+   */
+  async addCloudFile({ projectId, userId, fileId, filename, mime = '', note = '', size = 0 }) {
+    const id = String(fileId || '');
+    const env = cloudEnvId();
+    if (!id.startsWith('cloud://')) fail(ERR.MATERIAL_UNSUPPORTED, '云文件标识不合法');
+    if (!env) fail(ERR.MATERIAL_UNSUPPORTED, '服务端未配置云开发环境，无法接收直传文件');
+    // cloud://<env>.<bucket>/<path>：env 段必须一致，防止引用别人环境的对象
+    const head = id.slice('cloud://'.length).split('/')[0];
+    if (!head.startsWith(`${env}.`)) fail(ERR.MATERIAL_UNSUPPORTED, '云文件不属于当前环境');
+
+    const kind = kindOf(String(mime).toLowerCase(), filename);
+    if (!kind) fail(ERR.MATERIAL_UNSUPPORTED, '暂不支持该格式：请上传图片、视频、音频、.txt 或 .docx');
+
+    const limit = MAX_BYTES[kind] ?? MAX_BYTES.image;
+    const real = await objectStore.headSize(id);
+    const bytes = real || Number(size) || 0;
+    if (!bytes) fail(ERR.MATERIAL_EMPTY, '云文件读取失败，请重新上传');
+    if (bytes > limit) fail(ERR.MATERIAL_TOO_LARGE, `文件超过 ${Math.round(limit / 1024 / 1024)}MB 限制`);
+
+    // 文本 / docx 要解析正文：先取回内容，再走普通入库（不保留二进制）
+    if (kind === 'text' || kind === 'docx') {
+      const buf = await objectStore.read(id);
+      if (!buf?.length) fail(ERR.MATERIAL_EMPTY, '云文件下载失败，请重新上传');
+      return this.addFile({ projectId, userId, filename, mime, buffer: buf, note });
     }
+
+    this.#assertQuota(projectId, kind);
+    const rec = db.insert(COL, {
+      id: newId('mat'),
+      project_id: projectId,
+      user_id: userId ?? null,
+      kind,
+      name: safeName(filename),
+      note: String(note ?? '').slice(0, 300),
+      source: 'upload',
+      mime: mime || 'application/octet-stream',
+      size: bytes,
+      file: null,
+      url: id,
+      storage: 'cloud',
+      created_at: nowIso(),
+    });
+    return this.#view(rec);
+  }
+
+  /** 删除素材（含云存储/本地文件） */
+  async remove(projectId, id) {
+    const m = this.get(projectId, id);
+    if (m.url) await objectStore.remove(m.url);
     db.remove(COL, m.id);
     return { removed: true, id: m.id };
+  }
+
+  /** 项目删除/清空时清理文件（当前版本不提供项目删除，保留给运维脚本） */
+  async purge(projectId) {
+    const rows = db.find(COL, (m) => m.project_id === projectId);
+    for (const m of rows) {
+      if (m.url) await objectStore.remove(m.url);
+      db.remove(COL, m.id);
+    }
+    return rows.length;
   }
 
   /**
@@ -220,18 +274,6 @@ export class MaterialService {
       }
     }
     return { text: blocks.join('\n\n'), used, chars: usedChars };
-  }
-
-  /** 项目删除/清空时清理文件（当前版本不提供项目删除，保留给运维脚本） */
-  purge(projectId) {
-    const rows = db.find(COL, (m) => m.project_id === projectId);
-    for (const m of rows) {
-      if (m.file) {
-        try { fs.unlinkSync(path.join(MEDIA_ROOT, m.file)); } catch { /* ignore */ }
-      }
-      db.remove(COL, m.id);
-    }
-    return rows.length;
   }
 
   #assertQuota(projectId, kind) {

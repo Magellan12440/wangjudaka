@@ -137,6 +137,30 @@ export const config = {
     aiLabelEnabled: bool('AI_LABEL_ENABLED', true),
     aiLabelText: str('AI_LABEL_TEXT', '本作品由人工智能生成'),
   },
+  /**
+   * 对象存储（V4.8）：把素材与产物从「容器本地磁盘」搬到云存储。
+   *
+   * 云托管容器的文件系统是临时的，缩容/重启即还原，本地存的素材会全部消失；
+   * 且小程序拉取 `/media/*` 要过 downloadFile 合法域名，而云托管默认域名配不进去。
+   * 所以生产必须落云存储。
+   *
+   * 通道：微信云开发存储（/tcb/uploadfile 签名 + COS 直传），需要 WX_APPID/WX_SECRET；
+   * 未配置时自动降级本地并显式标注 provider:'local'（绝不假装已上云）。
+   */
+  storage: {
+    /** auto = 有微信凭据就用云存储，否则本地；cloud = 强制云（失败即报错）；local = 强制本地 */
+    provider: str('STORAGE_PROVIDER', 'auto'),
+    /** 云开发环境 ID。留空则从 COS_BUCKET（7072-<env>-<appid>）反推 */
+    env: str('TCB_ENV', ''),
+    bucket: str('COS_BUCKET', ''),
+    region: str('COS_REGION', ''),
+    /** 对象键前缀，最终 key = <prefix>/<yyyy>/<mm>/<24位hex><ext> */
+    prefix: str('STORAGE_PREFIX', 'media'),
+    /** 临时下载链接有效期（秒） */
+    maxAge: num('STORAGE_MAX_AGE', 7200),
+    /** 单文件上限（字节）：与素材上限保持同一量级 */
+    maxBytes: num('STORAGE_MAX_BYTES', 48 * 1024 * 1024),
+  },
   /** 一致性比对服务（阶段 H / P0-1）：未配置则不注册 provider，恒 degraded */
   qc: {
     compareEndpoint: str('QC_COMPARE_ENDPOINT', ''),

@@ -1,6 +1,6 @@
 {
   "name": "wangju-daka-server",
-  "version": "4.7.1",
+  "version": "4.8.0",
   "private": true,
   "type": "module",
   "description": "网剧大咖 · 服务端编排内核（零第三方运行时依赖，Node >= 22）",
@@ -29,7 +29,8 @@
     "mini:upload": "node scripts/mini_upload.js upload",
     "pack": "node scripts/pack_release.js",
     "deploy:check": "node scripts/check_deploy.js",
-    "live:check": "node scripts/check_live.js"
+    "live:check": "node scripts/check_live.js",
+    "storage:check": "node scripts/storage_selftest.js"
   },
   "devDependencies": {
     "miniprogram-ci": "^2.1.31"

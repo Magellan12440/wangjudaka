@@ -108,31 +108,41 @@ test('空文本被拒；超长文本被拒', () => {
   );
 });
 
-test('图片素材：落盘、URL 可解析、删除时清理文件', () => {
+test('图片素材：落盘、URL 可解析、删除时清理文件', async () => {
   const pid = mkProject();
   const buf = Buffer.from('89504e470d0a1a0a-fake-png', 'hex');
-  const m = materialService.addFile({ projectId: pid, filename: '女主.png', mime: 'image/png', buffer: buf, note: '参考造型' });
+  const m = await materialService.addFile({ projectId: pid, filename: '女主.png', mime: 'image/png', buffer: buf, note: '参考造型' });
   assert.equal(m.kind, 'image');
+  // 测试环境没有微信凭据 → 落本地 /media，且 provider 必须如实标注 local
   assert.match(m.url, /^\/media\/[a-f0-9]{24}\.png$/);
+  assert.equal(m.storage, 'local');
   const file = resolveMediaPath(m.url.replace('/media/', ''));
   assert.ok(file && fs.existsSync(file), '素材文件应真实落盘');
   assert.equal(mediaMime(file), 'image/png');
   assert.equal(m.note, '参考造型');
 
-  materialService.remove(pid, m.id);
+  await materialService.remove(pid, m.id);
   assert.equal(fs.existsSync(file), false, '删除素材应同时删文件');
   assert.equal(materialService.stats(pid).total, 0);
 });
 
-test('不支持的格式被拒绝（PDF 不做假装解析）', () => {
+test('不支持的格式被拒绝（PDF 不做假装解析）', async () => {
   const pid = mkProject();
-  assert.throws(
+  await assert.rejects(
     () => materialService.addFile({ projectId: pid, filename: '投稿.pdf', mime: 'application/pdf', buffer: Buffer.from('%PDF-1.4') }),
     /暂不支持/,
   );
 });
 
-test('docx：零依赖抽取正文并转成文本素材', () => {
+test('云存储直传登记：拒绝跨环境 fileID 与文本类', async () => {
+  const pid = mkProject();
+  await assert.rejects(
+    () => materialService.addCloudFile({ projectId: pid, fileId: 'https://evil.example.com/x.png', filename: 'x.png', mime: 'image/png' }),
+    /不合法/,
+  );
+});
+
+test('docx：零依赖抽取正文并转成文本素材', async () => {
   const xml = '<?xml version="1.0"?><w:document><w:body>'
     + '<w:p><w:r><w:t>第一场 雨夜</w:t></w:r></w:p>'
     + '<w:p><w:r><w:t>林川推开门，雨水顺着伞骨落下。</w:t></w:r><w:r><w:tab/><w:t>他没有说话。</w:t></w:r></w:p>'
@@ -144,7 +154,7 @@ test('docx：零依赖抽取正文并转成文本素材', () => {
   assert.match(text, /\t他没有说话/);
 
   const pid = mkProject();
-  const m = materialService.addFile({ projectId: pid, filename: '原著.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: zip });
+  const m = await materialService.addFile({ projectId: pid, filename: '原著.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: zip });
   assert.equal(m.kind, 'text');
   assert.equal(m.source, 'docx');
   assert.match(m.preview, /林川推开门/);

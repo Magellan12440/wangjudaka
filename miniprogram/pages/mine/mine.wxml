@@ -337,6 +337,10 @@
         <text class="tiny">内容标识</text>
         <text class="tiny">AI 生成 · 已添加显式与隐式标识</text>
       </view>
+      <view class="about-row tap" hover-class="tap-on" bindtap="runNetDiag">
+        <text class="tiny">网络自检</text>
+        <text class="tiny {{netOk === false ? 'net-bad' : (netOk ? 'net-good' : '')}}">{{netText}}</text>
+      </view>
       <view class="about-row">
         <text class="tiny">登录模式</text>
         <text class="tiny">{{loginMode === 'live' ? '微信开放能力已接入' : '本地体验模式（未配置微信凭据）'}}</text>

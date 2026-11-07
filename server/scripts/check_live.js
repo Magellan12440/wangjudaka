@@ -25,10 +25,20 @@ const pass = (name, detail = '') => results.push({ level: 'PASS', name, detail }
 const warn = (name, detail = '') => results.push({ level: 'WARN', name, detail });
 const fail = (name, detail = '') => results.push({ level: 'FAIL', name, detail });
 
+/** 体检用的登录态；拿不到就退化成匿名检查（鉴权类项目记 WARN 而不是 FAIL） */
+let SESSION = null;
+let SESSION_UID = null;
+
 async function api(path, opts = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: opts.method ?? 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      // V4.7.1：账号体系上线后，/api/projects/:id/edit 这类接口只认登录态，
+      // 只带 body.userId 会 401。体检必须先登录，再把 token 挂到每个请求上，
+      // 否则会把「脚本没登录」误报成「服务端挂了」。
+      ...(SESSION ? { Authorization: `Bearer ${SESSION}` } : {}),
+    },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     signal: AbortSignal.timeout(opts.timeout ?? 60000),
   });
@@ -87,12 +97,31 @@ async function main() {
   if (platforms.length && !noUrl.length) pass('平台登录入口', '全部带 creator_url');
   else if (noUrl.length) warn('平台登录入口', `缺 creator_url：${noUrl.join(',')}`);
 
+  // 4.5) 登录态：后面的写链路与剪辑单都要求 Bearer token
+  try {
+    const lg = await api('/api/auth/login', {
+      method: 'POST',
+      body: { code: `live_check_${Date.now()}`, nickname: '线上体检' },
+      timeout: 25000,
+    });
+    const d = lg.json?.data;
+    if (lg.status === 200 && d?.token) {
+      SESSION = d.token;
+      SESSION_UID = d.user?.id ?? null;
+      pass('登录态', `mode=${d.mode} uid=${SESSION_UID} is_admin=${d.user?.is_admin === true}`);
+    } else {
+      warn('登录态', `HTTP ${lg.status} ${lg.json?.code ?? ''} —— 无法登录，鉴权类检查将跳过`);
+    }
+  } catch (e) {
+    warn('登录态', `登录失败：${e.message}，鉴权类检查将跳过`);
+  }
+
   // 5) 写链路：建一个 smoke 项目
-  const userId = `smoke_check_${Date.now()}`;
+  const userId = SESSION_UID ?? `smoke_check_${Date.now()}`;
   const cr = await api('/api/projects', {
     method: 'POST',
     body: {
-      userId,
+      ...(SESSION_UID ? {} : { userId }),
       title: '[smoke] 线上体检',
       styleCode: 'STY-GUFENG',
       aspect: '9:16',
@@ -126,6 +155,9 @@ async function main() {
       if (d.ok === false && d.station !== 'need_storyboard' && (d.missing_shots ?? []).length === 0) {
         warn('剪辑单阻断', `无缺失素材却 ok=false：${JSON.stringify((d.errors ?? []).slice(0, 2))}`);
       }
+    } else if (ed.status === 401 && !SESSION) {
+      // 没登录态时 401 是预期结果，不能算服务端回归
+      warn('剪辑单接口', `HTTP 401 ${ed.json?.code ?? ''} —— 本次没有登录态，跳过`);
     } else {
       fail('剪辑单接口', `HTTP ${ed.status} ${ed.json?.code ?? ''}`);
     }
@@ -133,7 +165,7 @@ async function main() {
     // 7) 分发链路：建单 + 四步状态机
     const dist = await api('/api/distribution', {
       method: 'POST',
-      body: { projectId: proj.id, episodeNo: 'E01', platformCode: 'PLT-HONGGUO', userId },
+      body: { projectId: proj.id, episodeNo: 'E01', platformCode: 'PLT-HONGGUO', ...(SESSION ? {} : { userId }) },
     });
     const distId = dist.json?.data?.id;
     if (dist.status === 200 && distId) {
@@ -142,6 +174,7 @@ async function main() {
       const row = (list.json?.data ?? []).find((x) => x.id === distId);
       const steps = row?.steps ?? [];
       if (steps.length === 4) pass('分发四步', steps.map((s) => `${s.no}${s.label}:${s.state}`).join(' → '));
+      else if (!row) warn('分发四步', `列表里找不到刚建的 ${distId}（未登录时按 userId 过滤，列表可能为空）`);
       else warn('分发四步', `steps 数量=${steps.length}（期望 4）`);
     } else {
       fail('分发建单', `HTTP ${dist.status} ${dist.json?.code ?? ''} ${dist.json?.message ?? ''}`);

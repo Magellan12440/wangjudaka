@@ -358,7 +358,8 @@ Page({
   loadMaterials() {
     return api.materials(this.data.projectId)
       .then((d) => {
-        const items = (d.items || []).map((m) => ({
+        const raw = d.items || [];
+        const items = raw.map((m) => ({
           ...m,
           kindText: KIND_TEXT[m.kind] || '素材',
           icon: KIND_ICON[m.kind] || '素',
@@ -367,7 +368,17 @@ Page({
           thumb: m.kind === 'image' || m.kind === 'video' ? api.mediaUrl(m.url) : '',
           isImage: m.kind === 'image',
         }));
-        this.setData({ materials: items, materialStats: d.stats || this.data.materialStats });
+        // 云存储的素材是 cloud:// fileID，需换临时链接才能渲染（不受域名白名单限制）
+        const need = items.filter((it) => it.thumb.startsWith('cloud://')).map((it) => it.thumb);
+        const applyItems = (map) => {
+          const fixed = items.map((it) => (map[it.thumb] ? { ...it, thumb: map[it.thumb] } : it));
+          this.setData({ materials: fixed, materialStats: d.stats || this.data.materialStats });
+        };
+        if (!need.length) {
+          applyItems({});
+          return null;
+        }
+        return api.resolveMedia(need).then(applyItems).catch(() => applyItems({}));
       })
       .catch(() => {});
   },
@@ -737,11 +748,18 @@ Page({
     const m = this.data.materials[e.currentTarget.dataset.index];
     if (!m) return;
     if (m.kind === 'image') {
-      wx.previewImage({ urls: [m.thumb || api.mediaUrl(m.url)], current: m.thumb || api.mediaUrl(m.url) });
+      const src = m.thumb || m.url;
+      api.resolveMedia([src]).then((map) => {
+        const u = map[src] || api.mediaUrl(src);
+        if (u) wx.previewImage({ urls: [u], current: u });
+      });
       return;
     }
     if (m.kind === 'video') {
-      wx.previewMedia({ sources: [{ url: api.mediaUrl(m.url), type: 'video' }] });
+      api.resolveMedia([m.url]).then((map) => {
+        const u = map[m.url] || api.mediaUrl(m.url);
+        if (u) wx.previewMedia({ sources: [{ url: u, type: 'video' }] });
+      });
       return;
     }
     if (m.preview) {

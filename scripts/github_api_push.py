@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.7.1: 重建发版（4.7.0 构建机推送镜像时网络失败 build_failed，代码内容与前版一致，仅版本号递增以便验证上线）"
+MSG = "v4.8.0: 接入云存储（素材/产物落微信云开发存储桶，COS 直传 + 临时链接渲染）；修 STORAGE_PROVIDER 无凭据时误走云通道导致上传报错"
 
 
 def api(method, path, payload=None, retries=3):

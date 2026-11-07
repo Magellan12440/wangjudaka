@@ -1,8 +1,16 @@
 // 统一请求封装：只与自有后端通信，绝不接触上游算力凭据。
 // token 自动注入 Authorization；401 自动重登并重试一次；所有错误带 code 供页面分支处理。
+const config = require('../config.js');
+
 function base() {
-  const app = getApp();
-  return (app && app.globalData && app.globalData.baseUrl) || 'http://127.0.0.1:8787';
+  // 优先用 App 上算好的地址；拿不到时（页面先于 App 实例化、或 Node 自测）
+  // 必须回退到 config.baseUrl，绝不能回退到 127.0.0.1 —— 手机上的 127.0.0.1 是手机自己。
+  let fromApp = '';
+  try {
+    const app = getApp();
+    fromApp = (app && app.globalData && app.globalData.baseUrl) || '';
+  } catch (e) { /* 非小程序环境 */ }
+  return fromApp || config.baseUrl;
 }
 
 function token() {
@@ -13,9 +21,107 @@ function token() {
   }
 }
 
-function request(opts) {
-  const { url, method = 'GET', data = {}, toast = false, retry = true, timeout = 30000 } = opts;
+/** 把 wx 的 errMsg 翻成人话，供页面分支与用户判断 */
+function classify(raw) {
+  const s = String(raw || '');
+  if (/not in domain list/i.test(s)) return 'DOMAIN_NOT_ALLOWED';
+  if (/timeout/i.test(s)) return 'TIMEOUT';
+  if (/ssl|cert/i.test(s)) return 'SSL_ERROR';
+  return 'NETWORK_ERROR';
+}
+
+const CODE_TITLE = {
+  DOMAIN_NOT_ALLOWED: '域名未加入白名单',
+  TIMEOUT: '请求超时',
+  SSL_ERROR: '证书校验失败',
+  NETWORK_ERROR: '网络异常，请稍后重试',
+  NO_CLOUD: '内网通道不可用',
+};
+
+/** 两条通道的响应处理完全一致，抽出来避免逻辑漂移 */
+function handleResponse(res, opts, resolve, reject) {
+  const body = res.data || {};
+  if (body.ok) return resolve(body.data);
+  if (res.statusCode === 401 && opts.retry) {
+    const app = getApp();
+    if (app && app.relogin) {
+      return app.relogin()
+        .then(() => request({ ...opts, retry: false }))
+        .then(resolve)
+        .catch(reject);
+    }
+  }
+  if (res.statusCode === 401) {
+    try { wx.removeStorageSync('token'); } catch (e) { /* ignore */ }
+  }
+  if (opts.toast) wx.showToast({ title: body.message || '请求失败', icon: 'none' });
+  const err = new Error(body.message || '请求失败');
+  err.code = body.code || 'REQUEST_FAILED';
+  err.status = res.statusCode;
+  err.detail = body.detail || {};
+  reject(err);
+}
+
+function failWith(raw, opts, reject) {
+  const code = classify(raw);
+  const title = CODE_TITLE[code] || CODE_TITLE.NETWORK_ERROR;
+  if (opts.toast) wx.showToast({ title, icon: 'none', duration: 2500 });
+  const err = new Error(title);
+  err.code = code;
+  err.raw = raw;
+  err.baseUrl = base();
+  err.detail = { errMsg: String(raw || ''), baseUrl: base() };
+  reject(err);
+}
+
+/** GET 参数统一拼到 query 上：两条通道对 data 的处理略有差异，手动拼最可控 */
+function withQuery(url, method, data) {
+  if (method !== 'GET' || !data) return url;
+  const keys = Object.keys(data).filter((k) => data[k] !== undefined && data[k] !== null);
+  if (!keys.length) return url;
+  const qs = keys
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(String(data[k]))}`)
+    .join('&');
+  if (!qs) return url;
+  return `${url}${url.indexOf('?') >= 0 ? '&' : '?'}${qs}`;
+}
+
+/**
+ * 通道 A：小程序内网调用（wx.cloud.callContainer）。
+ * 走微信内部链路到云托管，**不受 request 合法域名约束**——云托管默认域名
+ * 根本不允许配进小程序后台的服务器域名，所以这条才是正式环境的主通道。
+ *
+ * 硬限制（官方）：timeout 最大 15s（传更大的会被忽略），请求体 ≤100KiB，返回 ≤1000KiB。
+ */
+function viaContainer(opts) {
   return new Promise((resolve, reject) => {
+    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callContainer) {
+      const err = new Error(CODE_TITLE.NO_CLOUD);
+      err.code = 'NO_CLOUD';
+      return reject(err);
+    }
+    const { url, method = 'GET', data = {}, timeout = 15000 } = opts;
+    wx.cloud.callContainer({
+      config: { env: config.cloudEnv },
+      path: withQuery(url, method, data),
+      method,
+      timeout: Math.min(Number(timeout) || 15000, 14000),
+      header: {
+        'X-WX-SERVICE': config.cloudService,
+        'Content-Type': 'application/json',
+        ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
+      },
+      data: method === 'GET' ? undefined : data,
+      success: (res) => handleResponse(res, opts, resolve, reject),
+      fail: (e) => failWith(e && e.errMsg, opts, reject),
+    });
+  });
+}
+
+/** 通道 B：公网 HTTPS（wx.request）。域名没进白名单必失败，只作本地联调与兜底。 */
+function viaHttp(opts) {
+  return new Promise((resolve, reject) => {
+    const { url, method = 'GET', data = {}, timeout = 30000 } = opts;
     wx.request({
       url: base() + url,
       method,
@@ -25,37 +131,37 @@ function request(opts) {
         'Content-Type': 'application/json',
         ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
       },
-      success: (res) => {
-        const body = res.data || {};
-        if (body.ok) return resolve(body.data);
-        if (res.statusCode === 401 && retry) {
-          const app = getApp();
-          if (app && app.relogin) {
-            return app.relogin()
-              .then(() => request({ ...opts, retry: false }))
-              .then(resolve)
-              .catch(reject);
-          }
-        }
-        if (res.statusCode === 401) {
-          try { wx.removeStorageSync('token'); } catch (e) { /* ignore */ }
-        }
-        if (toast) wx.showToast({ title: body.message || '请求失败', icon: 'none' });
-        const err = new Error(body.message || '请求失败');
-        err.code = body.code || 'REQUEST_FAILED';
-        err.status = res.statusCode;
-        err.detail = body.detail || {};
-        reject(err);
-      },
-      fail: (e) => {
-        if (toast) wx.showToast({ title: '网络异常，请稍后重试', icon: 'none' });
-        const err = new Error('网络异常，请检查网络后重试');
-        err.code = 'NETWORK_ERROR';
-        err.raw = e;
-        reject(err);
-      },
+      success: (res) => handleResponse(res, opts, resolve, reject),
+      fail: (e) => failWith(e && e.errMsg, opts, reject),
     });
   });
+}
+
+/** 本地联调（http:// 地址）时公网才是对的，其余一律先走内网 */
+function isLocalDev() {
+  return /^http:\/\//i.test(base());
+}
+
+/**
+ * 请求入口：默认先走内网通道，失败再退公网。
+ * 反过来会导致每次请求都先撞一次「域名未加白名单」，白费一次往返。
+ */
+function request(opts) {
+  const o = Object.assign({ retry: true }, opts);
+  const tryOrder = isLocalDev() ? [viaHttp, viaContainer] : [viaContainer, viaHttp];
+  const attempt = (i) => {
+    if (i >= tryOrder.length) {
+      return Promise.reject(Object.assign(new Error(CODE_TITLE.NETWORK_ERROR), { code: 'NETWORK_ERROR' }));
+    }
+    return tryOrder[i](o).catch((err) => {
+      // 业务错误（服务端有返回 4xx/5xx）不换通道，换了也一样
+      if (err && err.status && err.code !== 'DOMAIN_NOT_ALLOWED') throw err;
+      const retriable = ['DOMAIN_NOT_ALLOWED', 'NETWORK_ERROR', 'TIMEOUT', 'NO_CLOUD'].indexOf(err && err.code) >= 0;
+      if (!retriable) throw err;
+      return attempt(i + 1);
+    });
+  };
+  return attempt(0);
 }
 
 const enc = (v) => encodeURIComponent(v || '');
@@ -65,15 +171,137 @@ function mediaUrl(p) {
   const s = String(p || '');
   if (!s) return '';
   if (/^https?:\/\//.test(s) || s.startsWith('wxfile://') || s.startsWith('ttfile://')) return s;
+  // cloud:// 是云存储 fileID，不能拼域名，必须先换临时链接（见 resolveMedia）
+  if (s.startsWith('cloud://')) return s;
   return base() + (s.startsWith('/') ? s : `/${s}`);
 }
 
+// 云存储临时链接缓存：同一次会话内避免反复换链（临时链接默认 2 小时有效，这里保守存 10 分钟）
+const mediaCache = {};
+
 /**
- * 上传素材：wx.uploadFile 走 multipart，不能用普通 request。
- * 服务端会按文件类型分流（文本入库 / 图片视频落盘）。
+ * 批量把媒体标识解析成可直接渲染的 https 地址（V4.8）。
+ *
+ * 为什么需要：素材与产物现在存在云存储，服务端返回的是 cloud:// fileID。
+ * <image>/<video> 不认 fileID，必须先换临时链接；而 wx.cloud.getTempFileURL
+ * 走云开发 SDK，不受 downloadFile 合法域名限制 —— 这正好绕开云托管默认域名配不进白名单的问题。
+ *
+ * @param {string[]} urls 原始标识（cloud://、/media/x、https://）
+ * @returns {Promise<Record<string,string>>} 原标识 → 可渲染地址（失败给空串，页面显示占位）
+ */
+function resolveMedia(urls) {
+  const uniq = [...new Set((urls || []).filter((x) => typeof x === 'string' && x))];
+  const out = {};
+  const need = [];
+  const now = Date.now();
+  for (const u of uniq) {
+    if (!u.startsWith('cloud://')) {
+      out[u] = mediaUrl(u);
+      continue;
+    }
+    const hit = mediaCache[u];
+    if (hit && hit.exp > now) out[u] = hit.value;
+    else need.push(u);
+  }
+  if (!need.length) return Promise.resolve(out);
+
+  const batch = need.slice(0, 50);
+  return new Promise((resolve) => {
+    const done = (extra) => {
+      const merged = Object.assign(out, extra || {});
+      if (need.length > 50) {
+        resolveMedia(need.slice(50)).then((rest) => resolve(Object.assign(merged, rest)));
+      } else {
+        resolve(merged);
+      }
+    };
+    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.getTempFileURL) {
+      for (const u of batch) out[u] = '';
+      return done({});
+    }
+    wx.cloud.getTempFileURL({
+      fileList: batch,
+      success: (res) => {
+        for (const f of (res && res.fileList) || []) {
+          const id = f.fileID || f.fileid;
+          if (f.tempFileURL) {
+            out[id] = f.tempFileURL;
+            mediaCache[id] = { value: f.tempFileURL, exp: Date.now() + 10 * 60 * 1000 };
+          } else {
+            out[id] = '';
+          }
+        }
+        for (const u of batch) if (!(u in out)) out[u] = '';
+        done({});
+      },
+      fail: () => {
+        for (const u of batch) out[u] = '';
+        done({});
+      },
+    });
+  });
+}
+
+/** 按扩展名猜 mime：wx.cloud.uploadFile 不给 mime，服务端要靠它判类型 */
+function mimeOf(name) {
+  const ext = (String(name).match(/\.([a-z0-9]{2,5})$/i) || [])[1];
+  const map = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+    gif: 'image/gif', heic: 'image/heic', mp4: 'video/mp4', mov: 'video/quicktime',
+    m4v: 'video/x-m4v', webm: 'video/webm', mp3: 'audio/mpeg', m4a: 'audio/mp4',
+    wav: 'audio/wav', aac: 'audio/aac',
+  };
+  return map[String(ext || '').toLowerCase()] || 'application/octet-stream';
+}
+
+function randomName(ext) {
+  let s = '';
+  const chars = 'abcdef0123456789';
+  for (let i = 0; i < 24; i += 1) s += chars[Math.floor(Math.random() * 16)];
+  return `${s}${ext || '.bin'}`;
+}
+
+/**
+ * 上传素材：优先走云存储直传，失败回落普通上传。
+ *
+ * 为什么改：wx.uploadFile 走公网，必须过 uploadFile 合法域名，而云托管默认域名
+ * 配不进白名单；wx.cloud.uploadFile 走微信内部链路，不受域名限制，也没有
+ * callContainer 100KiB 的请求体上限 —— 大视频也能传。
+ *
+ * 两条路返回同一结构 { items, stats }，页面无需分支。
  */
 function uploadMaterial(projectId, filePath, note) {
-  return new Promise((resolve, reject) => {
+  const cloudFirst = () => new Promise((resolve, reject) => {
+    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.uploadFile) {
+      return reject(Object.assign(new Error('云存储不可用'), { code: 'NO_CLOUD' }));
+    }
+    const name = String(filePath || '').split('/').pop() || '素材';
+    const ext = (name.match(/\.[a-z0-9]{2,5}$/i) || ['.bin'])[0].toLowerCase();
+    const d = new Date();
+    const cloudPath = `media/${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${randomName(ext)}`;
+    wx.cloud.uploadFile({
+      cloudPath,
+      filePath,
+      success: (res) => {
+        if (!res || !res.fileID) {
+          return reject(Object.assign(new Error('云存储上传失败'), { code: 'UPLOAD_FAILED' }));
+        }
+        request({
+          url: `/api/projects/${enc(projectId)}/materials/cloud`,
+          method: 'POST',
+          data: { file_id: res.fileID, filename: name, mime: mimeOf(name), note: note || '' },
+        }).then((data) => resolve({
+          items: data.items ? data.items : [data.item],
+          stats: data.stats,
+        }), reject);
+      },
+      fail: (e) => reject(Object.assign(new Error('云存储上传失败'), {
+        code: 'CLOUD_UPLOAD_FAILED', detail: { errMsg: String((e && e.errMsg) || '') },
+      })),
+    });
+  });
+
+  const httpUpload = () => new Promise((resolve, reject) => {
     wx.uploadFile({
       url: `${base()}/api/projects/${enc(projectId)}/materials/upload`,
       filePath,
@@ -90,12 +318,22 @@ function uploadMaterial(projectId, filePath, note) {
         err.status = res.statusCode;
         reject(err);
       },
-      fail: () => {
-        const err = new Error('上传中断，请检查网络后重试');
-        err.code = 'NETWORK_ERROR';
+      fail: (e) => {
+        const raw = String((e && e.errMsg) || '');
+        const isDomain = /not in domain list/i.test(raw);
+        const err = new Error(isDomain ? '域名未加入白名单，无法上传' : '上传中断，请检查网络后重试');
+        err.code = isDomain ? 'DOMAIN_NOT_ALLOWED' : 'NETWORK_ERROR';
+        err.detail = { errMsg: raw, baseUrl: base() };
         reject(err);
       },
     });
+  });
+
+  return cloudFirst().catch((err) => {
+    // 只有「通道不可用」才降级；服务端明确拒绝（格式/超限）要如实抛给页面
+    if (err && err.status) throw err;
+    if (err && ['NO_CLOUD', 'CLOUD_UPLOAD_FAILED', 'NETWORK_ERROR'].indexOf(err.code) < 0) throw err;
+    return httpUpload();
   });
 }
 
@@ -103,6 +341,7 @@ function uploadMaterial(projectId, filePath, note) {
 module.exports = {
   request,
   mediaUrl,
+  resolveMedia,
   baseUrl: base,
 
   // —— 登录态 ——
@@ -353,4 +592,86 @@ module.exports = {
   adminProbeModels: (deep) =>
     request({ url: '/api/admin/models/probe', method: 'POST', data: { deep: deep === true }, timeout: 120000 }),
   adminRelay: () => request({ url: '/api/admin/relay' }),
+
+  /**
+   * 网络自检：把「公网通道」和「内网通道」都探一遍，直接告诉你哪条能用。
+   * 不抛异常，任何失败都转成结构化结果。
+   */
+  netDiag: () =>
+    new Promise((resolve) => {
+      const host = base();
+
+      const probeHttp = new Promise((r) => {
+        const started = Date.now();
+        wx.request({
+          url: `${host}/health`,
+          method: 'GET',
+          timeout: 12000,
+          success: (res) => {
+            const body = res.data || {};
+            const d = body.data || body;
+            r({
+              ok: res.statusCode === 200,
+              ms: Date.now() - started,
+              status: res.statusCode,
+              version: d.version || '',
+              relay: (d.relay && d.relay.mode) || '',
+              reason: res.statusCode === 200 ? '' : `HTTP ${res.statusCode}`,
+            });
+          },
+          fail: (e) => {
+            const raw = String((e && e.errMsg) || '');
+            r({
+              ok: false,
+              ms: Date.now() - started,
+              status: 0,
+              version: '',
+              relay: '',
+              reason: /not in domain list/i.test(raw) ? '域名未加入 request 合法域名'
+                : /timeout/i.test(raw) ? '请求超时'
+                  : /ssl|cert/i.test(raw) ? '证书校验失败'
+                    : (raw || '网络不可达'),
+            });
+          },
+        });
+      });
+
+      const probeContainer = new Promise((r) => {
+        if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callContainer) {
+          return r({ ok: false, reason: '未初始化云开发（基础库 < 2.23.1 或未 init）' });
+        }
+        const started = Date.now();
+        wx.cloud.callContainer({
+          config: { env: config.cloudEnv },
+          path: '/health',
+          method: 'GET',
+          timeout: 12000,
+          header: { 'X-WX-SERVICE': config.cloudService, 'Content-Type': 'application/json' },
+          success: (res) => {
+            let d = res.data;
+            if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = {}; } }
+            d = (d && d.data) || d || {};
+            r({ ok: res.statusCode === 200, ms: Date.now() - started, version: d.version || '' });
+          },
+          fail: (e) => r({ ok: false, ms: Date.now() - started, reason: String((e && e.errMsg) || '调用失败') }),
+        });
+      });
+
+      Promise.all([probeHttp, probeContainer]).then(([http, container]) => {
+        const best = http.ok ? http : (container.ok ? container : http);
+        resolve({
+          ok: http.ok || container.ok,
+          baseUrl: host,
+          ms: best.ms,
+          status: best.status || 0,
+          version: best.version || '',
+          relay: best.relay || '',
+          channel: http.ok ? '公网' : (container.ok ? '内网' : '都不通'),
+          reason: http.ok || container.ok ? ''
+            : (container.reason ? `${http.reason}；内网：${container.reason}` : http.reason),
+          http,
+          container,
+        });
+      });
+    }),
 };

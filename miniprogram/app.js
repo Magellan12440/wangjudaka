@@ -30,9 +30,53 @@ App({
 
   onLaunch(options) {
     this.initWindow();
+    this.initCloud();
     this.warnPlaceholderHost();
     this.captureInviteCode(options);
+    this.selfCheck();
     this.readyPromise = this.bootstrap();
+  },
+
+  /**
+   * 初始化云开发：仅用于「小程序内网调用」通道（wx.cloud.callContainer）。
+   * 这条通道不受 request 合法域名限制，是白名单没配时唯一的活路。
+   * 初始化失败不影响公网通道，所以整体吞掉异常。
+   */
+  initCloud() {
+    try {
+      if (typeof wx !== 'undefined' && wx.cloud && typeof wx.cloud.init === 'function') {
+        wx.cloud.init({ env: config.cloudEnv, traceUser: false });
+        this.globalData.cloudReady = true;
+      }
+    } catch (e) {
+      this.globalData.cloudReady = false;
+    }
+  },
+
+  /**
+   * 启动自检：公网 + 内网两条通道各打一次 /health。
+   * 只在首次失败时弹窗（storage 记账），避免每次冷启动都打扰。
+   */
+  selfCheck() {
+    if (typeof wx === 'undefined' || !wx.request) return;
+    api.netDiag().then((r) => {
+      this.globalData.netDiag = r;
+      if (r.ok) {
+        try { wx.removeStorageSync('netfail_notified'); } catch (e) { /* ignore */ }
+        return;
+      }
+      let notified = '';
+      try { notified = wx.getStorageSync('netfail_notified') || ''; } catch (e) { /* ignore */ }
+      if (notified === r.baseUrl) return;
+      try { wx.setStorageSync('netfail_notified', r.baseUrl); } catch (e) { /* ignore */ }
+      wx.showModal({
+        title: '连不上后端',
+        content: `公网：${r.http.reason || '不通'}\n内网：${r.container.reason || '不通'}\n\n`
+          + '两条都不通时，通常是云托管服务缩到 0 实例还没拉起，或服务名填错。',
+        showCancel: false,
+        confirmText: '知道了',
+      });
+    });
   },
 
   /** 体验版/线上版仍指向占位域名时明确提示：否则真机上只表现为「一直转圈」 */
