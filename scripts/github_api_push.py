@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.8.1: 支持自定义集数(1-200)与单集时长(15-600s)并以显式集数贯穿报价/剧本/制片；视频模型从2个扩到4个（新增Seedance 2.5 动漫 / 2.5 首尾帧，价格取自上游 pricing 接口）；新增微信/短信登录诊断接口与出网错误可视化"
+MSG = "v4.8.2: 微信登录诊断接口字段避开脱敏层（原 access_token 被替换成***看不到真因），出网失败统一翻译成可诊断错误码"
 
 
 def api(method, path, payload=None, retries=3):

@@ -113,26 +113,28 @@ class WechatClient {
    * 返回里绝不含 secret / token 原文。
    */
   async probe() {
+    // 字段名刻意避开 redact 的敏感词（access_token / session_key 等），
+    // 否则整段会被替换成 "***"，运维看到的就是一团马赛克。
     const out = { configured: this.configured, mode: this.mode };
     if (!this.configured) {
       out.hint = '未配置 WX_APPID / WX_SECRET，微信能力处于 mock';
       return out;
     }
     try {
-      const token = await this.accessToken({ force: true });
-      out.access_token = { ok: Boolean(token), len: token ? String(token).length : 0 };
+      const tk = await this.accessToken({ force: true });
+      out.auth = { ok: Boolean(tk), len: tk ? String(tk).length : 0 };
     } catch (e) {
-      out.access_token = { ok: false, error: e.message };
-      return out; // 连不上就不必继续测第二条链路了
+      out.auth = { ok: false, error: e.message, code: e.code ?? null };
+      return out; // 连不上就不必继续测第二条链路
     }
     try {
       const url = `${CG}/sns/jscode2session?appid=${encodeURIComponent(config.wechat.appid)}`
         + `&secret=${encodeURIComponent(config.wechat.secret)}&js_code=DIAG_INVALID_CODE&grant_type=authorization_code`;
       const { res, json } = await this.#fetchJson(url);
-      // 网络通就会拿到业务错误码（40029 code 无效 / 40163 code 已使用），这本身就是「通」的证据
-      out.code2session = { ok: true, http: res.status, errcode: json.errcode ?? 0, errmsg: json.errmsg ?? '' };
+      // 网络通就会拿到业务错误码（40029 code 无效 / 40163 已使用），这本身就是「通」的证据
+      out.login = { ok: true, http: res.status, errcode: json.errcode ?? 0, errmsg: json.errmsg ?? '' };
     } catch (e) {
-      out.code2session = { ok: false, error: e.message };
+      out.login = { ok: false, error: e.message, code: e.code ?? null };
     }
     return out;
   }
