@@ -13,6 +13,7 @@ import adminService from './admin/AdminService.js';
 import adminConsole from './admin/AdminConsole.js';
 import productionService from './pipeline/ProductionService.js';
 import { loadRelayRuntime } from './relay/RelayRuntime.js';
+import objectStore from './storage/ObjectStore.js';
 
 // 导演总谱在规划阶段需要读角色情绪档案；用全局只读句柄避免启动期循环依赖
 globalThis.__lingwuAssetLibrary = assetLibrary;
@@ -98,6 +99,30 @@ server.listen(config.server.port, config.server.host, () => {
   console.log(`  种子: 风格${v.counts.style_presets} 导演${v.counts.director_profiles} 镜头${v.counts.shot_cards} 转场${v.counts.transition_cards} 光影${v.counts.lighting_cards} 节奏${v.counts.rhythm_templates} 情绪${v.counts.emotion_cards}`);
   console.log(`  MOCK 模式下不产生真实算力消耗；配置 RELAY_API_KEY 后自动切换真实算力`);
   console.log(`  管理台: http://${shown}:${config.server.port}/admin.html（需 ADMIN_TOKEN）\n`);
+
+  // V4.8：生产环境能力缺失必须喊出来，不能靠人肉去猜 /health 里的字段。
+  // 缺 WX_APPID/WX_SECRET 会连锁导致：微信登录走 mock、云存储降级本地（重启即丢素材）。
+  const storageSt = objectStore.status();
+  if (config.server.env === 'production') {
+    const miss = [];
+    if (storageSt.wechat === 'mock') miss.push('WX_APPID/WX_SECRET（微信登录、云存储都依赖它）');
+    // 只报真正缺的：桶/区域为空才算缺，别把「微信凭据缺失导致的降级」误报成缺桶
+    if (!config.storage.bucket || !config.storage.region) {
+      miss.push('COS_BUCKET/COS_REGION（缺了素材只落在容器临时盘）');
+    } else if (storageSt.mode === 'local') {
+      miss.push('云存储未能启用（桶已配，但换不到微信临时凭证，见 /health 的 storage.last_error）');
+    }
+    if (!String(process.env.SESSION_SECRET ?? '').trim()) miss.push('SESSION_SECRET（未配则每次重启登录态全失效）');
+    if (miss.length) {
+      logger.warn('[配置] 生产环境缺少必需变量，相关能力已降级', {
+        missing: miss,
+        storage: { mode: storageSt.mode, wechat: storageSt.wechat },
+      });
+      console.log('  ⚠️  生产环境配置不全（能力已降级，不会假装可用）：');
+      for (const m of miss) console.log(`     - ${m}`);
+      console.log('     配置位置：云托管控制台 → 服务设置 → 环境变量，改完重新部署\n');
+    }
+  }
 
   // V4.3：剧集托管调度器。用户选「自动成片」后关掉小程序也会继续逐集推进。
   // 测试环境不起（避免后台定时器干扰断言）；可用 PRODUCTION_RUNNER=off 关闭。

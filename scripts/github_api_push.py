@@ -19,7 +19,7 @@ if not TOKEN:
     sys.exit("需要 GITHUB_TOKEN 环境变量")
 
 ROOT = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-MSG = "v4.8.0: 接入云存储（素材/产物落微信云开发存储桶，COS 直传 + 临时链接渲染）；修 STORAGE_PROVIDER 无凭据时误走云通道导致上传报错"
+MSG = "v4.8.0 补丁：启动期显式告警生产缺 WX_APPID/SESSION_SECRET 等必需变量；新增 tcb_deploy.py 发版脚本与云存储部署文档（修上次 deploy_failed 无法查因的问题）"
 
 
 def api(method, path, payload=None, retries=3):

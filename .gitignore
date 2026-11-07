@@ -21,3 +21,6 @@ dist/
 # 工作台数据
 .workbuddy/
 server/data_test_*/
+
+# 云托管 OpenAPI 凭据缓存（含临时密钥，禁止入库）
+scripts/.tcb_cred.json
