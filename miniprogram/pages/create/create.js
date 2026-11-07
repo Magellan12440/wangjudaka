@@ -1,5 +1,6 @@
 const api = require('../../utils/api.js');
 const motion = require('../../utils/motion.js');
+const { pickFile } = require('../../utils/pickFile.js');
 
 const ASPECTS = [
   { key: '9:16', label: '竖屏 9:16', sub: '红果 / 抖音 / 视频号' },
@@ -373,30 +374,31 @@ Page({
    * 这里如实提示，不假装能读。
    */
   /**
-   * 上传本地文件当正文（V4.9.1）。
-   * 以前只能从聊天里选 .txt：稿子大多在 Word / PDF / 表格里，等于没这个功能。
-   * 现在任何文件都能选：能读出正文的直接回填（txt/md/docx/pdf/xlsx/csv/pptx），
-   * 读不出来的（图片、压缩包、扫描版）如实说清楚，让用户粘贴。
+   * 上传本地文件当正文（V4.10）。
+   *
+   * 上一版的问题：`fail: () => {}` 把失败吞了，用户看到的就是「点了没反应」。
+   * 现在统一走 pickFile：能力探测 / 真实 errMsg / 超时兜底 / 取消区分，一条都不静默。
+   * 上限从 2 万字放到 100 万字（服务端 120 万字），长篇不用自己切。
    */
   pickScriptFile() {
     motion.haptic();
-    if (!wx.chooseMessageFile) {
-      wx.showToast({ title: '当前微信版本不支持选文件，请直接粘贴正文', icon: 'none' });
-      return;
-    }
-    wx.chooseMessageFile({
-      count: 1,
-      type: 'all',
-      success: (res) => {
-        const f = res.tempFiles && res.tempFiles[0];
-        if (!f) return;
-        if (f.size > 20 * 1024 * 1024) {
-          wx.showToast({ title: '文件超过 20MB，请拆分后再传', icon: 'none' });
+    if (this.data.scriptReading) return;
+    this.setData({ scriptReading: true, scriptName: '' });
+
+    pickFile({ count: 1, type: 'all' })
+      .then((files) => {
+        const f = files[0];
+        if (f.size > 40 * 1024 * 1024) {
+          this.setData({ scriptReading: false });
+          wx.showModal({
+            title: '文件太大',
+            content: '单个文件上限 40MB。超大长篇建议先拆成两三个文件，或直接粘贴正文。',
+            showCancel: false,
+          });
           return;
         }
-        const path = f.path || f.tempFilePath;
-        this.setData({ scriptReading: true, scriptName: f.name || '' });
-        api.extractTextFile(path, { maxChars: 20000 })
+        this.setData({ scriptName: f.name || '' });
+        return api.extractTextFile(f.path, { maxChars: 1200000 })
           .then((d) => {
             this.setData({ scriptReading: false });
             if (!d || !d.ok) {
@@ -408,9 +410,10 @@ Page({
               });
               return;
             }
+            const chars = Number(d.chars) || String(d.text || '').replace(/\s/g, '').length;
             const patch = {
               scriptText: d.text,
-              scriptChars: String(d.text).replace(/\s/g, '').length,
+              scriptChars: chars,
               scriptName: d.name || f.name || '',
             };
             // 剧名还空着时，用文件名兜一个（用户可改），省一次输入
@@ -419,22 +422,22 @@ Page({
             }
             this.setData(patch, () => this.syncMeta());
             wx.showToast({
-              title: d.truncated ? `已读入前 ${patch.scriptChars} 字（原文更长）` : `已读入 ${patch.scriptChars} 字`,
+              title: d.truncated ? `已读入前 ${chars} 字（原文更长）` : `已读入 ${chars} 字`,
               icon: 'none',
-            });
-          })
-          .catch((e) => {
-            this.setData({ scriptReading: false });
-            wx.showModal({
-              title: '上传失败',
-              content: (e && e.message) || '网络异常，请重试；也可以直接把正文粘贴进来。',
-              showCancel: false,
-              confirmText: '知道了',
+              duration: 2200,
             });
           });
-      },
-      fail: () => {},
-    });
+      })
+      .catch((e) => {
+        this.setData({ scriptReading: false });
+        if (!e || e.code === 'CANCEL') return;
+        wx.showModal({
+          title: '没能选到文件',
+          content: (e && e.message) || '网络异常，请重试；也可以直接把正文粘贴进来。',
+          showCancel: false,
+          confirmText: '知道了',
+        });
+      });
   },
 
   next() {

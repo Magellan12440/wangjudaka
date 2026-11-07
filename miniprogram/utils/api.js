@@ -350,7 +350,7 @@ function uploadMaterial(projectId, filePath, note) {
  * @param {{maxChars?:number}} opts
  */
 function extractTextFile(filePath, opts) {
-  const maxChars = (opts && opts.maxChars) || 20000;
+  const maxChars = (opts && opts.maxChars) || 1200000;
   return new Promise((resolve, reject) => {
     if (typeof wx === 'undefined' || !wx.uploadFile) {
       return reject(Object.assign(new Error('当前环境不支持选文件'), { code: 'NO_UPLOAD' }));
@@ -360,14 +360,14 @@ function extractTextFile(filePath, opts) {
       filePath,
       name: 'file',
       formData: { maxChars: String(maxChars) },
-      timeout: 120000,
+      timeout: 180000,
       header: token() ? { Authorization: `Bearer ${token()}` } : {},
       success: (res) => {
         let body = {};
         try { body = JSON.parse(res.data || '{}'); } catch (e) { /* keep empty */ }
         if (body && body.ok) return resolve(body.data);
         const err = new Error((body && body.message) || '这个文件读不出正文');
-        err.code = (body && body.code) || 'EXTRACT_FAILED';
+        err.code = (body && body.code) || (res.statusCode === 404 ? 'EXTRACT_UNAVAILABLE' : 'EXTRACT_FAILED');
         err.status = res.statusCode;
         reject(err);
       },
@@ -445,6 +445,47 @@ module.exports = {
   projectPlan: (projectId) => request({ url: `/api/projects/${enc(projectId)}/plan` }),
   buildProjectPlan: (projectId) =>
     request({ url: `/api/projects/${enc(projectId)}/plan`, method: 'POST', data: {}, timeout: 120000 }),
+
+  // —— 剧本候选与选定（V4.10）——
+  planCandidates: (projectId, count) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/plan/candidates`,
+      method: 'POST', data: { count: count || 2 }, timeout: 180000,
+    }),
+  planCandidateList: (projectId) => request({ url: `/api/projects/${enc(projectId)}/plan/candidates` }),
+  selectPlan: (projectId, candidateId, title) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/plan/select`,
+      method: 'POST', data: { candidateId, title: title || '' }, toast: true, timeout: 60000,
+    }),
+
+  // —— 个人剧本库 ——
+  libraryScripts: () => request({ url: '/api/library/scripts' }),
+  libraryScript: (id) => request({ url: `/api/library/scripts/${enc(id)}` }),
+  updateLibraryScript: (id, patch) =>
+    request({ url: `/api/library/scripts/${enc(id)}/update`, method: 'POST', data: patch, toast: true }),
+  removeLibraryScript: (id) =>
+    request({ url: `/api/library/scripts/${enc(id)}/remove`, method: 'POST', data: {}, toast: true }),
+  applyLibraryScript: (id, projectId) =>
+    request({ url: `/api/library/scripts/${enc(id)}/apply`, method: 'POST', data: { projectId }, toast: true, timeout: 60000 }),
+
+  // —— 资产与分镜图（V4.10）——
+  assetsOverview: (projectId) => request({ url: `/api/projects/${enc(projectId)}/assets/overview` }),
+  generateAssetImage: (projectId, code, force) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/assets/${enc(code)}/image`,
+      method: 'POST', data: { force: !!force }, toast: true, timeout: 180000,
+    }),
+  generateAssetImages: (projectId, type, limit) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/assets/images`,
+      method: 'POST', data: { type: type || null, limit: limit || 6 }, toast: true, timeout: 300000,
+    }),
+  generateShotImages: (projectId, episode, limit) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/shots/images`,
+      method: 'POST', data: { episode: episode || null, limit: limit || 6 }, toast: true, timeout: 300000,
+    }),
   docsCheck: (projectId) => request({ url: `/api/projects/${enc(projectId)}/docs/check` }),
 
   // —— 剧壳（片头片尾 / 系列标识） ——

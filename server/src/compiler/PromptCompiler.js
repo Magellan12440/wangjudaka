@@ -42,6 +42,11 @@ export class PromptCompiler {
     // —— 文本环节：走轻量分支（仍需过内容安全与余额）——
     if (isText) return this.#compileText(req);
 
+    // —— 资产设定图（V4.10）：角色 / 场景 / 道具的定妆图，不按分镜拍 ——
+    // 为什么不复用分镜分支：分镜要求「画面里的角色必须有已出图的资产」，
+    // 而这一步**就是在造那个资产**，走分镜分支必然自锁（先有图才能出图）。
+    if (req.options?.mode === 'asset_sheet') return this.#compileAssetSheet(req);
+
     // —— P1：风格与导演 ——
     const style = seeds.style(req.project?.style_code);
     if (!style) fail(ERR.BAD_REQUEST, `风格不存在: ${req.project?.style_code}`);
@@ -360,6 +365,117 @@ export class PromptCompiler {
   }
 
   /** 文本环节（剧本 / 分镜 / 节奏诊断）：轻量分支，仍过安全与余额 */
+  /**
+   * 资产设定图（V4.10）。
+   *
+   * 输入：req.asset = { asset_code, asset_type, name, locks[], lock_values{}, meta{} }
+   * 输出：与分镜图同构的 payload（带 _stamp），这样金额、归档、质检链路完全复用。
+   *
+   * 与分镜图的差别只有三处，且都是必须的：
+   *  1. 不带参考图（此刻还没有图，pending 允许）
+   *  2. 不校验情绪卡（定妆图是中性表情）
+   *  3. 构图是"设定图构图"而不是镜头卡构图
+   */
+  #compileAssetSheet(req) {
+    const asset = req.asset ?? {};
+    const assetType = asset.asset_type ?? 'character';
+    const locks = (asset.locks ?? []).filter(Boolean);
+    V.checkContinuityLocks({ locks });
+    // 模板下限也要守住：卡上只有一条锁就出图，等于没有一致性可言
+    const tpl = seeds.lockTemplate(assetType);
+    if (tpl && locks.length < (tpl.required_lock_count ?? 0)) {
+      fail(
+        ERR.MISSING_CONTINUITY_LOCK,
+        `${assetType} 资产至少需要 ${tpl.required_lock_count} 条连续性锁，当前只有 ${locks.length} 条`,
+        { got: locks.length, template: tpl.suggested_locks },
+      );
+    }
+
+    const style = seeds.style(req.project?.style_code);
+    if (!style) fail(ERR.BAD_REQUEST, `风格不存在: ${req.project?.style_code}`);
+    const director =
+      seeds.director(req.project?.director_code) ?? seeds.director(style.director_profile_default);
+
+    const aspect = req.project?.aspect ?? '9:16';
+    const quality = req.project?.quality ?? '1080p';
+    const typeCn = { character: '角色定妆图', scene: '场景概念图', prop: '道具设定图' }[assetType] ?? '资产设定图';
+    const desc = [
+      asset.lock_values?.traits, asset.lock_values?.role, asset.lock_values?.desc,
+      asset.meta?.traits, asset.meta?.desc,
+    ].filter(Boolean).join('；');
+
+    const framing = assetType === 'character'
+      ? '构图：单人全身入画，正面偏 3/4 角度，中性表情，纯浅灰背景，柔和顶光，便于后续镜头保持同一张脸'
+      : assetType === 'scene'
+        ? '构图：广角全景，空间结构完整，画面中不出现人物，光源方向清晰，便于作为镜头背景参考'
+        : '构图：单件道具居中，45 度视角，材质与做旧程度清楚，浅灰背景';
+
+    const zh = [
+      `【${typeCn}】${asset.name ?? asset.asset_code ?? ''}`,
+      `画面风格：${style.name}（${style.art_prompt_zh}）`,
+      `必须保持一致的特征：${locks.join('、')}`,
+      desc ? `设定补充：${desc}` : '',
+      framing,
+      '不要文字、水印、贴纸、拼图、多视角分格',
+    ].filter(Boolean).join('\n');
+
+    const en = [
+      `${typeCn === '角色定妆图' ? 'character reference sheet' : assetType === 'scene' ? 'scene concept art' : 'prop design sheet'}`,
+      `${asset.name ?? ''}`,
+      `style: ${style.art_prompt_en ?? style.name}`,
+      `consistent features: ${locks.join(', ')}`,
+      'single subject, neutral background, clean lighting, no text, no watermark, no collage',
+    ].filter(Boolean).join(', ');
+
+    const neg = buildNegative({
+      style, director, emotionCards: [],
+      extra: ['text', 'watermark', 'collage', 'multiple views', 'split screen'],
+    });
+    const modelCode = req.model ?? modelRegistry.defaultFor('image');
+    const model = modelRegistry.get(modelCode);
+    const duration = req.shot?.duration ?? style.avg_shot_len;
+    const estimatedCredits = this.estimate({ kind: 'image', model, duration, quality });
+    V.checkContentSafety([zh, en]);
+    V.checkCredits({ availableCredits: req.available_credits, estimatedCredits });
+
+    const payload = {
+      shot_no: req.shot_no ?? `${asset.asset_code ?? 'asset'}-sheet`,
+      kind: 'image',
+      asset_sheet: true,
+      asset_code: asset.asset_code ?? null,
+      asset_type: assetType,
+      target_model: modelCode,
+      prompt_en: `${en}. ${neg.en}.`,
+      prompt_zh: `${zh}。负面排除：${neg.zh}。`,
+      negative: neg.en,
+      reference_images: [],
+      pending_reference_plan: [{ role: assetType, asset_code: asset.asset_code ?? null }],
+      params: {
+        resolution: resolutionOf(aspect, quality),
+        aspect,
+        seed: req.options?.seed ?? seedFrom(`${asset.asset_code}|${modelCode}|${en}`),
+        cfg: style.model_params?.image?.cfg ?? 3.5,
+      },
+      cards: {
+        shot: 'SHEET',
+        move: null,
+        lighting: [],
+        transition: null,
+        style: style.code,
+        director: director?.code ?? null,
+      },
+      continuity_locks: locks,
+      dialogue_check: { units: 0, max: 0 },
+      estimated_credits: estimatedCredits,
+      compile_warnings: [],
+      compiled_at: new Date().toISOString(),
+      meta: { vertical: aspectRules(aspect).vertical, quality, purpose: req.options?.purpose ?? 'preview', asset_sheet: true },
+      prompt_libraries: { stage: 'asset', blocks: [], missing: [], digest: null },
+    };
+    payload._stamp = issueStamp(payload);
+    return payload;
+  }
+
   #compileText(req) {
     // V4.4：剧本/角色环节必须带上内置提示词库（情绪 + 节奏 / 情绪 + 光影）
     const stage = req.stage === 'character' ? 'character' : 'script';

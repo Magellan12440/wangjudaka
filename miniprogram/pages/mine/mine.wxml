@@ -130,6 +130,11 @@
 
     <!-- 快捷 -->
     <view class="tool-grid">
+      <view class="tool tap" hover-class="tap-on" bindtap="openScripts">
+        <view class="tool-icon">本</view>
+        <view class="tool-name">我的剧本</view>
+        <view class="tool-sub">定稿的剧本都在这</view>
+      </view>
       <view class="tool tap" hover-class="tap-on" bindtap="openInvite">
         <view class="tool-icon">◎</view>
         <view class="tool-name">邀请好友</view>

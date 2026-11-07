@@ -21,6 +21,8 @@ import { storyEngine } from '../pipeline/StoryEngine.js';
 import { directorPlanEngine } from '../pipeline/DirectorPlan.js';
 import { syncRun, syncProjectRuns, runProgress } from '../pipeline/RunSync.js';
 import shotService from '../pipeline/ShotService.js';
+import assetImageService from '../pipeline/AssetImageService.js';
+import scriptLibrary from '../projects/ScriptLibrary.js';
 import editService from '../pipeline/EditService.js';
 import oneShot from '../pipeline/OneShot.js';
 import { timeline } from '../media/Timeline.js';
@@ -348,6 +350,39 @@ export function assertAdaptReady(spec = {}, digest = null) {
     throw new AppError('MATERIAL_REQUIRED', '这条路是「改编我的素材」：先上传小说正文或剧本文本，再生成剧本');
   }
   return true;
+}
+
+/**
+ * 生成一份剧本候选（V4.10 抽出来，供「一次出多份」复用）。
+ *
+ * 用户的实际流程是「先看几版，再定一版」，所以生成与选定必须分开：
+ * 这里只负责产内容，不写 director_plans（那是 select 的职责）。
+ */
+const CANDIDATE_ANGLES = [
+  '',
+  '换一个更狠的开场：第一场就把主角逼到墙角，不要铺垫。',
+  '换一个叙事视角：用配角的第一人称讲述同一件事，让观众先知道真相。',
+];
+
+async function generateScriptCandidate(p, { angle = '', spec = null } = {}) {
+  const s = spec ?? p.spec ?? {};
+  const prompt = [s.prompt || p.title || '未命名漫剧', angle].filter(Boolean).join('\n');
+  const digest = materialService.digest(p.id);
+  if (digest.text) {
+    await contentSecurity.assertText({
+      content: digest.text.slice(0, 2400),
+      openid: contentSecurity.openidOf(p.user_id),
+      bizType: 'material_digest', bizId: p.id, scene: 1,
+    });
+  }
+  const { outline } = await storyEngine.outline({
+    userId: p.user_id, projectId: p.id, prompt, spec: s, reference: digest.text,
+    model: modelCatalog.resolve('chat', s.models?.chat ?? null),
+  });
+  const plan = storyEngine.directorPlan({ outline, spec: s, projectId: p.id });
+  const script = await storyEngine.script({ outline, plan, spec: s, userId: p.user_id, projectId: p.id });
+  const storyboard = await storyEngine.storyboard({ outline, spec: s, plan, script });
+  return { outline, plan, script, storyboard, digest };
 }
 
 /** 路由表：[method, pathPattern, handler] */
@@ -865,45 +900,23 @@ export const routes = [
     const plan = storyEngine.directorPlan({ outline, spec, projectId: p.id });
     const script = await storyEngine.script({ outline, plan, spec, userId: p.user_id, projectId: p.id });
     const sb = await storyEngine.storyboard({ outline, spec, plan, script });
-    const rec = {
-      id: newId('dplan'),
-      project_id: p.id,
-      plan_id: plan.plan_id,
-      plan_version: plan.plan_version,
+    // 统一走剧本库：先落一份候选，再由它写入总谱 / 资产卡 / 个人剧本库，
+    // 这样「生成」和「一键生成」两条路径不会出现两套资产逻辑。
+    const cand = scriptLibrary.addCandidate({
+      projectId: p.id,
+      userId: p.user_id,
       outline, plan, script, storyboard: sb,
-      materials_used: digest.used,
-      reference_chars: digest.chars,
-      created_at: nowIso(),
-    };
-    const old = db.findOne('director_plans', (x) => x.project_id === p.id);
-    if (old) {
-      const patch = { ...rec };
-      delete patch.id; // 覆盖时保留原记录 id
-      db.update('director_plans', old.id, patch);
-    } else {
-      db.insert('director_plans', rec);
-    }
-
-    // N05 资产决策落库：把角色草稿写成正式资产（带连续性锁），无需用户手填
-    const existing = db.find('assets', (a) => a.project_id === p.id);
-    let assetCount = existing.length;
-    if (!existing.length) {
-      for (const d of storyEngine.toAssetDrafts(outline).slice(0, 8)) {
-        try {
-          assetLibrary.create({
-            projectId: p.id,
-            assetType: d.asset_type,
-            name: d.name,
-            locks: d.locks,
-            lockValues: d.lock_values,
-            meta: d.meta,
-          });
-          assetCount += 1;
-        } catch (e) {
-          logger.error('角色资产落库失败', { projectId: p.id, msg: e.message });
-        }
-      }
-    }
+      materialsUsed: digest.used,
+      referenceChars: digest.chars,
+      totalChars: digest.total_chars ?? 0,
+      condensed: !!digest.condensed,
+      label: `${sb.stats?.shots ?? 0} 镜 · ${script.episodes?.length ?? 0} 集`,
+      source: 'generate',
+    });
+    const picked = scriptLibrary.select({
+      projectId: p.id, userId: p.user_id, candidateId: cand.id,
+    });
+    const assetCount = picked.assets.total;
 
     // 产物变了 → 同步节点进度（真实产物驱动，不做假进度）
     const run = blueprintEngine.list(p.id)[0];
@@ -919,7 +932,83 @@ export const routes = [
       assets: assetCount,
       materials_used: digest.used.length,
       reference_chars: digest.chars,
+      total_chars: digest.total_chars ?? 0,
+      condensed: !!digest.condensed,
+      candidate_id: cand.id,
+      vault_id: picked.vault_id,
     };
+  }],
+
+  // —— 多份候选（V4.10）：一次出 1~3 版，用户挑一版再定 ——
+  ['POST', '/api/projects/:id/plan/candidates', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const spec = p.spec ?? {};
+    const count = Math.max(1, Math.min(3, Number(body?.count) || 2));
+    // 素材改编路线：没有正文就不许凭空编（和 /plan 同一条准入线）
+    if (spec.origin === 'material') assertAdaptReady(spec, materialService.digest(p.id));
+
+    const made = [];
+    for (let i = 0; i < count; i += 1) {
+      const r = await generateScriptCandidate(p, { angle: CANDIDATE_ANGLES[i % CANDIDATE_ANGLES.length] });
+      const cand = scriptLibrary.addCandidate({
+        projectId: p.id,
+        userId: p.user_id,
+        outline: r.outline, plan: r.plan, script: r.script, storyboard: r.storyboard,
+        materialsUsed: r.digest.used,
+        referenceChars: r.digest.chars,
+        totalChars: r.digest.total_chars ?? 0,
+        condensed: !!r.digest.condensed,
+        label: i === 0 ? '常规版' : (i === 1 ? '强开场版' : '配角视角版'),
+        source: 'generate',
+      });
+      made.push(cand.id);
+    }
+    const has = db.findOne('director_plans', (x) => x.project_id === p.id);
+    if (!has && made.length) {
+      // 第一次生成：默认把第一版定下来，免得用户以为「生成完还得再点一次」才有内容
+      scriptLibrary.select({ projectId: p.id, userId: p.user_id, candidateId: made[0] });
+    }
+    const list = scriptLibrary.candidates(p.id);
+    return { count: made.length, created: made, ...list };
+  }],
+
+  ['GET', '/api/projects/:id/plan/candidates', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return scriptLibrary.candidates(params.id);
+  }],
+
+  ['POST', '/api/projects/:id/plan/select', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    if (!body?.candidateId) throw new AppError('BAD_REQUEST', '缺少 candidateId');
+    return scriptLibrary.select({
+      projectId: p.id,
+      userId: p.user_id,
+      candidateId: body.candidateId,
+      title: body.title ?? '',
+    });
+  }],
+
+  // —— 个人剧本库（V4.10）：选定即入库，随时可改 ——
+  ['GET', '/api/library/scripts', async ({ req }) => {
+    const user = authService.requireUser(req);
+    return scriptLibrary.vaultList(user.id);
+  }],
+  ['GET', '/api/library/scripts/:id', async ({ params, req }) => {
+    const user = authService.requireUser(req);
+    return scriptLibrary.vaultGet(user.id, params.id);
+  }],
+  ['POST', '/api/library/scripts/:id/update', async ({ params, body, req }) => {
+    const user = authService.requireUser(req);
+    return scriptLibrary.vaultUpdate(user.id, params.id, body ?? {});
+  }],
+  ['POST', '/api/library/scripts/:id/remove', async ({ params, req }) => {
+    const user = authService.requireUser(req);
+    return scriptLibrary.vaultRemove(user.id, params.id);
+  }],
+  ['POST', '/api/library/scripts/:id/apply', async ({ params, body, req }) => {
+    const user = authService.requireUser(req);
+    if (!body?.projectId) throw new AppError('BAD_REQUEST', '缺少 projectId');
+    return scriptLibrary.vaultApply({ userId: user.id, id: params.id, projectId: body.projectId });
   }],
   ['GET', '/api/projects/:id/plan', async ({ params, req }) => {
     projectOf(req, params.id);
@@ -981,6 +1070,58 @@ export const routes = [
   ['GET', '/api/projects/:id/assets', async ({ params, query, req }) => {
     projectOf(req, params.id);
     return assetLibrary.list(params.id, query.type || null);
+  }],
+  // —— 资产总览（V4.10）：角色 / 场景 / 道具分组 + 出图进度 ——
+  ['GET', '/api/projects/:id/assets/overview', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return assetImageService.overview(params.id);
+  }],
+  // —— 资产出图：把卡变成图，分镜才有视觉依据 ——
+  ['POST', '/api/projects/:id/assets/:code/image', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    return assetImageService.generate({
+      projectId: p.id, assetCode: params.code, userId: p.user_id, force: body?.force === true,
+    });
+  }],
+  ['POST', '/api/projects/:id/assets/images', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    return assetImageService.generateBatch({
+      projectId: p.id, userId: p.user_id, assetType: body?.type ?? null, limit: body?.limit ?? 8,
+    });
+  }],
+  // —— 分镜图批量（V4.10）：按集把还没出图的分镜一次出完 ——
+  ['POST', '/api/projects/:id/shots/images', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const ep = body?.episode ? Number(body.episode) : null;
+    const limit = Math.max(1, Math.min(12, Number(body?.limit) || 6));
+    const planRec = db.findOne('director_plans', (x) => x.project_id === p.id);
+    if (!planRec?.storyboard?.shots?.length) {
+      throw new AppError('PROJECT_REQUIRED', '还没有分镜，先在「剧本」里生成并选定一版剧本');
+    }
+    const done = new Set(
+      db.find('generations', (g) => g.project_id === p.id && g.kind === 'image' && g.status === 'done')
+        .map((g) => g.shot_no),
+    );
+    const todo = (planRec.storyboard.shots ?? [])
+      .filter((s) => (!ep || s.episode === ep) && !done.has(s.no))
+      .slice(0, limit);
+    const results = [];
+    for (const s of todo) {
+      try {
+        const r = await shotService.generate({ projectId: p.id, shotNo: s.no, kind: 'image', userId: p.user_id });
+        results.push({ shot_no: s.no, ok: true, url: r.url, mock: !!r.mock });
+      } catch (e) {
+        results.push({ shot_no: s.no, ok: false, code: e.code, message: e.message });
+        if (e.code === 'INSUFFICIENT_BALANCE' || e.code === 'INSUFFICIENT_CREDITS') break;
+      }
+    }
+    return {
+      total: todo.length,
+      done: results.filter((x) => x.ok).length,
+      failed: results.filter((x) => !x.ok).length,
+      remaining: Math.max(0, (planRec.storyboard.shots ?? []).length - done.size - results.filter((x) => x.ok).length),
+      results,
+    };
   }],
   ['POST', '/api/projects/:id/assets/impact', async ({ params, body }) => assetLibrary.impactOfUpdate({
     projectId: params.id, assetCode: body.assetCode, newVersion: body.newVersion, costPerShot: body.costPerShot ?? 6,
@@ -1086,7 +1227,7 @@ export const routes = [
       filename: f.filename,
       mime: f.mime,
       buffer: f.data,
-      maxChars: Number(body.fields?.maxChars) || 20000,
+      maxChars: Number(body.fields?.maxChars) || 1200000,
     });
     // 读得到正文才做机审；读不到就别空跑一次内容安全接口
     if (r.ok) {

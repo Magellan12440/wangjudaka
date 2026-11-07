@@ -6,6 +6,7 @@
     "pages/mine/mine",
     "pages/account/account",
     "pages/recharge/recharge",
+    "pages/scripts/scripts",
     "pages/project/project",
     "pages/invite/invite",
     "pages/legal/legal",

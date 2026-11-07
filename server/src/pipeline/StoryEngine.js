@@ -60,9 +60,12 @@ export class StoryEngine {
       `集数：${spec.episode_count || Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90)))} 集，单集 ${spec.episode_sec} 秒（总时长约 ${Math.round(((Number(spec.episode_count) || 0) * (Number(spec.episode_sec) || 90)) / 60) || spec.total_minutes} 分钟）`,
       '输出 JSON 结构：',
       '{"title":"","logline":"","characters":[{"code":"CH01","name":"","role":"","traits":"","locks":["","","",""]}],',
+      '"locations":[{"code":"SC01","name":"","desc":""}],',
+      '"props":[{"code":"PR01","name":"","desc":""}],',
       '"episodes":[{"no":1,"goal":"","hook":{"code":"HOOK-01","micro_hook":true,"shots":3},',
       '"conflicts":[{"code":"CFL-02","escalation":2}],"reversals":[{"code":"REV-01","foreshadow":2}],',
       '"empathy":[{"code":"EMP-02"}],"ending_hook":"悬念未解"}]}',
+      '说明：locations 按集划分（SC01 对应第 1 集），props 是全剧反复出现的关键道具；没有就返回空数组。',
     ].filter(Boolean).join('\n');
 
     let parsed = null;

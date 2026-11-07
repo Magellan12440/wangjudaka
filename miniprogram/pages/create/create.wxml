@@ -81,14 +81,14 @@
               placeholder="把你小说/剧本的正文贴进来。系统会沿用里面的人物关系、世界观和关键情节来拆分剧集，而不是重新编一个。"
               placeholder-class="input-ph"
               value="{{scriptText}}"
-              maxlength="20000"
+              maxlength="-1"
               bindinput="onScriptText"
               bindfocus="onFocus"
               bindblur="onBlur"
               cursor-spacing="160"
               show-confirm-bar="{{false}}"
             />
-            <view class="counter {{scriptChars && scriptChars < minAdaptChars ? 'warn' : ''}}">{{scriptChars}}/20000</view>
+            <view class="counter {{scriptChars && scriptChars < minAdaptChars ? 'warn' : ''}}">{{scriptChars}}/1000000</view>
           </view>
           <view class="adapt-tools">
             <view class="ghost-mini upload-cta tap" hover-class="tap-on" bindtap="pickScriptFile">
@@ -96,7 +96,7 @@
             </view>
             <view class="upload-hint">
               <text wx:if="{{scriptName}}" class="tiny on">已读入：{{scriptName}}</text>
-              <text wx:else class="tiny">支持 Word / PDF / TXT / 表格 / 演示稿，自动取正文</text>
+              <text wx:else class="tiny">Word / PDF / TXT / 表格 / 演示稿都能读，长篇百万字也支持</text>
             </view>
           </view>
 

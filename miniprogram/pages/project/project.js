@@ -1,6 +1,7 @@
 const api = require('../../utils/api.js');
 const fmt = require('../../utils/format.js');
 const motion = require('../../utils/motion.js');
+const { pickFile } = require('../../utils/pickFile.js');
 
 // 用户只看「做剧的步骤」，流水线/画布/节点一律留在后端
 const TABS = [
@@ -255,6 +256,19 @@ Page({
     epIndex: 0,
     epOptions: [],
     currentScenes: [],
+
+    // 剧本候选与选定（V4.10）：生成 → 挑一版 → 定下来 → 出资产 → 出分镜 → 出片
+    candidates: [],
+    candidateBusy: '',
+    selectedPlanId: '',
+    vaultId: '',
+    selectedTitle: '',
+
+    // 资产分组（角色 / 场景 / 道具）与出图进度
+    assetGroups: { character: [], scene: [], prop: [] },
+    assetProgress: { total: 0, ready: 0, character: { total: 0, ready: 0 }, scene: { total: 0, ready: 0 }, prop: { total: 0, ready: 0 } },
+    assetBusy: '',
+    shotBusy: '',
   },
 
   onLoad(q) {
@@ -351,6 +365,8 @@ Page({
         this.apply(d);
         this.loadSeries();
         this.loadMaterials();
+        this.loadAssets();
+        this.loadCandidates();
       })
       .catch((e) => this.setData({ loading: false, error: e.message || '加载失败' }));
   },
@@ -546,9 +562,183 @@ Page({
     motion.haptic();
     this.setData({ tab, tabIndex: idx < 0 ? 0 : idx, segTabsStyle: motion.segStyle(idx < 0 ? 0 : idx, TABS.length) });
     wx.pageScrollTo({ scrollTop: 0, duration: 180 });
-    if (tab === 'script') this.loadScript();
+    if (tab === 'script') { this.loadCandidates(); this.loadScript(); }
     if (tab === 'material') this.loadMaterials();
+    if (tab === 'assets') this.loadAssets();
     if (tab === 'deliver') this.loadEdit();
+  },
+
+  // ——— 剧本候选 / 选定（V4.10）———
+
+  /** 拉候选列表 + 当前选中的是哪一版（决定后面资产与分镜能不能出） */
+  loadCandidates() {
+    return api.planCandidateList(this.data.projectId)
+      .then((d) => {
+        const items = (d && d.items) || [];
+        const active = (d && d.active_plan_id) || '';
+        const cur = items.find((x) => x.plan_id === active) || null;
+        this.setData({
+          candidates: items.map((x) => ({
+            ...x,
+            titleText: x.title || '未命名剧本',
+            epText: `${x.episodes || 0} 集 · ${x.shots || 0} 镜`,
+            charText: (x.characters || []).slice(0, 3).map((c) => c.name).filter(Boolean).join(' / '),
+            selected: x.plan_id === active,
+          })),
+          selectedPlanId: active,
+          selectedTitle: cur ? (cur.title || '') : '',
+          vaultId: (cur && cur.in_vault) ? 'saved' : '',
+        });
+      })
+      .catch(() => { /* 还没有候选不算错误 */ });
+  },
+
+  /** 一次多出几版，让用户挑（而不是只能接受唯一结果） */
+  makeCandidates() {
+    if (this.data.candidateBusy || this.data.busy) return;
+    motion.haptic();
+    const has = this.data.candidates.length > 0;
+    this.setData({ candidateBusy: 'make' });
+    wx.showLoading({ title: has ? '再想两版…' : '正在写第一版…', mask: true });
+    api.planCandidates(this.data.projectId, has ? 2 : 2)
+      .then(() => {
+        wx.hideLoading();
+        this.setData({ candidateBusy: '' });
+        wx.showToast({ title: '写完啦，选一版开拍', icon: 'none' });
+        return Promise.all([this.loadCandidates(), this.loadScript(), this.loadAssets()]);
+      })
+      .catch((e) => {
+        wx.hideLoading();
+        this.setData({ candidateBusy: '' });
+        wx.showModal({
+          title: '生成没成功',
+          content: (e && e.message) || '网络或余额问题，稍后再试',
+          showCancel: false,
+        });
+      });
+  },
+
+  /** 选定一版：写进项目总谱 + 生成角色/场景/道具资产卡 + 存入我的剧本库 */
+  selectCandidate(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id || this.data.candidateBusy) return;
+    if (id === this.data.selectedPlanId) {
+      wx.showToast({ title: '这一版已经定了', icon: 'none' });
+      return;
+    }
+    motion.haptic();
+    this.setData({ candidateBusy: id });
+    api.selectPlan(this.data.projectId, id)
+      .then((r) => {
+        this.setData({ candidateBusy: '' });
+        const a = (r && r.assets) || {};
+        wx.showToast({
+          title: `就用这版：${a.total || 0} 个资产待出图`, icon: 'none', duration: 2000,
+        });
+        return Promise.all([this.loadCandidates(), this.loadScript(), this.loadAssets()]);
+      })
+      .catch((e) => {
+        this.setData({ candidateBusy: '' });
+        wx.showModal({
+          title: '选定失败',
+          content: (e && e.message) || '稍后再试',
+          showCancel: false,
+        });
+      });
+  },
+
+  // ——— 资产出图（V4.10）———
+
+  loadAssets() {
+    return api.assetsOverview(this.data.projectId)
+      .then((d) => {
+        this.setData({
+          assetGroups: (d && d.groups) || { character: [], scene: [], prop: [] },
+          assetProgress: d || this.data.assetProgress,
+        });
+      })
+      .catch(() => {});
+  },
+
+  genAsset(e) {
+    const code = e.currentTarget.dataset.code;
+    const force = e.currentTarget.dataset.force === '1';
+    if (!code || this.data.assetBusy) return;
+    motion.haptic();
+    this.setData({ assetBusy: code });
+    api.generateAssetImage(this.data.projectId, code, force)
+      .then((r) => {
+        this.setData({ assetBusy: '' });
+        wx.showToast({ title: r && r.skipped ? '已经有图了' : '出图完成', icon: 'none' });
+        return this.loadAssets();
+      })
+      .catch((err) => {
+        this.setData({ assetBusy: '' });
+        wx.showModal({ title: '出图失败', content: (err && err.message) || '稍后再试', showCancel: false });
+      });
+  },
+
+  genAssetType(e) {
+    const type = e.currentTarget.dataset.type || '';
+    if (this.data.assetBusy) return;
+    motion.haptic();
+    this.setData({ assetBusy: type || 'all' });
+    wx.showLoading({ title: '逐个出图中…', mask: true });
+    api.generateAssetImages(this.data.projectId, type || null, 6)
+      .then((r) => {
+        wx.hideLoading();
+        this.setData({ assetBusy: '' });
+        wx.showToast({
+          title: `出图 ${r.done || 0}/${r.total || 0}${r.failed ? `，${r.failed} 个失败` : ''}`,
+          icon: 'none', duration: 2200,
+        });
+        return this.loadAssets();
+      })
+      .catch((err) => {
+        wx.hideLoading();
+        this.setData({ assetBusy: '' });
+        wx.showModal({ title: '出图失败', content: (err && err.message) || '稍后再试', showCancel: false });
+      });
+  },
+
+  /** 分镜图：按当前集把还没出的一批出掉（有角色资产图之后才会有稳定脸） */
+  genShotImages() {
+    if (this.data.shotBusy) return;
+    motion.haptic();
+    const ep = (this.data.epOptions[this.data.epIndex] || {}).no || null;
+    this.setData({ shotBusy: 'images' });
+    wx.showLoading({ title: '正在出分镜图…', mask: true });
+    api.generateShotImages(this.data.projectId, ep, 4)
+      .then((r) => {
+        wx.hideLoading();
+        this.setData({ shotBusy: '' });
+        wx.showToast({
+          title: `出了 ${r.done || 0} 张${r.failed ? `，${r.failed} 张失败` : ''}`, icon: 'none', duration: 2200,
+        });
+        return this.reload();
+      })
+      .catch((err) => {
+        wx.hideLoading();
+        this.setData({ shotBusy: '' });
+        wx.showModal({ title: '分镜图失败', content: (err && err.message) || '稍后再试', showCancel: false });
+      });
+  },
+
+  /** 打开我的剧本库（带着项目号，方便直接套用） */
+  openLibrary() {
+    motion.haptic();
+    wx.navigateTo({ url: `/pages/scripts/scripts?projectId=${encodeURIComponent(this.data.projectId)}` });
+  },
+
+  /** 素材页 → 剧本页（看已继承的剧本 / 换一版） */
+  goScript() {
+    motion.haptic();
+    const idx = TABS.findIndex((t) => t.key === 'script');
+    const i = idx < 0 ? 0 : idx;
+    this.setData({ tab: 'script', tabIndex: i, segTabsStyle: motion.segStyle(i, TABS.length) });
+    wx.pageScrollTo({ scrollTop: 0, duration: 180 });
+    this.loadCandidates();
+    this.loadScript();
   },
 
   /** 剪辑单提示「还没分镜」时，一键跳回流程页去生成 */
@@ -696,19 +886,27 @@ Page({
     });
   },
 
+  /**
+   * 素材库上传本地文件（V4.10）。
+   * 和创作页共用 pickFile：能力探测 + 真实失败原因 + 超时兜底，
+   * 不再出现「点了没反应」。不限制扩展名，一次最多 9 个。
+   */
   pickFiles() {
-    if (this.data.uploading) return;
-    motion.haptic();
-    if (!wx.chooseMessageFile) {
-      wx.showToast({ title: '当前环境不支持选文件，请用微信打开', icon: 'none' });
+    if (this.data.uploading) {
+      wx.showToast({ title: '正在上传，等一下', icon: 'none' });
       return;
     }
-    // 不限制扩展名：文本/表格/幻灯片/PDF 会抽正文，其它格式先存档，读不了会如实说明
-    wx.chooseMessageFile({
-      count: 9,
-      type: 'all',
-      success: (r) => this.uploadAll((r.tempFiles || []).map((f) => ({ path: f.path || f.tempFilePath, size: f.size })), 'file'),
-    });
+    motion.haptic();
+    pickFile({ count: 9, type: 'all' })
+      .then((files) => this.uploadAll(files.map((f) => ({ path: f.path, size: f.size, name: f.name })), 'file'))
+      .catch((e) => {
+        if (!e || e.code === 'CANCEL') return;
+        wx.showModal({
+          title: '没能选到文件',
+          content: (e && e.message) || '请重试，或直接在「粘贴小说」里贴正文',
+          showCancel: false,
+        });
+      });
   },
 
   uploadAll(files, kind) {
@@ -837,6 +1035,9 @@ Page({
           epIndex: idx,
           currentScenes: this.decorateScenes((episodes[idx] && episodes[idx].scenes) || []),
           scriptLoading: false,
+          // 老项目（4.10 之前生成的）没有候选记录，但已经有总谱：
+          // 素材页的「已确定的剧本」不能因此空着
+          selectedTitle: this.data.selectedTitle || ((d.outline && d.outline.title) || ''),
         });
       })
       .catch((e) => this.setData({ scriptLoading: false, scriptError: e.message || '剧本加载失败' }));

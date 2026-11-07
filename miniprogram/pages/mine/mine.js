@@ -344,6 +344,12 @@ Page({
     wx.navigateTo({ url: '/pages/invite/invite' });
   },
 
+  /** 我的剧本库：选定过的剧本都在这，可改可套用 */
+  openScripts() {
+    motion.haptic();
+    wx.navigateTo({ url: '/pages/scripts/scripts' });
+  },
+
   onRedeemInput(e) {
     this.setData({ redeemCode: e.detail.value });
   },

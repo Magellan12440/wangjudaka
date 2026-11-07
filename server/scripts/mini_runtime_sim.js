@@ -512,6 +512,56 @@ async function main() {
       ok('按素材生成剧本能跑通', Boolean(planRes && planRes.ok && planData && planData.shots > 0),
         JSON.stringify({ ok: planRes && planRes.ok, code: planRes && planRes.code, shots: planData && planData.shots }));
       ok('剧本生成记录里带上了素材', Boolean(planData && planData.materials_used >= 1), String(planData && planData.materials_used));
+      ok('生成后自动落成一份候选', Boolean(planData && planData.candidate_id), String(planData && planData.candidate_id));
+      ok('选定后自动进入我的剧本库', Boolean(planData && planData.vault_id), String(planData && planData.vault_id));
+
+      // 候选与选定（V4.10）：多出一版 → 列表里能看见两版 → 换选第二版
+      const candRes = await fetch(`${BASE}/api/projects/${adaptProjectId}/plan/candidates`, {
+        method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${appInstance.globalData.token}` },
+        body: JSON.stringify({ count: 2 }),
+      }).then((r) => r.json()).catch(() => null);
+      const candData = candRes && candRes.data;
+      ok('能一次多出两版剧本', Boolean(candRes && candRes.ok && candData && candData.count === 2),
+        JSON.stringify({ ok: candRes && candRes.ok, n: candData && candData.count }));
+      ok('候选列表有明确当前版', Boolean(candData && candData.active_plan_id && candData.items.length >= 3),
+        JSON.stringify({ active: candData && candData.active_plan_id, n: candData && candData.items.length }));
+
+      const other = (candData && candData.items || []).find((x) => !x.selected);
+      if (other) {
+        const selRes = await fetch(`${BASE}/api/projects/${adaptProjectId}/plan/select`, {
+          method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${appInstance.globalData.token}` },
+          body: JSON.stringify({ candidateId: other.id }),
+        }).then((r) => r.json()).catch(() => null);
+        const selData = selRes && selRes.data;
+        ok('换选另一版能成功', Boolean(selRes && selRes.ok && selData && selData.plan_id === other.plan_id),
+          JSON.stringify({ ok: selRes && selRes.ok, plan: selData && selData.plan_id }));
+        ok('选定后资产卡齐了（角色/场景/道具）', Boolean(selData && selData.assets && selData.assets.total >= 3),
+          JSON.stringify(selData && selData.assets));
+      }
+
+      // 资产总览：分组与出图进度
+      const ovRes = await fetch(`${BASE}/api/projects/${adaptProjectId}/assets/overview`, {
+        headers: { Authorization: `Bearer ${appInstance.globalData.token}` },
+      }).then((r) => r.json()).catch(() => null);
+      const ov = ovRes && ovRes.data;
+      ok('资产总览按角色/场景/道具分组', Boolean(ov && ov.groups && Array.isArray(ov.groups.character) && Array.isArray(ov.groups.scene)),
+        JSON.stringify(ov && ov.by_type));
+
+      // 我的剧本库：列表里能看到刚选定的那版
+      const libRes = await fetch(`${BASE}/api/library/scripts`, {
+        headers: { Authorization: `Bearer ${appInstance.globalData.token}` },
+      }).then((r) => r.json()).catch(() => null);
+      const lib = libRes && libRes.data;
+      ok('我的剧本库能列出定稿剧本', Boolean(lib && lib.total >= 1), JSON.stringify(lib && lib.total));
+      const libItem = lib && lib.items && lib.items[0];
+      if (libItem) {
+        const upRes = await fetch(`${BASE}/api/library/scripts/${libItem.id}/update`, {
+          method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${appInstance.globalData.token}` },
+          body: JSON.stringify({ title: '改过的标题' }),
+        }).then((r) => r.json()).catch(() => null);
+        ok('剧本库支持改名（随时可改）', Boolean(upRes && upRes.ok && upRes.data && upRes.data.title === '改过的标题'),
+          JSON.stringify(upRes && upRes.data && upRes.data.title));
+      }
     }
 
     // —— 10. 第二部剧：只填剧名就开 + 索引隔离 + 托管生产 + 资料包如实缺件 ——

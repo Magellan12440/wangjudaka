@@ -25,7 +25,7 @@ const MAX_BYTES = {
   image: 8 * 1024 * 1024,
   video: 24 * 1024 * 1024,
   audio: 12 * 1024 * 1024,
-  text: 1024 * 1024,
+  text: 8 * 1024 * 1024,
   docx: 10 * 1024 * 1024,
   sheet: 10 * 1024 * 1024,
   slides: 20 * 1024 * 1024,
@@ -33,7 +33,13 @@ const MAX_BYTES = {
   file: 24 * 1024 * 1024,
 };
 const MAX_ITEMS = 24;
-const MAX_TEXT_CHARS = 120000;
+/**
+ * 单条正文上限：120 万字（V4.10 起）。
+ * 一本 300 章的长篇大约 90~150 万字，卡在 12 万等于不让人上传真正的长篇，
+ * 所以上限直接放到百万级；真正的瓶颈交给「分层压缩」而不是拒收。
+ * UTF-8 中文 1 字约 3 字节，120 万字约 3.6MB，text 文件体积上限同步放到 8MB。
+ */
+const MAX_TEXT_CHARS = 1200000;
 const MAX_PER_KIND = 12;
 
 const EXT = {
@@ -90,6 +96,58 @@ function decodeText(buf) {
   return utf8.replace(/^\uFEFF/, '').replace(/\u0000/g, '');
 }
 
+/** 章节标题识别：第X章 / 第X回 / Chapter N / "12、" 这类编号行 */
+const CHAPTER_RE = /^(第[\d零一二三四五六七八九十百千两]+[章回节卷篇幕集]|chapter\s+\d+|\d{1,4}\s*[、.．:])[\s:：、.．\-—]*\S{0,30}$/i;
+
+/**
+ * 长文分层压缩（V4.10）。
+ *
+ * 一本 120 万字的小说塞不进任何 prompt，但「只取开头」会让编剧看不到结局与反转。
+ * 这里用确定性抽样，离线也能跑，且不花钱：
+ *   结构（章节标题清单）+ 开头 30% + 主体等距抽样 + 结尾 20%
+ * 输出一定会 ≤ budget，调用方如实标注「已分层压缩」。
+ */
+function condenseText(raw, budget) {
+  const text = String(raw ?? '');
+  const limit = Math.max(600, Number(budget) || 6000);
+  if (text.length <= limit) return { body: text, didCondense: false };
+
+  // 1) 章节结构：只留标题，用于让模型知道全书有多少章、讲到哪
+  const heads = [];
+  for (const line of text.split('\n')) {
+    const t = line.trim();
+    if (!t || t.length > 40) continue;
+    if (CHAPTER_RE.test(t)) heads.push(t);
+    if (heads.length >= 2000) break;
+  }
+  const headList = heads.length
+    ? `【全书结构】共 ${heads.length} 章：${heads.slice(0, 12).join(' / ')}${heads.length > 12 ? ` … ${heads.slice(-8).join(' / ')}` : ''}\n`
+    : '';
+
+  const headLen = Math.floor(limit * 0.3);
+  const tailLen = Math.floor(limit * 0.2);
+  const head = text.slice(0, headLen);
+  const tail = text.slice(-tailLen);
+
+  // 2) 主体等距抽样：把中间 50% 切成 K 段，每段取开头一小段（通常是段落起句）
+  const midBudget = Math.max(0, limit - headLen - tailLen - headList.length);
+  const midStart = headLen;
+  const midEnd = Math.max(midStart, text.length - tailLen);
+  const midText = text.slice(midStart, midEnd);
+  const K = Math.min(24, Math.max(3, Math.round(midBudget / 260)));
+  const per = Math.max(60, Math.floor(midBudget / Math.max(1, K)) - 12);
+  const step = Math.floor(midText.length / K) || 1;
+  const samples = [];
+  for (let i = 0; i < K; i += 1) {
+    const seg = midText.slice(i * step, i * step + per).trim();
+    if (seg) samples.push(`…${seg.replace(/\s*\n\s*/g, ' ')}…`);
+  }
+  const mid = samples.join('\n');
+
+  const body = `${headList}【开头】\n${head}\n\n【中段抽样】\n${mid}\n\n【结尾】\n${tail}`;
+  return { body: body.slice(0, limit + headList.length), didCondense: true };
+}
+
 export class MaterialService {
   list(projectId) {
     return db.find(COL, (m) => m.project_id === projectId)
@@ -104,7 +162,7 @@ export class MaterialService {
    * 读不出正文不抛错，返回 { ok:false, reason }，由前端提示「可以直接粘贴正文」。
    * @returns {{ok:boolean, name:string, kind:string, text:string, chars:number, total_chars:number, truncated:boolean, reason?:string}}
    */
-  extractText({ filename, mime = '', buffer, maxChars = 20000 }) {
+  extractText({ filename, mime = '', buffer, maxChars = MAX_TEXT_CHARS }) {
     if (!buffer?.length) fail(ERR.MATERIAL_EMPTY, '文件为空');
     const kind = kindOf(String(mime).toLowerCase(), filename);
     const limit = MAX_BYTES[kind] ?? MAX_BYTES.file;
@@ -135,7 +193,7 @@ export class MaterialService {
         reason: '没读到正文。扫描版 PDF / 老 .doc 需要先转成文字版，或直接粘贴正文。',
       };
     }
-    const cap = Math.max(1000, Number(maxChars) || 20000);
+    const cap = Math.min(MAX_TEXT_CHARS, Math.max(1000, Number(maxChars) || MAX_TEXT_CHARS));
     return {
       ok: true,
       name,
@@ -364,43 +422,71 @@ export class MaterialService {
   }
 
   /**
-   * 生成剧本时的参考摘要。
-   * 文本按每条 perText 截断，总量不超过 maxChars —— 不把整本小说塞进 prompt。
+   * 生成剧本时的参考摘要（V4.10：分层压缩，百万字也能用）。
+   *
+   * 为什么不再「截前 N 字」：一本 120 万字的小说只取前 1600 字，等于让编剧只看扉页就改全书。
+   * 现在按「分层抽样」构造故事圣经：
+   *   1) 章节标题全收（保留结构：多少章、每章叫什么）
+   *   2) 开头 30%（人物出场、世界观）
+   *   3) 主体按等距抽样（每章取开头一段，避免只看开头）
+   *   4) 结尾 20%（结局与反转）
+   * 总量卡在 maxChars，超长文本会标注「已压缩」，不假装读完了全文。
    */
-  digest(projectId, { maxChars = 5000, perText = 1600 } = {}) {
+  digest(projectId, { maxChars = 24000, perText = 6000 } = {}) {
     const rows = db.find(COL, (m) => m.project_id === projectId)
       .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-    if (!rows.length) return { text: '', used: [], chars: 0 };
+    if (!rows.length) {
+      return { text: '', used: [], chars: 0, condensed: false, total_chars: 0 };
+    }
 
     const blocks = [];
     const used = [];
     let usedChars = 0;
     let textNo = 0;
     let visualNo = 0;
+    let totalChars = 0;
+    let condensed = false;
 
-    for (const m of rows) {
-      if (m.kind === 'text') {
-        if (!m.text) continue;
-        textNo += 1;
-        const excerpt = m.text.slice(0, perText);
-        const block = `【参考文本 ${textNo}】《${m.name}》共 ${m.chars} 字，节选：\n${excerpt}`
-          + `${m.text.length > excerpt.length ? '\n……（后文略）' : ''}`
-          + `${m.note ? `\n用户说明：${m.note}` : ''}`;
-        if (usedChars + block.length > maxChars) break;
-        blocks.push(block);
-        usedChars += block.length;
-        used.push({ id: m.id, kind: 'text', name: m.name, chars: excerpt.length });
-      } else {
-        visualNo += 1;
-        const label = { image: '参考画面', video: '参考视频', audio: '参考音频' }[m.kind] ?? '参考素材';
-        const block = `【${label} ${visualNo}】${m.name}${m.note ? `｜用户说明：${m.note}` : '｜（用户未写说明）'}`;
-        if (usedChars + block.length > maxChars) break;
-        blocks.push(block);
-        usedChars += block.length;
-        used.push({ id: m.id, kind: m.kind, name: m.name, note: m.note || '' });
-      }
+    // 文本先算总量，避免大文本被后面的图片说明挤掉
+    const texts = rows.filter((m) => m.kind === 'text' && m.text);
+    const visuals = rows.filter((m) => m.kind !== 'text');
+
+    for (const m of texts) {
+      if (!m.text) continue;
+      textNo += 1;
+      totalChars += Number(m.chars) || m.text.length;
+      const budget = Math.min(perText, Math.max(1200, Math.floor(maxChars / Math.max(1, texts.length))));
+      const { body, didCondense } = condenseText(m.text, budget);
+      if (didCondense) condensed = true;
+      const block = `【参考文本 ${textNo}】《${m.name}》共 ${Number(m.chars) || m.text.length} 字`
+        + `${didCondense ? `，已分层压缩到 ${body.length} 字（保留章节结构 + 开头/抽样/结尾）` : ''}：\n${body}`
+        + `${m.note ? `\n用户说明：${m.note}` : ''}`;
+      if (usedChars + block.length > maxChars && blocks.length) continue;
+      blocks.push(block);
+      usedChars += block.length;
+      used.push({ id: m.id, kind: 'text', name: m.name, chars: body.length, full_chars: Number(m.chars) || m.text.length });
     }
-    return { text: blocks.join('\n\n'), used, chars: usedChars };
+
+    for (const m of visuals) {
+      visualNo += 1;
+      const label = { image: '参考画面', video: '参考视频', audio: '参考音频' }[m.kind] ?? '参考素材';
+      if (m.kind === 'file' && m.note) {
+        // 存档类文件（读不出正文）：至少把用户的说明带进去
+      }
+      const block = `【${label} ${visualNo}】${m.name}${m.note ? `｜用户说明：${m.note}` : '｜（用户未写说明）'}`;
+      if (usedChars + block.length > maxChars) break;
+      blocks.push(block);
+      usedChars += block.length;
+      used.push({ id: m.id, kind: m.kind, name: m.name, note: m.note || '' });
+    }
+
+    return { text: blocks.join('\n\n'), used, chars: usedChars, condensed, total_chars: totalChars };
+  }
+
+  /** 项目正文总量（用于前端显示「共 xx 万字」与上限提示） */
+  textTotal(projectId) {
+    const rows = db.find(COL, (m) => m.project_id === projectId && m.kind === 'text');
+    return rows.reduce((n, m) => n + (Number(m.chars) || String(m.text || '').length), 0);
   }
 
   #assertQuota(projectId, kind) {

@@ -1,0 +1,23 @@
+.sv-item { margin-top: 16rpx; }
+.sv-title { font-size: 29rpx; font-weight: 650; color: #16233A; line-height: 1.4; }
+.sv-sub { font-size: 21rpx; color: #8B95A5; margin-top: 5rpx; }
+.sv-log { font-size: 21rpx; color: #6E7B8E; margin-top: 6rpx; line-height: 1.5; }
+.sv-time { flex: none; font-size: 19rpx; color: #A6B0BF; margin-left: 16rpx; }
+
+.sv-chars { display: flex; flex-wrap: wrap; gap: 10rpx; margin-top: 4rpx; }
+.sv-chip {
+  font-size: 21rpx; color: #16233A;
+  background: #F2F6FD; border-radius: 999rpx; padding: 7rpx 16rpx;
+}
+.sv-code { font-size: 17rpx; color: #9AA5B5; margin-right: 6rpx; }
+
+.sv-ep {
+  display: flex; align-items: center; gap: 14rpx;
+  padding: 14rpx 0; border-bottom: 1rpx solid rgba(22, 35, 58, 0.06);
+}
+.sv-ep:last-child { border-bottom: none; }
+.sv-ep-no { flex: none; font-size: 20rpx; color: #B4551A; font-weight: 650; }
+.sv-ep-goal { flex: 1; min-width: 0; font-size: 22rpx; color: #4A566B; }
+
+.sheet-body { max-height: 52vh; }
+.sheet-actions { padding-top: 16rpx; }

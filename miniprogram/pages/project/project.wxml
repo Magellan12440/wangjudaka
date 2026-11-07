@@ -136,6 +136,18 @@
 
       <!-- ===== 素材 ===== -->
       <block wx:if="{{tab === 'material'}}">
+        <!-- 继承上一步：已经生成/选定的剧本，不该在素材页看不见 -->
+        <view wx:if="{{selectedTitle}}" class="card inherit-card">
+          <view class="between">
+            <view class="flex1">
+              <view class="inherit-tag">已确定的剧本</view>
+              <view class="inherit-title ellipsis">{{selectedTitle}}</view>
+              <view class="tiny mt8">{{candidates.length}} 版候选 · 剧本、角色、场景、道具都会沿用这一版</view>
+            </view>
+            <view class="inherit-go tap" hover-class="tap-on" bindtap="goScript">查看 / 换一版</view>
+          </view>
+        </view>
+
         <view class="card">
           <view class="between">
             <view>
@@ -163,10 +175,15 @@
             </view>
             <view class="upload-tile tap" hover-class="tap-on" bindtap="pickFiles">
               <view class="upload-icon">档</view>
-              <view class="upload-name">任意文件</view>
-              <view class="upload-sub">文稿 · 表格 · PDF</view>
+              <view class="upload-name">本地文件</view>
+              <view class="upload-sub">Word · PDF · 表格</view>
             </view>
           </view>
+
+          <view class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="pickFiles">
+            上传本地文件（任意格式，一次 9 个）
+          </view>
+          <view class="hint" style="text-align:center;margin-top:10rpx">Word / PDF / TXT / 表格 / 演示稿会自动取正文，最长支持百万字</view>
 
           <view class="note-input-wrap mt16">
             <input
@@ -227,6 +244,53 @@
 
       <!-- ===== 剧本 ===== -->
       <block wx:if="{{tab === 'script'}}">
+        <!-- 第一步：先选一版。没选定之前，后面的角色/场景/道具都无从谈起 -->
+        <view class="card pick-card">
+          <view class="between">
+            <view>
+              <view class="title">先定一版剧本</view>
+              <view class="tiny mt8">{{candidates.length ? '选定后会自动生成角色 / 场景 / 道具资产，并存入我的剧本库' : '还没有剧本，先让 AI 写一版'}}</view>
+            </view>
+            <view wx:if="{{selectedPlanId}}" class="pill pill-green pill-no-dot">已定稿</view>
+          </view>
+
+          <view wx:if="{{candidates.length}}" class="cand-list mt16">
+            <view
+              wx:for="{{candidates}}"
+              wx:key="id"
+              class="cand-item {{item.selected ? 'on' : ''}}"
+            >
+              <view class="flex1">
+                <view class="cand-title">
+                  {{item.titleText}}
+                  <text wx:if="{{item.selected}}" class="cand-flag">当前</text>
+                </view>
+                <view class="cand-sub">{{item.epText}}<text wx:if="{{item.charText}}"> · {{item.charText}}</text></view>
+                <view wx:if="{{item.logline}}" class="cand-log ellipsis">{{item.logline}}</view>
+              </view>
+              <view
+                wx:if="{{!item.selected}}"
+                class="cand-btn tap {{candidateBusy ? 'off' : ''}}"
+                hover-class="tap-on"
+                data-id="{{item.id}}"
+                bindtap="selectCandidate"
+              >{{candidateBusy === item.id ? '定稿中…' : '就选这版'}}</view>
+            </view>
+          </view>
+
+          <view wx:else class="cand-empty mt16">
+            <view class="tiny">生成大约需要十几秒：大纲 → 分集 → 剧本 → 分镜，一次出两版供你挑。</view>
+          </view>
+
+          <view class="btn btn-block mt16 tap {{candidateBusy ? 'btn-disabled' : ''}}" hover-class="tap-on" bindtap="makeCandidates">
+            {{candidateBusy === 'make' ? '正在写…' : (candidates.length ? '再想两版看看' : '生成剧本（出两版）')}}
+          </view>
+          <view class="hint" style="text-align:center;margin-top:10rpx">
+            选定的剧本会自动存入「我的剧本库」，可随时改名改梗概 ·
+            <text class="lib-link" bindtap="openLibrary">打开剧本库 ›</text>
+          </view>
+        </view>
+
         <block wx:if="{{scriptLoading}}">
           <view class="card"><view class="skeleton sk-line" style="width:50%"></view><view class="skeleton sk-line"></view><view class="skeleton sk-line" style="width:80%"></view></view>
         </block>
@@ -311,32 +375,86 @@
       <block wx:if="{{tab === 'assets'}}">
         <view class="card">
           <view class="between">
-            <text class="title">一致性资产库</text>
-            <text class="tiny">{{assets.ready}} / {{assets.total}} 已出图</text>
+            <view>
+              <view class="title">角色 / 场景 / 道具</view>
+              <view class="tiny mt8">{{assetProgress.ready}} / {{assetProgress.total}} 已出图 · 先出这几张，分镜里才有稳定的脸和景</view>
+            </view>
+            <view class="pill {{assetProgress.ready && assetProgress.ready === assetProgress.total ? 'pill-green' : 'pill-gray'}} pill-no-dot">{{selectedTitle ? '剧本已定' : '未定剧本'}}</view>
           </view>
-          <view class="sub mt8">角色卡带连续性锁，改资产会升版本；已生成镜头固化旧版本快照，不会被污染。</view>
+          <view class="btn btn-block mt16 tap {{assetBusy ? 'btn-disabled' : ''}}" hover-class="tap-on" bindtap="genAssetType" data-type="">
+            {{assetBusy === 'all' ? '正在出图…' : '一键出全部设定图'}}
+          </view>
         </view>
 
-        <view wx:if="{{assets.total === 0}}" class="card empty">
+        <view wx:if="{{assetProgress.total === 0}}" class="card empty">
           <view class="empty-icon">◇</view>
           <view class="empty-title">还没有资产</view>
-          <view class="empty-sub">生成剧本时会自动写入角色卡与连续性锁</view>
-          <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="generateScript">{{busy === 'plan' ? '生成中…' : '生成剧本与资产'}}</view>
+          <view class="empty-sub">先在上一步「剧本」里选定一版，角色 / 场景 / 道具会自动建卡</view>
+          <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="goScript">去选定剧本</view>
         </view>
 
-        <view wx:else class="card">
-          <view class="list-item" wx:for="{{assets.items}}" wx:key="code">
-            <view class="list-avatar cover-{{index % 2 === 0 ? 'a' : 'd'}}">{{item.char}}</view>
-            <view class="list-main">
-              <view class="list-title">{{item.name}}</view>
-              <view class="list-sub">{{item.code}} · v{{item.version}} · {{item.locks}} 条锁</view>
+        <block wx:else>
+          <view class="card" wx:if="{{assetGroups.character.length}}">
+            <view class="between">
+              <text class="title">角色（{{assetProgress.character.ready}}/{{assetProgress.character.total}}）</text>
+              <text class="asset-more tap" hover-class="tap-on" data-type="character" bindtap="genAssetType">出全部 ›</text>
             </view>
-            <view class="list-right">
-              <text class="pill {{item.status === 'ready' ? 'pill-green' : 'pill-gray'}}">{{item.status === 'ready' ? '已出图' : '待出图'}}</text>
+            <view class="asset-grid mt16">
+              <view wx:for="{{assetGroups.character}}" wx:key="code" class="asset-cell">
+                <view class="asset-img-wrap">
+                  <image wx:if="{{item.image_url}}" class="asset-img" src="{{item.image_url}}" mode="aspectFill" lazy-load />
+                  <view wx:else class="asset-ph">{{item.name}}</view>
+                  <view
+                    class="asset-gen tap {{assetBusy ? 'off' : ''}}"
+                    hover-class="tap-on"
+                    data-code="{{item.code}}"
+                    data-force="{{item.image_url ? '1' : '0'}}"
+                    bindtap="genAsset"
+                  >{{assetBusy === item.code ? '…' : (item.image_url ? '重绘' : '出图')}}</view>
+                </view>
+                <view class="asset-name ellipsis">{{item.name}}</view>
+                <view class="asset-sub">{{item.code}} · {{item.locks}} 锁</view>
+              </view>
             </view>
           </view>
-        </view>
-        <view class="hint">资产出图在「镜头」里逐镜完成；角色图就绪后，后续镜头会自动引用作为参考。</view>
+
+          <view class="card" wx:if="{{assetGroups.scene.length}}">
+            <view class="between">
+              <text class="title">场景（{{assetProgress.scene.ready}}/{{assetProgress.scene.total}}）</text>
+              <text class="asset-more tap" hover-class="tap-on" data-type="scene" bindtap="genAssetType">出全部 ›</text>
+            </view>
+            <view class="asset-grid mt16">
+              <view wx:for="{{assetGroups.scene}}" wx:key="code" class="asset-cell">
+                <view class="asset-img-wrap wide">
+                  <image wx:if="{{item.image_url}}" class="asset-img" src="{{item.image_url}}" mode="aspectFill" lazy-load />
+                  <view wx:else class="asset-ph">{{item.name}}</view>
+                  <view class="asset-gen tap {{assetBusy ? 'off' : ''}}" hover-class="tap-on" data-code="{{item.code}}" data-force="{{item.image_url ? '1' : '0'}}" bindtap="genAsset">{{assetBusy === item.code ? '…' : (item.image_url ? '重绘' : '出图')}}</view>
+                </view>
+                <view class="asset-name ellipsis">{{item.name}}</view>
+                <view class="asset-sub">{{item.code}}</view>
+              </view>
+            </view>
+          </view>
+
+          <view class="card" wx:if="{{assetGroups.prop.length}}">
+            <view class="between">
+              <text class="title">道具（{{assetProgress.prop.ready}}/{{assetProgress.prop.total}}）</text>
+              <text class="asset-more tap" hover-class="tap-on" data-type="prop" bindtap="genAssetType">出全部 ›</text>
+            </view>
+            <view class="asset-grid mt16">
+              <view wx:for="{{assetGroups.prop}}" wx:key="code" class="asset-cell">
+                <view class="asset-img-wrap">
+                  <image wx:if="{{item.image_url}}" class="asset-img" src="{{item.image_url}}" mode="aspectFill" lazy-load />
+                  <view wx:else class="asset-ph">{{item.name}}</view>
+                  <view class="asset-gen tap {{assetBusy ? 'off' : ''}}" hover-class="tap-on" data-code="{{item.code}}" data-force="{{item.image_url ? '1' : '0'}}" bindtap="genAsset">{{assetBusy === item.code ? '…' : (item.image_url ? '重绘' : '出图')}}</view>
+                </view>
+                <view class="asset-name ellipsis">{{item.name}}</view>
+                <view class="asset-sub">{{item.code}}</view>
+              </view>
+            </view>
+          </view>
+        </block>
+        <view class="hint">资产图会作为后续分镜的参考图：同一张脸、同一处景，才不会一镜一变。</view>
         <view class="gap32"></view>
       </block>
 
@@ -347,14 +465,18 @@
             <text class="title">逐镜出片</text>
             <text class="tiny">{{gens.total}} 条 · {{gens.credits}} 点</text>
           </view>
-          <view class="sub mt8">每条都在项目内按总谱执行：先关键帧，再基于关键帧出视频。镜别、光影、情绪由总谱锁定，不能在这里改写。</view>
+          <view class="sub mt8">先关键帧、再基于关键帧出视频；镜别 / 光影 / 情绪按剧本锁定，这里只负责执行。</view>
+          <view class="btn btn-block mt16 tap {{shotBusy ? 'btn-disabled' : ''}}" hover-class="tap-on" bindtap="genShotImages">
+            {{shotBusy ? '正在出分镜图…' : '先出这一集的分镜图（4 张/批）'}}
+          </view>
+          <view class="hint" style="margin-top:10rpx;text-align:center">建议先把「角色 / 场景」设定图出好，分镜里的脸和景才稳定</view>
         </view>
 
         <view wx:if="{{shotItems.length === 0}}" class="card empty">
           <view class="empty-icon">▣</view>
           <view class="empty-title">还没有分镜</view>
-          <view class="empty-sub">先生成剧本与分镜，才能按镜出图</view>
-          <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="generateScript">{{busy === 'plan' ? '生成中…' : '生成剧本'}}</view>
+          <view class="empty-sub">先在「剧本」里选定一版，分镜会跟着这一版走</view>
+          <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="goScript">去选定剧本</view>
         </view>
 
         <view wx:else>

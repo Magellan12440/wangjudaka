@@ -1,0 +1,99 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora"><view class="aurora-a"></view><view class="aurora-b"></view></view>
+
+  <view class="layer" style="padding: 24rpx 32rpx 0">
+    <view class="eyebrow">MY SCRIPTS</view>
+    <view class="h1" style="margin-top:10rpx">我的剧本库</view>
+    <view class="sub mt8">在项目里选定过的剧本会自动存到这里。改标题、改梗概、换项目重拍都在这儿。</view>
+
+    <block wx:if="{{loading}}">
+      <view class="card mt24"><view class="skeleton sk-line" style="width:45%"></view><view class="skeleton sk-line"></view><view class="skeleton sk-line" style="width:70%"></view></view>
+    </block>
+
+    <block wx:elif="{{error}}">
+      <view class="card mt24">
+        <view class="error-text">{{error}}</view>
+        <view class="btn btn-sm btn-ghost mt16 tap" hover-class="tap-on" bindtap="load">重试</view>
+      </view>
+    </block>
+
+    <block wx:elif="{{!items.length}}">
+      <view class="card empty mt24">
+        <view class="empty-icon">本</view>
+        <view class="empty-title">还没有剧本</view>
+        <view class="empty-sub">在项目里生成剧本、选定一版，它就会自动出现在这里</view>
+        <view class="btn btn-sm btn-ghost mt24 tap" hover-class="tap-on" bindtap="goCreate">去做一部</view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <view class="card mt24">
+        <view class="between">
+          <text class="title">共 {{items.length}} 版</text>
+          <text class="tiny">选定即入库 · 可随时修改</text>
+        </view>
+      </view>
+
+      <view
+        wx:for="{{items}}"
+        wx:key="id"
+        class="card sv-item tap"
+        hover-class="tap-on"
+        data-id="{{item.id}}"
+        bindtap="openItem"
+      >
+        <view class="between">
+          <view class="flex1">
+            <view class="sv-title ellipsis">{{item.title}}</view>
+            <view class="sv-sub">{{item.episodes}} 集 · {{item.shots}} 镜 · {{item.asset_total}} 个资产</view>
+            <view wx:if="{{item.charText}}" class="sv-sub">人物：{{item.charText}}</view>
+            <view wx:if="{{item.logline}}" class="sv-log ellipsis">{{item.logline}}</view>
+          </view>
+          <view class="sv-time">{{item.timeText}}</view>
+        </view>
+      </view>
+      <view class="gap32"></view>
+    </block>
+  </view>
+
+  <!-- 剧本详情：改标题 / 改梗概 / 套用到项目 / 移除 -->
+  <view wx:if="{{sheet}}" class="sheet-mask" bindtap="closeSheet"></view>
+  <view wx:if="{{sheet}}" class="sheet">
+    <view class="sheet-bar"></view>
+    <view class="sheet-title ellipsis">{{cur.title || '剧本'}}</view>
+    <view class="tiny" style="margin-bottom:16rpx">改完保存即可，不会重跑模型，也不扣点</view>
+
+    <scroll-view scroll-y class="sheet-body">
+      <view class="field-label"><text>标题</text></view>
+      <input class="input" value="{{form.title}}" data-k="title" bindinput="onForm" maxlength="60" placeholder="剧本标题" placeholder-class="input-ph" />
+
+      <view class="field-label mt20"><text>一句话梗概</text></view>
+      <textarea class="textarea" style="height:150rpx" value="{{form.logline}}" data-k="logline" bindinput="onForm" maxlength="300" placeholder="这版讲的是什么" placeholder-class="input-ph" />
+
+      <view class="field-label mt20"><text>备注（给自己）</text></view>
+      <input class="input" value="{{form.note}}" data-k="note" bindinput="onForm" maxlength="200" placeholder="例如：客户更喜欢这版结局" placeholder-class="input-ph" />
+
+      <view wx:if="{{cur.outline.characters.length}}" class="field-label mt20"><text>人物</text></view>
+      <view class="sv-chars">
+        <view wx:for="{{cur.outline.characters}}" wx:key="code" class="sv-chip">
+          <text class="sv-code">{{item.code}}</text>{{item.name}}
+        </view>
+      </view>
+
+      <view wx:if="{{cur.outline.episodes.length}}" class="field-label mt20"><text>分集</text></view>
+      <view wx:for="{{cur.outline.episodes}}" wx:key="no" class="sv-ep">
+        <text class="sv-ep-no">E{{item.no}}</text>
+        <text class="sv-ep-goal ellipsis">{{item.goal || '—'}}</text>
+      </view>
+    </scroll-view>
+
+    <view class="sheet-actions">
+      <view class="btn btn-block tap {{busy ? 'btn-disabled' : ''}}" hover-class="tap-on" bindtap="save">{{busy === 'save' ? '保存中…' : '保存修改'}}</view>
+      <view class="row mt16" wx:if="{{projectId}}">
+        <view class="btn flex1 tap" hover-class="tap-on" bindtap="applyTo">{{busy === 'apply' ? '套用中…' : '套用到当前项目'}}</view>
+        <view class="btn flex1 btn-ghost tap" hover-class="tap-on" bindtap="remove">移除</view>
+      </view>
+      <view wx:else class="btn btn-block btn-ghost mt16 tap" hover-class="tap-on" bindtap="remove">从剧本库移除</view>
+    </view>
+  </view>
+</view>

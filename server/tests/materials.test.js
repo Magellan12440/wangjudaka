@@ -103,7 +103,7 @@ test('空文本被拒；超长文本被拒', () => {
   const pid = mkProject();
   assert.throws(() => materialService.addText({ projectId: pid, name: '空', text: '   ' }), /不能为空/);
   assert.throws(
-    () => materialService.addText({ projectId: pid, name: '超长', text: '字'.repeat(130000) }),
+    () => materialService.addText({ projectId: pid, name: '超长', text: '字'.repeat(1200001) }),
     /最多/,
   );
 });
