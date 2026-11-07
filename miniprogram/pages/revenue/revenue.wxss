@@ -82,5 +82,6 @@
 .seg.tiny .seg-item { flex: none; padding: 0 16rpx; height: 66rpx; line-height: 66rpx; font-size: 22rpx; border-radius: 12rpx; }
 .seg.tiny .seg-item.on {
   background: linear-gradient(120deg, #FFC978, #E08A22 55%, #FF9A45);
+  color: #FFFFFF; font-weight: 650;
   box-shadow: 0 8rpx 20rpx rgba(251, 122, 52, 0.28);
 }
