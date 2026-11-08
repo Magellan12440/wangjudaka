@@ -135,6 +135,11 @@
 | POST | `/api/projects/:id/assets` | 建资产（角色/场景/道具/声线，锁数不足会被拒） |
 | GET | `/api/projects/:id/assets?type=` | 资产列表 |
 | POST | `/api/projects/:id/assets/impact` | 升版影响面预演（命中镜头数 + 重生成点数） |
+| DELETE | `/api/projects/:id/assets/:code` | **本人删除资产**（需 `{confirm:true}`，写删除凭证；`POST .../delete` 为别名） |
+| GET | `/api/projects/:id/assets/deletions` | 删除凭证（谁/何时/哪一份/原因） |
+| GET | `/api/me/assets` | 本账号资产总账（只读对账，不跨账号） |
+| GET | `/api/admin/assets/isolation` | 隔离自检（管理端） |
+| GET | `/api/admin/assets/rule` | 资产归属与保留规则四条（R1 归属 / R2 隔离 404 / R3 永久保留 / R4 仅本人可删） |
 | POST | `/api/projects/:id/docs` | 写创作文档（六表之一） |
 | GET | `/api/projects/:id/docs/check` | **跨文档体检**（角色/场景缺失、缺光影卡、对白超长…） |
 | POST | `/api/rhythm/diagnose` | 节奏诊断（四项闸门 + 修订建议） |
