@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "收益排行榜",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#F4F7FD",
+  "usingComponents": {}
+}

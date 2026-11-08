@@ -216,5 +216,14 @@
   border: 1rpx solid rgba(126, 102, 255, 0.28);
 }
 .rev-entry-icon { font-size: 26rpx; color: #6B57D6; }
-.rev-entry-text { font-size: 26rpx; font-weight: 600; color: #EFEBFF; }
-.rev-entry-sub { flex: 1; text-align: right; font-size: 20rpx; color: #8B7ED6; }
+.rev-entry-text { font-size: 26rpx; font-weight: 600; color: #4A3FB0; }
+.rev-entry-sub { flex: 1; text-align: right; font-size: 20rpx; color: #6B5FC4; }
+
+/* 排行榜入口：金橙色，和紫色的收益看板区分 */
+.rank-entry {
+  background: linear-gradient(120deg, rgba(232, 162, 74, 0.18), rgba(22, 35, 58, 0.03));
+  border-color: rgba(232, 162, 74, 0.34);
+}
+.rank-entry .rev-entry-icon { color: #C57A1E; }
+.rank-entry .rev-entry-text { color: #A8620F; }
+.rank-entry .rev-entry-sub { color: #9A6B2A; }

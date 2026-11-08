@@ -67,6 +67,8 @@ Page({
     secError: '',
     // 收益看板（V4.4）
     revenueTotal: 0,
+    // 收益排行榜（V4.16）：卡片上只放名次，点进去看全榜
+    rankText: '—',
     // 管理后台（V4.7）：只看服务端给的 is_admin，不在本地猜
     isAdmin: false,
   },
@@ -91,6 +93,7 @@ Page({
       this.loadRedeems();
       this.loadFilms();
       this.loadRevenue();
+      this.loadRank();
       this.loadAccountAssets();
     });
   },
@@ -105,6 +108,22 @@ Page({
   openRevenue() {
     motion.haptic();
     wx.navigateTo({ url: '/pages/revenue/revenue' });
+  },
+
+  /** 排行榜入口：只取自己的名次做卡片（榜单本身在那页里看） */
+  loadRank() {
+    api.leaderboard()
+      .then((d) => {
+        const me = d && d.me;
+        const n = me && me.rank;
+        this.setData({ rankText: n ? `第 ${n} 名` : '未上榜' });
+      })
+      .catch(() => { /* 榜单失败不影响我的页 */ });
+  },
+
+  openRank() {
+    motion.haptic();
+    wx.navigateTo({ url: '/pages/rank/rank' });
   },
 
   /** 管理后台（V4.7）：入口只对管理员渲染，进来后服务端还会再校验一次角色 */

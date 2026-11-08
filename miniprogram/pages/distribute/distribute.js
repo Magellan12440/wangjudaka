@@ -466,6 +466,11 @@ Page({
     wx.navigateTo({ url: '/pages/revenue/revenue' });
   },
 
+  /** 排行榜（V4.16）：和收益看板并列，所有人可见 */
+  goRank() {
+    wx.navigateTo({ url: '/pages/rank/rank' });
+  },
+
   openStats(e) {
     const id = e.currentTarget.dataset.id;
     const task = this.data.tasks.find((t) => t.id === id);

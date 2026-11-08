@@ -186,6 +186,19 @@
 | GET | `/api/distribution?projectId=` | 任务列表 |
 | GET | `/api/distribution/summary?projectId=` | 收益看板 |
 
+### 分发收益排行榜（V4.16）
+
+口径：**全平台 + 全时间累计**，不做单平台榜、不做日/周榜；**只取前 1000 名**；**每日刷新一次**（东八区自然日）；
+**所有用户默认参与**。收益只能写自己的分发（跨账号 404），避免名次被代刷。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/leaderboard` | 榜单（**公开可读**，未登录也返回同一份）。带登录态时多返回 `me`（我的名次 / 距前 1000 差多少）。条目只有名次、昵称、金额、作品数、平台数、涨跌，**不含 user_id** |
+| GET | `/api/leaderboard/rules` | 榜单口径（容量 1000 / 每日刷新 / 默认参与 / 4 条说明），前端文案与此同源 |
+| POST | `/api/leaderboard/participation` | `{optOut:true}` 退出榜单并**当场重建**当天快照；`{optOut:false}` 恢复参与 |
+| POST | `/api/admin/leaderboard/refresh` | 管理端手动重算（`X-Admin-Token`），返回与上一份快照的新增/掉榜人数 |
+
+
 ## V3.2 角色情绪库（情绪作为资产）
 
 | 方法 | 路径 | 说明 |

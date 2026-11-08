@@ -1,0 +1,107 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora">
+    <view class="aurora-a"></view>
+    <view class="aurora-b"></view>
+  </view>
+
+  <view class="layer rank-layer">
+    <!-- 标题 -->
+    <view class="rank-head">
+      <view class="eyebrow">REVENUE RANKING</view>
+      <view class="h1 mt16">分发收益<text class="accent-text">排行榜</text></view>
+      <view class="sub mt8">全平台、全时间累计，每日刷新一次。榜上只留前 1000 名，所有用户默认参与。</view>
+      <view class="rank-meta mt12">
+        <text class="meta-chip" wx:if="{{snap.date}}">{{snap.date}} 更新</text>
+        <text class="meta-chip">{{snap.entry_count || 0}} 人上榜</text>
+        <text class="meta-chip" wx:if="{{snap.participants}}">参与统计 {{snap.participants}} 人</text>
+        <text class="meta-chip tap" hover-class="tap-on" bindtap="showRules">规则说明</text>
+      </view>
+    </view>
+
+    <!-- 我的位置 -->
+    <view class="card me-card" wx:if="{{me}}">
+      <view class="between">
+        <view class="col">
+          <text class="tiny">我的累计收益（全平台）</text>
+          <view class="me-amount num">¥{{meAmount}}</view>
+        </view>
+        <view class="me-rank">
+          <text class="me-rank-v num">{{me.rank || '—'}}</text>
+          <text class="me-rank-l">名次</text>
+        </view>
+      </view>
+      <view class="me-line mt12">
+        <text class="{{me.on_board ? 'pill pill-gold pill-no-dot' : 'pill pill-gray pill-no-dot'}}">{{meText}}</text>
+        <text class="hint flex1 ml8" wx:if="{{gapText}}">{{gapText}}</text>
+      </view>
+      <view class="me-actions mt16" wx:if="{{me}}">
+        <view class="btn btn-plain btn-sm tap" hover-class="tap-on" bindtap="goRevenue">看我的收益</view>
+        <view class="btn btn-plain btn-sm tap" hover-class="tap-on" bindtap="toggleJoin">
+          {{optedOut ? '重新参与榜单' : '关闭榜单参与'}}
+        </view>
+      </view>
+      <view class="hint mt12" wx:if="{{optedOut}}">你已关闭参与，榜单不再展示你的账号。打开「重新参与榜单」即恢复。</view>
+    </view>
+
+    <!-- 空态 / 错误 -->
+    <view class="card empty-card" wx:if="{{!loading && error}}">
+      <view class="h3">榜单加载失败</view>
+      <view class="hint mt8">{{error}}</view>
+      <view class="btn btn-plain btn-sm mt16 tap" hover-class="tap-on" bindtap="reload">重新加载</view>
+    </view>
+
+    <view class="card empty-card" wx:if="{{!loading && !error && total === 0}}">
+      <view class="h3">还没有人上榜</view>
+      <view class="hint mt8">榜单统计的是「分发收益回填」录入的金额。先在分发页把收益填上，下一次刷新就会出现在这里。</view>
+      <view class="btn btn-plain btn-sm mt16 tap" hover-class="tap-on" bindtap="goDistribute">去分发页回填</view>
+    </view>
+
+    <!-- 榜单单 -->
+    <view class="board" wx:if="{{total > 0}}">
+      <view class="board-head">
+        <text class="col-rank">名次</text>
+        <text class="col-name flex1">创作者</text>
+        <text class="col-amt">累计收益</text>
+      </view>
+
+      <view class="board-row {{item.rank <= 3 ? 'board-top' : ''}}" wx:for="{{list}}" wx:key="rank">
+        <view class="col-rank">
+          <view class="rank-badge {{item.medal}}" wx:if="{{item.medal}}">{{item.rank}}</view>
+          <text class="rank-no num" wx:else>{{item.rank}}</text>
+        </view>
+
+        <view class="col-name flex1 row">
+          <image class="ava" wx:if="{{item.avatar}}" src="{{item.avatar}}" mode="aspectFill" />
+          <view class="ava ava-text" wx:else>{{item.initial}}</view>
+          <view class="col ml8 flex1">
+            <view class="row">
+              <text class="name ellipsis">{{item.name}}</text>
+              <text class="trend up" wx:if="{{item.trend === 'up'}}">↑</text>
+              <text class="trend down" wx:if="{{item.trend === 'down'}}">↓</text>
+              <text class="trend new" wx:if="{{item.trend === 'new'}}">NEW</text>
+            </view>
+            <text class="tiny">{{item.projects}} 部作品 · {{item.platforms}} 个平台</text>
+          </view>
+        </view>
+
+        <view class="col-amt">
+          <text class="amt num">¥{{item.amount}}</text>
+        </view>
+      </view>
+
+      <view class="board-foot">
+        <text class="hint" wx:if="{{hasMore}}">已显示 {{shown}} / {{total}} 名，继续下拉加载</text>
+        <text class="hint" wx:else>已到榜尾 · 共 {{total}} 人上榜</text>
+      </view>
+    </view>
+
+    <view class="rank-note" wx:if="{{rules}}">
+      <view class="h3">榜单口径</view>
+      <view class="note-item" wx:for="{{rules.notes}}" wx:key="*this">
+        <text class="bullet">·</text>
+        <text class="hint flex1">{{item}}</text>
+      </view>
+      <view class="hint mt8">收益金额以「分发收益回填」录入为准；平台实际结算以各平台后台为准，本榜只做公开排名，不作为结算凭证。</view>
+    </view>
+  </view>
+</view>

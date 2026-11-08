@@ -31,6 +31,7 @@ import oneShot from '../pipeline/OneShot.js';
 import { timeline } from '../media/Timeline.js';
 import { renderer } from '../media/Renderer.js';
 import { distributionHub } from '../distribution/DistributionHub.js';
+import revenueLeaderboard from '../distribution/RevenueLeaderboard.js';
 import analytics from '../analytics/Analytics.js';
 import consistencyChecker from '../qc/ConsistencyChecker.js';
 import consistencyGuard from '../qc/ConsistencyGuard.js';
@@ -131,6 +132,26 @@ function ownedProjectOf(req, projectId) {
   const user = authService.requireUser(req);
   if (!p || p.user_id !== user.id) throw new AppError('NOT_FOUND', '项目不存在');
   return p;
+}
+
+/**
+ * 分发记录的写入裁决（V4.16）。
+ *
+ * 收益回填直接决定排行榜名次，所以「谁能往这条分发里写钱」必须卡死：
+ *  —— 带登录态时：只能写自己的分发，写别人的一律 404（不承认这条记录存在）；
+ *  —— 生产环境无登录态：直接要求登录（内部运维用 X-Admin-Token 走 operator 通道）；
+ *  —— 开发/测试环境沿用原有免登录口径，免得本地冒烟全废。
+ */
+function assertDistributionWritable(req, d) {
+  const actor = authService.optionalUser(req);
+  const operator = isOperator(req);
+  if (operator) return d;
+  if (!actor) {
+    if (config.server.env === 'production') throw new AppError('AUTH_REQUIRED', '请先登录');
+    return d;
+  }
+  if (d.user_id && d.user_id !== actor.id) throw new AppError('NOT_FOUND', '分发记录不存在');
+  return d;
 }
 
 /**
@@ -1788,13 +1809,33 @@ export const routes = [
 
   // —— 分发 ——
   ['GET', '/api/platforms', async () => distributionHub.platforms()],
-  ['POST', '/api/distribution', async ({ body }) => distributionHub.create({
-    projectId: body.projectId, episodeNo: body.episodeNo, platformCode: body.platformCode, userId: body.userId,
-  })],
-  ['POST', '/api/distribution/:id/status', async ({ params, body }) => distributionHub.updateStatus(params.id, body.status, body.extra ?? {})],
-  ['POST', '/api/distribution/:id/contract', async ({ params, body }) => distributionHub.signContract(params.id, body ?? {})],
-  ['POST', '/api/distribution/:id/revenue', async ({ params, body }) => distributionHub.recordRevenue(params.id, body)],
-  ['POST', '/api/distribution/:id/stats', async ({ params, body }) => distributionHub.recordStats(params.id, body)],
+  ['POST', '/api/distribution', async ({ body, req }) => {
+    // 归属从登录态来；无登录态（本地/冒烟）才允许显式传 userId
+    const actor = authService.optionalUser(req);
+    return distributionHub.create({
+      projectId: body.projectId,
+      episodeNo: body.episodeNo,
+      platformCode: body.platformCode,
+      userId: actor?.id ?? body.userId ?? null,
+    });
+  }],
+  ['POST', '/api/distribution/:id/status', async ({ params, body, req }) => {
+    assertDistributionWritable(req, distributionHub.get(params.id));
+    return distributionHub.updateStatus(params.id, body.status, body.extra ?? {});
+  }],
+  ['POST', '/api/distribution/:id/contract', async ({ params, body, req }) => {
+    assertDistributionWritable(req, distributionHub.get(params.id));
+    return distributionHub.signContract(params.id, body ?? {});
+  }],
+  ['POST', '/api/distribution/:id/revenue', async ({ params, body, req }) => {
+    // 这一笔直接改变排行榜名次，必须验归属
+    assertDistributionWritable(req, distributionHub.get(params.id));
+    return distributionHub.recordRevenue(params.id, body);
+  }],
+  ['POST', '/api/distribution/:id/stats', async ({ params, body, req }) => {
+    assertDistributionWritable(req, distributionHub.get(params.id));
+    return distributionHub.recordStats(params.id, body);
+  }],
   ['GET', '/api/distribution', async ({ query, req }) => {
     projectOf(req, query.projectId);
     return distributionHub.listWithSteps(query.projectId);
@@ -1802,6 +1843,23 @@ export const routes = [
   ['GET', '/api/distribution/summary', async ({ query, req }) => {
     projectOf(req, query.projectId);
     return distributionHub.summary(query.projectId);
+  }],
+
+  // —— 分发收益排行榜（V4.16）——
+  // 公开可读：任何用户（含未登录）看到的是同一份榜单。带登录态时额外返回「我的名次」。
+  // 口径：全平台 + 全时间累计，只留前 1000，每日刷新一次（同一天多次打开是同一份）。
+  ['GET', '/api/leaderboard', async ({ query, req }) => {
+    const user = authService.optionalUser(req);
+    return revenueLeaderboard.view({ userId: user?.id ?? null, limit: query?.limit });
+  }],
+  ['GET', '/api/leaderboard/rules', async () => revenueLeaderboard.rules()],
+  ['POST', '/api/leaderboard/participation', async ({ body, req }) => {
+    const user = authService.requireUser(req);
+    return revenueLeaderboard.setParticipation(user.id, body?.optOut === true);
+  }],
+  ['POST', '/api/admin/leaderboard/refresh', async ({ req }) => {
+    adminConsole.assertAdmin(req);
+    return revenueLeaderboard.rebuild();
   }],
 
   // —— 质检：一致性自检（V3.3 / M3 出口条件）——

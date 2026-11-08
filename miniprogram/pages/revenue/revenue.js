@@ -76,6 +76,12 @@ Page({
       .catch((e) => this.setData({ loading: false, error: e.message || '加载失败' }));
   },
 
+  /** 排行榜（V4.16）：所有人可见，全平台全时间累计 */
+  goRank() {
+    motion.haptic();
+    wx.navigateTo({ url: '/pages/rank/rank' });
+  },
+
   goDistribute() {
     motion.haptic();
     wx.switchTab({ url: '/pages/distribute/distribute' });

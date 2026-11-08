@@ -5,9 +5,12 @@
   </view>
 
   <view class="layer page">
-    <view class="head">
-      <view class="title">收益看板</view>
-      <view class="sub">你在分发页回填的每一笔，这里都会自动汇总</view>
+    <view class="head between">
+      <view class="flex1">
+        <view class="title">收益看板</view>
+        <view class="sub">你在分发页回填的每一笔，这里都会自动汇总</view>
+      </view>
+      <view class="rank-link tap" hover-class="tap-on" bindtap="goRank">排行榜 ›</view>
     </view>
 
     <view wx:if="{{loading}}" class="glass card">

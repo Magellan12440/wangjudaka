@@ -380,6 +380,46 @@ async function main() {
       ok('分发数据回填生效', Boolean(after && after.viewsText && after.viewsText !== '—'), after && after.viewsText);
     }
 
+    // —— 5b. 收益排行榜（V4.16）——
+    // 先给刚才那条分发回填一笔收益，榜单才有数据可排
+    const distId = (dist.data.tasks || [])[0] && (dist.data.tasks || [])[0].id;
+    if (distId) {
+      await fetch(`${BASE}/api/distribution/${distId}/revenue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: 1234.5, period: '2026-11' }),
+      }).then((r) => r.json()).catch(() => null);
+    }
+    const rank = loadPage('pages/rank/rank.js');
+    rank.onLoad();
+    await sleep(900);
+    ok('排行榜页面加载出数', rank.data.loading === false && !rank.data.error, rank.data.error);
+    ok('排行榜只有一份规则口径', Boolean(rank.data.rules && rank.data.rules.capacity === 1000));
+    // 「每日刷新一次」的正面证据：当天已建过快照，新回填的收益不会立刻改榜
+    ok('同一天内新收益不立刻改榜（每日只刷一次）', (rank.data.total || 0) === 0, String(rank.data.total));
+
+    // 手动重算（管理端）：模拟次日刷新，验证回填的收益能正确上榜
+    const refreshed = await fetch(`${BASE}/api/admin/leaderboard/refresh`, {
+      method: 'POST', headers: { 'x-admin-token': 'sim-admin-token' },
+    }).then((r) => r.json()).catch(() => null);
+    ok('管理端可手动重算榜单', Boolean(refreshed && refreshed.ok), JSON.stringify(refreshed && refreshed.code));
+    rank.load(false);
+    await sleep(900);
+    ok('排行榜已上榜（有收益回填）', (rank.data.total || 0) >= 1, String(rank.data.total));
+    ok('排行榜首行带金额与名次', Boolean(rank.data.list[0] && rank.data.list[0].amount && rank.data.list[0].rank === 1), JSON.stringify(rank.data.list[0] || null));
+    ok('排行榜标记了我的名次', Boolean(rank.data.me && rank.data.me.rank), JSON.stringify(rank.data.me || null));
+    ok('排行榜默认参与', rank.data.optedOut === false);
+    ok('排行榜头部有刷新日期', /\d{4}-\d{2}-\d{2}/.test(String(rank.data.refreshText)), rank.data.refreshText);
+    rank.toggleJoin();
+    await sleep(900);
+    ok('关闭参与后立刻从榜单移除', rank.data.optedOut === true && rank.data.me && rank.data.me.on_board === false, JSON.stringify(rank.data.me || null));
+    rank.toggleJoin();
+    await sleep(900);
+    ok('重新参与后回到榜单', rank.data.optedOut === false && rank.data.me && rank.data.me.on_board === true, JSON.stringify(rank.data.me || null));
+    navs.length = 0;
+    rank.goRevenue();
+    ok('排行榜可跳收益看板', navs.some((u) => u.includes('/pages/revenue/revenue')), navs.join(','));
+
     // —— 6. 我的 ——
     const mine = loadPage('pages/mine/mine.js');
     mine.onShow();
@@ -394,6 +434,10 @@ async function main() {
     mine.openPackage({ currentTarget: { dataset: { id: 'PKG-500' } } });
     ok('点档位带着档位号跳转', navs.some((u) => u.includes('id=PKG-500')), navs.join(','));
     mine.closeSheet();
+    ok('我的页显示排行榜名次', /第 \d+ 名|未上榜/.test(String(mine.data.rankText)), mine.data.rankText);
+    navs.length = 0;
+    mine.openRank();
+    ok('我的页可进入排行榜', navs.some((u) => u.includes('/pages/rank/rank')), navs.join(','));
     mine.openRedeem();
     ok('我的页兑换弹层可打开', mine.data.sheet === 'redeem');
     mine.closeSheet();

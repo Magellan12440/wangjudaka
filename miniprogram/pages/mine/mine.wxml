@@ -64,6 +64,18 @@
       </view>
     </view>
 
+    <!-- 收益排行榜入口（V4.16）：全平台全时间累计，所有人可见 -->
+    <view class="rev-card rank-card tap" hover-class="tap-on" bindtap="openRank">
+      <view class="rev-left">
+        <view class="rev-label">收益排行榜</view>
+        <view class="rev-sub">全平台全时间累计 · 前 1000 名 · 每日刷新</view>
+      </view>
+      <view class="rev-right">
+        <view class="rev-num rank-num">{{rankText}}</view>
+        <view class="rev-more">查看 ›</view>
+      </view>
+    </view>
+
     <!-- 充值活动 -->
     <view wx:if="{{campaign && campaign.active}}" class="campaign">
       <view class="campaign-dot"></view>

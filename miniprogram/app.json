@@ -13,6 +13,7 @@
     "pages/legal/legal",
     "pages/login/login",
     "pages/revenue/revenue",
+    "pages/rank/rank",
     "pages/admin/admin"
   ],
   "window": {

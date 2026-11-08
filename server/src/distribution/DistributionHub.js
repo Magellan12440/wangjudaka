@@ -80,6 +80,13 @@ export class DistributionHub {
     return items;
   }
 
+  /** 单条分发记录（写收益/状态前先取出来验归属） */
+  get(id) {
+    const d = db.findOne(COL, (x) => x.id === id);
+    if (!d) fail(ERR.NOT_FOUND, '分发记录不存在');
+    return d;
+  }
+
   updateStatus(id, status, extra = {}) {
     const d = db.findOne(COL, (x) => x.id === id);
     if (!d) fail(ERR.NOT_FOUND, '分发记录不存在');

@@ -342,3 +342,13 @@
 .ledger-num { font-size: 34rpx; font-weight: 700; color: #16233A; }
 .ledger-k { font-size: 20rpx; color: #8B95A5; margin-top: 2rpx; }
 .ledger-note { font-size: 20rpx; color: #9AA5B5; line-height: 1.7; margin-top: 12rpx; }
+
+/* 收益排行榜入口（V4.16）：和收益看板区分开，用金橙色 */
+.rank-card {
+  background: linear-gradient(140deg, rgba(232, 162, 74, 0.16), rgba(22, 35, 58, 0.03));
+  border-color: rgba(232, 162, 74, 0.32);
+}
+.rank-card .rev-label { color: #A8620F; }
+.rank-card .rev-sub { color: #9A6B2A; }
+.rank-card .rev-more { color: #C57A1E; }
+.rank-num { font-size: 28rpx; }

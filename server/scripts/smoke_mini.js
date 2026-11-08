@@ -486,6 +486,53 @@ async function main() {
       { 'X-Admin-Token': 'smoke-admin-token' });
     ok('规则可对外陈述（四条）', (data(ruleRes).clauses || []).length === 4 && data(ruleRes).retention === 'permanent');
 
+    // 16.6 收益排行榜（V4.16）
+    const lbAnon = await call('GET', '/api/leaderboard');
+    ok('排行榜未登录也能看（所有人可见）', lbAnon.status === 200, String(lbAnon.status));
+    ok('榜单口径只有一份：前 1000 名 / 每日刷新',
+      data(lbAnon).rules.capacity === 1000 && data(lbAnon).rules.refresh === 'daily');
+    ok('榜单带每日快照日期', /^\d{4}-\d{2}-\d{2}$/.test(String(data(lbAnon).snapshot.date)),
+      data(lbAnon).snapshot.date);
+    ok('榜单条目不含 user_id',
+      (data(lbAnon).list || []).every((x) => !('user_id' in x)));
+    const lbRules = await call('GET', '/api/leaderboard/rules');
+    ok('榜单规则单独可取（前端文案同源）',
+      lbRules.status === 200 && data(lbRules).visible_to === 'all_users' && data(lbRules).participates_by_default === true);
+
+    // A 回填一笔收益；B 不能往 A 的分发里写钱（榜单名次不能被人代刷）
+    const distA = await call('POST', '/api/distribution',
+      { projectId, episodeNo: 'E01', platformCode: 'PLT-HONGGUO' }, true);
+    const distIdA = data(distA).id;
+    ok('分发记录可创建', Boolean(distIdA), String(distA.status));
+    if (distIdA) {
+      const revA = await call('POST', `/api/distribution/${distIdA}/revenue`,
+        { amount: 888.8, period: '2026-11' }, true);
+      ok('本人可回填收益', revA.status === 200, String(revA.status));
+      const revB = await call('POST', `/api/distribution/${distIdA}/revenue`,
+        { amount: 99999 }, { Authorization: `Bearer ${tokenB}` });
+      ok('别人不能往我的分发里回填收益', revB.status === 404, `${revB.status} ${revB.json && revB.json.code}`);
+    }
+
+    // 每日刷新：同一天先看到的是当天已建好的快照，管理端手动重算后才把新收益算进去
+    const rsh = await call('POST', '/api/admin/leaderboard/refresh', {},
+      { 'X-Admin-Token': 'smoke-admin-token' });
+    ok('管理端可重算榜单', rsh.status === 200 && data(rsh).snapshot.entry_count >= 1,
+      `${rsh.status} entries=${data(rsh).snapshot && data(rsh).snapshot.entry_count}`);
+    const lbMine = await call('GET', '/api/leaderboard', undefined, true);
+    ok('回填收益后能上榜', (data(lbMine).list || []).length >= 1);
+    ok('本页能读到我自己的名次', Boolean(data(lbMine).me && data(lbMine).me.rank),
+      JSON.stringify(data(lbMine).me));
+    ok('名次按总收益排（第一名金额最大）',
+      (data(lbMine).list || []).every((x, i, arr) => i === 0 || arr[i - 1].total_cny >= x.total_cny));
+
+    // 参与开关：默认参与，关掉立刻下榜
+    const offR = await call('POST', '/api/leaderboard/participation', { optOut: true }, true);
+    ok('可关闭榜单参与', offR.status === 200 && data(offR).participating === false, String(offR.status));
+    const lbOff = await call('GET', '/api/leaderboard', undefined, true);
+    ok('关闭后自己立刻不在榜', Boolean(data(lbOff).me) && data(lbOff).me.on_board === false);
+    const onR = await call('POST', '/api/leaderboard/participation', { optOut: false }, true);
+    ok('可重新参与榜单', onR.status === 200 && data(onR).participating === true);
+
     // 17. 凭据零命中
     const joined = allText.join('\n');
     ok('响应不含 sk- 密钥', !/sk-[A-Za-z0-9]{8,}/.test(joined));

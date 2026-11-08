@@ -526,6 +526,12 @@ module.exports = {
     request({ url: `/api/projects/${enc(projectId)}/assets/deletions` }),
   // 账号资产总账：跨项目，只读。用来让用户看见"东西都还在"
   accountAssets: () => request({ url: '/api/me/assets' }),
+  // —— 分发收益排行榜（V4.16）——
+  // 全平台全时间累计，只取前 1000，每日刷新；带登录态时额外返回「我的名次」
+  leaderboard: () => request({ url: '/api/leaderboard' }),
+  leaderboardRules: () => request({ url: '/api/leaderboard/rules' }),
+  setLeaderboardParticipation: (optOut) =>
+    request({ url: '/api/leaderboard/participation', method: 'POST', data: { optOut: !!optOut }, toast: true }),
   // —— 角色名册与配角补齐（V4.13）——
   assetRoster: (projectId) => request({ url: `/api/projects/${enc(projectId)}/assets/roster` }),
   fillCharacterAssets: (projectId, limit) =>

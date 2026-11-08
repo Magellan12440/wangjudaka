@@ -15,6 +15,7 @@ import productionService from './pipeline/ProductionService.js';
 import { loadRelayRuntime } from './relay/RelayRuntime.js';
 import objectStore from './storage/ObjectStore.js';
 import { backfillOwnership } from './assets/AssetOwnership.js';
+import revenueLeaderboard from './distribution/RevenueLeaderboard.js';
 
 // 导演总谱在规划阶段需要读角色情绪档案；用全局只读句柄避免启动期循环依赖
 globalThis.__lingwuAssetLibrary = assetLibrary;
@@ -44,6 +45,15 @@ try {
   if (bf.filled || bf.orphan) logger.warn('历史资产归属已补全', bf);
 } catch (e) {
   logger.warn('资产归属补全失败（不影响启动，但请在管理台核对隔离自检）', { msg: e.message });
+}
+
+// V4.16：收益排行榜。启动就先补一份当天快照（幂等，当天已建过不会重算），
+// 之后由请求侧 ensureFresh 兜底 —— 没人访问的日子不会漏掉，有人访问也不会算第二遍。
+try {
+  const snap = revenueLeaderboard.ensureFresh();
+  if (snap) logger.info('收益排行榜快照就绪', { date: snap.snapshot_date, entries: snap.entry_count });
+} catch (e) {
+  logger.warn('收益排行榜快照构建失败（榜单会显示为空，不影响其他功能）', { msg: e.message });
 }
 
 const v = seeds.validate();
@@ -142,6 +152,18 @@ server.listen(config.server.port, config.server.host, () => {
     }, Number(process.env.PRODUCTION_TICK_MS ?? 4000));
     timer.unref?.();
     logger.info('剧集托管调度器已启动');
+
+    // V4.16：排行榜每日刷新。惰性构建已能保证"跨天后第一次访问就刷新"，
+    // 这个定时器是给"整夜没人访问"的场景兜底的（每 30 分钟看一次自然日有没有变）。
+    const lbTimer = setInterval(() => {
+      try {
+        const snap = revenueLeaderboard.ensureFresh();
+        if (snap) logger.info('收益排行榜已刷新', { date: snap.snapshot_date, entries: snap.entry_count });
+      } catch (e) {
+        logger.warn('收益排行榜定时刷新失败', { msg: e.message });
+      }
+    }, Number(process.env.LEADERBOARD_TICK_MS ?? 30 * 60 * 1000));
+    lbTimer.unref?.();
   }
 });
 
