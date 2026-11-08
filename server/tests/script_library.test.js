@@ -93,11 +93,14 @@ test('候选：写入后可列出，且带摘要字段', () => {
   assert.ok(list.items[0].chars > 0);
 });
 
-test('候选：上限裁剪，不会无限堆积', () => {
+test('候选：超出展示上限也不删数据（V4.15 起不再替用户丢稿）', () => {
   const pid = mkProject();
   for (let i = 0; i < 12; i += 1) addCand(pid, 'u_trim', i + 1);
   const list = scriptLibrary.candidates(pid);
-  assert.ok(list.items.length <= 9, `实际 ${list.items.length}`);
+  // 以前这里断言“最多 9 条”，实现是把超出的 db.remove 掉。
+  // 现在数据全留，只在列表里折叠（beyond_fold），所以 12 条都还在库里。
+  assert.equal(db.count('script_candidates', (c) => c.project_id === pid), 12);
+  assert.ok(list.items.length >= 9, `实际 ${list.items.length}`);
 });
 
 test('选定：写总谱 + 建角色/场景/道具资产 + 入库', () => {

@@ -1,6 +1,6 @@
 {
   "name": "wangju-daka-server",
-  "version": "4.14.0",
+  "version": "4.15.0",
   "private": true,
   "type": "module",
   "description": "网剧大咖 · 服务端编排内核（零第三方运行时依赖，Node >= 22）",

@@ -14,6 +14,7 @@ import adminConsole from './admin/AdminConsole.js';
 import productionService from './pipeline/ProductionService.js';
 import { loadRelayRuntime } from './relay/RelayRuntime.js';
 import objectStore from './storage/ObjectStore.js';
+import { backfillOwnership } from './assets/AssetOwnership.js';
 
 // 导演总谱在规划阶段需要读角色情绪档案；用全局只读句柄避免启动期循环依赖
 globalThis.__lingwuAssetLibrary = assetLibrary;
@@ -34,6 +35,15 @@ try {
   loadRelayRuntime();
 } catch (e) {
   logger.warn('算力网关运行时配置加载失败，回退到环境变量', { msg: e.message });
+}
+
+// V4.15：给历史资产补账号归属（幂等）。不补的话老项目里的资产没有 user_id，
+// 只能靠 project_id 反查——项目一旦被复制/迁移就变成"谁拿到 id 谁能读"。
+try {
+  const bf = backfillOwnership();
+  if (bf.filled || bf.orphan) logger.warn('历史资产归属已补全', bf);
+} catch (e) {
+  logger.warn('资产归属补全失败（不影响启动，但请在管理台核对隔离自检）', { msg: e.message });
 }
 
 const v = seeds.validate();

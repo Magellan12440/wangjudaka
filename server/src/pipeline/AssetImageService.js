@@ -12,6 +12,7 @@ import { assetLibrary } from '../assets/AssetLibrary.js';
 import { modelCatalog } from '../relay/ModelCatalog.js';
 import { stageOptions, stageOfAsset } from './StageOptions.js';
 import { aspectOf, qualityOf } from '../core/frame.js';
+import { resolveOwner } from '../assets/AssetOwnership.js';
 import seeds from '../seeds/loader.js';
 import { fail, ERR } from '../core/errors.js';
 import { logger } from '../core/redact.js';
@@ -300,6 +301,9 @@ export class AssetImageService {
         db.insert(ASSETS, {
           id: newId('asset'),
           project_id: projectId,
+          // V4.15：补出来的卡同样要归属账号，否则它在隔离自检里就是一条 MISSING_OWNER
+          user_id: resolveOwner(projectId, userId),
+          owner_state: 'ok',
           asset_type: 'character',
           asset_code: code,
           name: code,

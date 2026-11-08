@@ -82,13 +82,33 @@
       <text wx:if="{{filmCount}}" class="section-more tap" hover-class="tap-on" bindtap="goDistribute">去分发 ›</text>
     </view>
 
+    <!-- 账号资产账本（V4.15）：永久保留，只读，没有清理入口 -->
+    <view wx:if="{{ledger && ledger.totals}}" class="ledger-card">
+      <view class="between">
+        <view>
+          <view class="ledger-title">账号资产</view>
+          <view class="ledger-sub">永久保留 · 仅你的账号可见</view>
+        </view>
+        <view class="pill pill-green pill-no-dot">不会自动清理</view>
+      </view>
+      <view class="ledger-grid">
+        <view class="ledger-cell"><view class="ledger-num">{{ledger.totals.projects}}</view><view class="ledger-k">项目</view></view>
+        <view class="ledger-cell"><view class="ledger-num">{{ledger.totals.assets}}</view><view class="ledger-k">资产卡</view></view>
+        <view class="ledger-cell"><view class="ledger-num">{{ledger.totals.assets_with_image}}</view><view class="ledger-k">已出图</view></view>
+        <view class="ledger-cell"><view class="ledger-num">{{ledger.totals.scripts}}</view><view class="ledger-k">剧本</view></view>
+        <view class="ledger-cell"><view class="ledger-num">{{ledger.totals.materials}}</view><view class="ledger-k">素材</view></view>
+        <view class="ledger-cell"><view class="ledger-num">{{ledger.totals.generations}}</view><view class="ledger-k">生成记录</view></view>
+      </view>
+      <view class="ledger-note">{{ledger.note}}</view>
+    </view>
+
     <view wx:if="{{!filmCount}}" class="card empty">
       <view class="empty-icon">▷</view>
       <view class="empty-title">还没有成片</view>
       <view class="empty-sub">在剧集里剪出一集，成片会自动汇总到这里</view>
     </view>
 
-    <view wx:else class="card">
+    <view wx:if="{{filmCount}}" class="card">
       <view wx:for="{{films}}" wx:key="id" class="film-row">
         <view class="film-main" data-id="{{item.projectId}}" bindtap="goDistribute">
           <view class="film-title">

@@ -1219,6 +1219,13 @@
           <text class="quote-text">{{item.text}}</text>
         </view>
       </view>
+
+      <!-- 归属与保留（V4.15）：让用户看得见"这是我账号下的东西，不会莫名消失" -->
+      <view class="own-note">
+        <view class="own-k">归属：仅你的账号可见</view>
+        <view class="own-t">这张资产永久保存在你的账号下。项目归档、会员到期、长期不登录都不会清掉它；别的账号也看不到。只有你自己点删除才会移除，删除会留下一条凭证。</view>
+        <view class="own-del tap" hover-class="tap-on" bindtap="deleteAsset">删除这张资产</view>
+      </view>
     </scroll-view>
     <view class="row-2 mt16">
       <view class="btn btn-ghost tap {{assetSaveBusy ? 'btn-disabled' : ''}}" hover-class="tap-on" data-redraw="0" bindtap="saveAssetPrompt">只保存</view>

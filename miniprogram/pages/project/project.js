@@ -1427,6 +1427,44 @@ Page({
     this.setData({ assetEdit: null });
   },
 
+  /**
+   * 删除这张资产（V4.15）。
+   *
+   * 全站唯一会真的删资产的入口，所以这里刻意做得"麻烦"：
+   * 先说清后果（分镜引用会缺图 / 不可撤销），再让用户确认，
+   * 删完把服务端给的凭证号告诉用户——将来有争议时能对上账。
+   */
+  deleteAsset() {
+    const ed = this.data.assetEdit;
+    if (!ed || this.data.assetSaveBusy) return;
+    motion.haptic();
+    wx.showModal({
+      title: `删除「${ed.name}」？`,
+      content: '删除后这张资产卡会消失，引用它的分镜会缺图。这一步不可撤销，但会留下删除凭证。',
+      confirmText: '删除',
+      confirmColor: '#D93025',
+      success: (r) => {
+        if (!r.confirm) return;
+        this.setData({ assetSaveBusy: true });
+        api.deleteAsset(this.data.projectId, ed.code, 'user_deleted')
+          .then((res) => {
+            const id = (res && res.receipt_id) || '';
+            wx.showModal({
+              title: '已删除',
+              content: id ? `删除凭证号：${id}\n如有争议可凭此号核对。` : '已删除。',
+              showCancel: false,
+            });
+            this.setData({ assetEdit: null });
+            return this.loadAssets();
+          })
+          .catch((err) => wx.showModal({
+            title: '没删成功', content: (err && err.message) || '稍后再试', showCancel: false,
+          }))
+          .then(() => this.setData({ assetSaveBusy: false }));
+      },
+    });
+  },
+
   onAssetPrompt(e) {
     if (!this.data.assetEdit) return;
     this.setData({ 'assetEdit.prompt': e.detail.value });

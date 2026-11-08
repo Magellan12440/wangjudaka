@@ -46,6 +46,8 @@ Page({
     // 我的资产：逐集成片
     films: [],
     filmCount: 0,
+    // 账号资产总账（V4.15）：跨项目，只读，证明"东西都还在"
+    ledger: null,
     // 资料完善
     profileComplete: false,
     // 充值活动
@@ -89,6 +91,7 @@ Page({
       this.loadRedeems();
       this.loadFilms();
       this.loadRevenue();
+      this.loadAccountAssets();
     });
   },
 
@@ -161,6 +164,18 @@ Page({
         this.setData({ films, filmCount: films.length });
       })
       .catch(() => {});
+  },
+
+  /**
+   * 账号资产总账（V4.15）。
+   *
+   * 这不是"管理"入口，是"对账"入口：用户能看到自己名下到底有多少角色卡、
+   * 素材、生成记录、剧本，而且这些数字只增不减——不提供任何清理按钮。
+   */
+  loadAccountAssets() {
+    api.accountAssets()
+      .then((d) => this.setData({ ledger: d || null }))
+      .catch(() => { /* 总账失败不影响主流程 */ });
   },
 
   copyFilm(e) {

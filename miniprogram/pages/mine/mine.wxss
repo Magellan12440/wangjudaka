@@ -326,3 +326,19 @@
 .adm-entry-title { font-size: 29rpx; font-weight: 700; color: #B4551A; }
 .adm-entry-sub { margin-top: 6rpx; font-size: 21rpx; color: #6E7B8E; }
 .adm-entry-arrow { font-size: 34rpx; color: #E08A22; margin-left: 12rpx; }
+
+/* 账号资产账本（V4.15） */
+.ledger-card {
+  margin-top: 16rpx;
+  padding: 24rpx 26rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1rpx solid rgba(22, 35, 58, 0.06);
+}
+.ledger-title { font-size: 27rpx; font-weight: 700; color: #16233A; }
+.ledger-sub { font-size: 21rpx; color: #8B95A5; margin-top: 6rpx; }
+.ledger-grid { display: flex; flex-wrap: wrap; margin-top: 18rpx; }
+.ledger-cell { width: 33.33%; padding: 10rpx 0; }
+.ledger-num { font-size: 34rpx; font-weight: 700; color: #16233A; }
+.ledger-k { font-size: 20rpx; color: #8B95A5; margin-top: 2rpx; }
+.ledger-note { font-size: 20rpx; color: #9AA5B5; line-height: 1.7; margin-top: 12rpx; }

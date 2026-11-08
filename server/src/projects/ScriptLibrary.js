@@ -25,8 +25,10 @@ const CAND = 'script_candidates';
 const VAULT = 'script_vault';
 const PLANS = 'director_plans';
 const ASSETS = 'assets';
-const MAX_CANDIDATES_KEEP = 9;
-const MAX_VAULT = 60;
+// V4.15：这两个上限只影响**默认展示条数**，不再删数据。
+// 以前超过就 db.remove，等于平台替用户丢稿——既可能是用户的作品，也可能是纠纷证据。
+const MAX_CANDIDATES_SHOW = 9;
+const SUGGEST_VAULT_SIZE = 60;
 
 function clampStr(v, n) {
   return String(v ?? '').slice(0, n);
@@ -88,10 +90,17 @@ export class ScriptLibrary {
     return rec;
   }
 
+  /**
+   * 以前的"裁剪"会把超出的候选直接删掉（V4.15 起不再删）。
+   * 保留这个方法名是为了不动调用点；现在它只标记 `beyond_fold`，
+   * 列表里折叠展示，数据仍在库里。
+   */
   #trim(projectId) {
     const rows = db.find(CAND, (x) => x.project_id === projectId)
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-    for (const r of rows.slice(MAX_CANDIDATES_KEEP)) db.remove(CAND, r.id);
+    for (const r of rows.slice(MAX_CANDIDATES_SHOW)) {
+      if (r.beyond_fold !== true) db.update(CAND, r.id, { beyond_fold: true });
+    }
   }
 
   candidates(projectId) {
@@ -340,10 +349,7 @@ export class ScriptLibrary {
     const created = db.insert(VAULT, {
       id: newId('svault'), created_at: nowIso(), ...row,
     });
-    // 上限：超出按更新时间裁掉最旧的
-    const mine = db.find(VAULT, (x) => x.user_id === userId)
-      .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-    for (const r of mine.slice(MAX_VAULT)) db.remove(VAULT, r.id);
+    // V4.15：不再按数量裁剪。剧本库是账号资产，超出建议量只提示，不删旧稿。
     return created.id;
   }
 
@@ -355,6 +361,11 @@ export class ScriptLibrary {
       .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
     return {
       total: rows.length,
+      retention: 'permanent',
+      // 超过建议量只提醒，绝不自动清理
+      notice: rows.length > SUGGEST_VAULT_SIZE
+        ? `你的剧本库已有 ${rows.length} 部，超过建议量 ${SUGGEST_VAULT_SIZE} 部。这些都会永久保留，需要清理请自己删除。`
+        : '',
       items: rows.map((r) => ({
         id: r.id,
         project_id: r.project_id,

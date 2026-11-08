@@ -430,6 +430,62 @@ async function main() {
     const cross = await call('GET', `/api/projects/${projectId}/materials`, undefined, { Authorization: `Bearer ${tokenB}` });
     ok('跨账号读素材被拒 403', cross.status === 403, String(cross.status));
 
+    // 16.5 资产归属与永久保留（V4.15）
+    const aAssets = await call('GET', `/api/projects/${projectId}/assets`, undefined, true);
+    const aList = Array.isArray(data(aAssets)) ? data(aAssets) : (data(aAssets).items || []);
+    ok('资产带账号归属', aList.length > 0 && aList.every((x) => Boolean(x.user_id)),
+      `${aList.length} 条，缺 user_id: ${aList.filter((x) => !x.user_id).length}`);
+    ok('资产归属就是项目主人', aList.length > 0 && aList.every((x) => x.user_id === userId));
+
+    // B 读 A 的资产：403（项目级越权拦在 projectOf）
+    const bReadA = await call('GET', `/api/projects/${projectId}/assets`, undefined,
+      { Authorization: `Bearer ${tokenB}` });
+    ok('跨账号读资产被拒', bReadA.status === 403 || bReadA.status === 404, String(bReadA.status));
+
+    // B 删 A 的资产：一律 404（不确认存在性），且 A 的资产必须还在
+    const victim = aList[0] && aList[0].asset_code;
+    if (victim) {
+      const bDel = await call('POST', `/api/projects/${projectId}/assets/${victim}/delete`,
+        { confirm: true }, { Authorization: `Bearer ${tokenB}` });
+      ok('跨账号删除被拒且不泄漏存在性', bDel.status === 404, `${bDel.status} ${bDel.json && bDel.json.code}`);
+      const stillThere = await call('GET', `/api/projects/${projectId}/assets`, undefined, true);
+      ok('别人删不掉我的资产',
+        (Array.isArray(data(stillThere)) ? data(stillThere) : []).some((x) => x.asset_code === victim));
+
+      // 本人不确认 → 400，数据不动
+      const noConfirm = await call('POST', `/api/projects/${projectId}/assets/${victim}/delete`, {}, true);
+      ok('删除必须显式确认', noConfirm.status === 400, String(noConfirm.status));
+
+      // 本人确认 → 真删 + 给凭证
+      const del = await call('POST', `/api/projects/${projectId}/assets/${victim}/delete`,
+        { confirm: true, reason: 'smoke' }, true);
+      ok('本人确认后删除成功并给凭证',
+        del.status === 200 && Boolean(data(del).receipt_id), `${del.status} ${JSON.stringify(data(del)).slice(0, 80)}`);
+      const afterDel = await call('GET', `/api/projects/${projectId}/assets`, undefined, true);
+      const rest = Array.isArray(data(afterDel)) ? data(afterDel) : [];
+      ok('删除后资产确实不在了', !rest.some((x) => x.asset_code === victim));
+
+      const dlog = await call('GET', `/api/projects/${projectId}/assets/deletions`, undefined, true);
+      ok('删除留下可查凭证',
+        (data(dlog).items || []).some((x) => x.asset_code === victim && x.reason === 'smoke'));
+    }
+
+    // 账号总账：只含自己的东西，且明说永久保留
+    const ledgerA = await call('GET', '/api/me/assets', undefined, true);
+    ok('账号资产总账可读', ledgerA.status === 200 && data(ledgerA).retention === 'permanent');
+    ok('总账里有自己的项目', (data(ledgerA).projects || []).some((x) => x.id === projectId));
+    const ledgerB = await call('GET', '/api/me/assets', undefined, { Authorization: `Bearer ${tokenB}` });
+    ok('总账不串号', !(data(ledgerB).projects || []).some((x) => x.id === projectId));
+
+    // 隔离自检（管理端）：不允许存在归属不一致的记录
+    const iso = await call('GET', '/api/admin/assets/isolation', undefined,
+      { 'X-Admin-Token': 'smoke-admin-token' });
+    ok('隔离自检可通过', iso.status === 200 && data(iso).ok === true,
+      `${iso.status} issues=${data(iso).total_issues}`);
+    const ruleRes = await call('GET', '/api/admin/assets/rule', undefined,
+      { 'X-Admin-Token': 'smoke-admin-token' });
+    ok('规则可对外陈述（四条）', (data(ruleRes).clauses || []).length === 4 && data(ruleRes).retention === 'permanent');
+
     // 17. 凭据零命中
     const joined = allText.join('\n');
     ok('响应不含 sk- 密钥', !/sk-[A-Za-z0-9]{8,}/.test(joined));

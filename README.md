@@ -480,6 +480,50 @@ curl -s -o /dev/null -w "%{http_code}\n" https://<域名>/api/admin/overview  # 
 
 ---
 
+## V4.15.0 — 规则：资产与账号强绑定，跨账号强制隔离，同一账号永久保留（除非本人删）
+
+**为什么定这条规则**：剧集资产（角色卡、场景、道具、分镜、视频、剧本稿）里有人脸、有未公开的
+故事，也有可能是用户自己上传的素材。一旦A账号能读到B账号的资产，或者平台"悄悄帮你清掉旧稿"，
+既是数据事故，也是法律风险。所以把**归属**和**保留**写成代码里的硬约束，而不是口头承诺。
+
+**四条规则（`GET /api/admin/assets/rule` 可对外陈述）**
+- **R1 归属**：每一份资产落库即写 `user_id` 与 `owner_state:'ok'`；归属从项目继承，
+  项目归属从登录态来。启动时 `backfillOwnership()` 幂等补齐历史资产
+- **R2 隔离**：跨账号访问一律 **404**（不是 403）——403 等于告诉对方"这东西存在，只是你看不到"，
+  本身就是信息泄漏。列表、读图、改设定、重绘、情绪图、参考图上传全部先验主
+- **R3 永久保留**：取消所有"按数量自动裁剪"的逻辑，无论剧本候选还是剧本仓，超量只做折叠展示
+  （`beyond_fold`）与提示，不再 `db.remove`。用户没点删除，稿子就一直在库里
+- **R4 只有本人能删**：唯一入口 `AssetLibrary.remove()`，必须 `confirm:true`，
+  删除后写删除凭证（`recordDeletion`：谁、何时、哪一份、为什么），
+  `GET /api/projects/:id/assets/deletions` 可查。没有批量删、没有定时清、没有后台管理员代删
+
+**实现要点**
+- 新增 `assets/AssetOwnership.js`：`resolveOwner` / `projectOwner` / `recordDeletion` / `deletionLog` /
+  `backfillOwnership` / `accountLedger` / `auditIsolation`，规则集中一处，别处不许自己判
+- `AssetLibrary.create/createEmotion` 强制带 `userId`；`list` 按 `user_id` 过滤；
+  `attachReferences` 不动 `version`（参考图是输入不是设定变更）
+- `routes.js` 新增 `ownedProjectOf()`，所有带 `:id` 的资产路由统一走它，跨账号直接 404
+- 新增接口：`DELETE /api/projects/:id/assets/:code`（`POST .../delete` 作别名）、
+  `GET /api/projects/:id/assets/deletions`（凭证）、`GET /api/me/assets`（本账号资产总账，只读对账）、
+  `GET /api/admin/assets/isolation`（隔离自检）、`GET /api/admin/assets/rule`（四条规则）
+- `ScriptLibrary`：`MAX_CANDIDATES_KEEP → MAX_CANDIDATES_SHOW`，超限只标 `beyond_fold`；
+  `VAULT` 不再按数量删；返回 `retention:'permanent'` 与超量提示
+- 修了两条绕过归属的旧路径：`AssetImageService` 与 `ConsistencyGuard` 里补卡的 `insert` 没带 `user_id`
+- 前端：项目页资产卡加归属说明与「删除」（二次确认 + 展示删除凭证）；
+  「我的」页加账号资产账本（各项目资产数、总占用、可删除项）
+
+**防回归（别下次又写回来）**
+- `tests/asset_isolation.test.js` 10 条：跨账号读/删 404、无确认删被拒、删后留凭证、
+  总账不串号、隔离自检、**源码静态扫描**——任何直接 `insert(ASSETS)` 必须带 `user_id`；
+  除了 `AssetLibrary.remove` 不许出现 `db.remove(ASSETS)`；`db.remove(VAULT)` 只允许在
+  用户主动删除的方法里（方法名带 remove/delete 且以 `userId` 收口）
+- `smoke:mini` 新增 13 条资产归属断言（含"别人删不掉我的资产""删除必须显式确认""总账不串号"）
+
+**验收**：`npm test` 445 全绿 / `mini:check` 16 组 / `mini:sim` 152 / `web:check` 13 /
+`deploy:check` 71 / `smoke:h` 22 + `smoke:v35` 16 + `smoke:mini` 112 全通过；版本 4.15.0
+
+---
+
 ## V4.14.0 — 亮点：上传不再被隐私政策挡住 / 虚拟支付接入体检 / 每个环节都能自己选模型与参考图
 
 **问题**：①「改编我的素材」上传本地文件必失败，微信报 `api scope is not declared in the

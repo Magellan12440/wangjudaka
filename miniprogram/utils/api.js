@@ -515,6 +515,17 @@ module.exports = {
       url: `/api/projects/${enc(projectId)}/assets/images`,
       method: 'POST', data: { type: type || null, limit: limit || 6 }, toast: true, timeout: 300000,
     }),
+  // —— 资产归属与永久保留（V4.15）——
+  // 只有用户主动删才删；删除要二次确认，服务端会留一条删除凭证
+  deleteAsset: (projectId, code, reason) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/assets/${enc(code)}/delete`,
+      method: 'POST', data: { confirm: true, reason: reason || '' }, toast: true,
+    }),
+  assetDeletions: (projectId) =>
+    request({ url: `/api/projects/${enc(projectId)}/assets/deletions` }),
+  // 账号资产总账：跨项目，只读。用来让用户看见"东西都还在"
+  accountAssets: () => request({ url: '/api/me/assets' }),
   // —— 角色名册与配角补齐（V4.13）——
   assetRoster: (projectId) => request({ url: `/api/projects/${enc(projectId)}/assets/roster` }),
   fillCharacterAssets: (projectId, limit) =>

@@ -8,9 +8,16 @@ import distributionHub from '../src/distribution/DistributionHub.js';
 import ledger from '../src/ledger/Ledger.js';
 import { makeReq } from './helpers.js';
 import { ERR } from '../src/core/errors.js';
+import { db } from '../src/store/db.js';
 
 const P = 'proj_test_' + Date.now();
 const U = 'u_pipe_' + Date.now();
+// V4.15：资产归属从项目继承，所以测试也得先有一张真项目
+db.insert('projects', {
+  id: P, user_id: U, title: 'pipeline 测试项目',
+  spec: { style_code: 'STY-DUSHI', aspect: '9:16', quality: '1080p' },
+  created_at: new Date().toISOString(),
+});
 
 test('蓝图模板齐全（含 OneShot 12 节点）', () => {
   const t = blueprintEngine.templates();

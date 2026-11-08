@@ -25,6 +25,7 @@ import seeds from '../seeds/loader.js';
 import { fail, ERR } from '../core/errors.js';
 import { newId, nowIso, speechUnits } from '../core/util.js';
 import directorAgent from '../director/DirectorAgent.js';
+import { projectOwner } from '../assets/AssetOwnership.js';
 
 export const DIMENSIONS = [
   { key: 'character', name: '角色一致性', what: '同一张脸：资产卡 + 连续性锁 + 视觉依据' },
@@ -192,6 +193,9 @@ export class ConsistencyGuard {
         const row = db.insert(ASSETS, {
           id: newId('asset'),
           project_id: projectId,
+          // V4.15：自动补的卡也必须带账号归属（R1 没有例外）
+          user_id: projectOwner(projectId),
+          owner_state: 'ok',
           asset_type: type,
           asset_code: code,
           name,
@@ -243,6 +247,8 @@ export class ConsistencyGuard {
         const row = db.insert(ASSETS, {
           id: newId('asset'),
           project_id: projectId,
+          user_id: projectOwner(projectId),
+          owner_state: 'ok',
           asset_type: 'voice',
           asset_code: `VO${String(seq).padStart(2, '0')}`,
           name: `${c.name ?? c.asset_code} 的声线`,

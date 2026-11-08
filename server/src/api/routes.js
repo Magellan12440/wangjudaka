@@ -13,6 +13,7 @@ import { relayPool } from '../relay/RelayPool.js';
 import { compiler } from '../compiler/PromptCompiler.js';
 import { ledger } from '../ledger/Ledger.js';
 import { assetLibrary } from '../assets/AssetLibrary.js';
+import { assetOwnership } from '../assets/AssetOwnership.js';
 import { creationDocs } from '../docs/CreationDocs.js';
 import { rhythmMaster } from '../rhythm/RhythmMaster.js';
 import { blueprintEngine } from '../pipeline/Blueprint.js';
@@ -115,6 +116,20 @@ function projectOf(req, projectId, { required = true } = {}) {
   });
   if (own === 'auth_required') throw new AppError('AUTH_REQUIRED', '请先登录');
   if (own === 'forbidden') throw new AppError('OBJECT_FORBIDDEN', '不能操作其他用户的项目');
+  return p;
+}
+
+/**
+ * 资产类操作专用的归属裁决（V4.15）。
+ *
+ * 和 projectOf 的区别只有一处：跨账号时这里回 **404 而不是 403**。
+ * 403 等于承认"这个项目确实存在"，拿 id 撞一遍就能数出别人有多少项目。
+ * 资产是用户的作品与个人信息，连存在性都不该被外人探到。
+ */
+function ownedProjectOf(req, projectId) {
+  const p = db.findOne(PROJECTS, (x) => x.id === projectId);
+  const user = authService.requireUser(req);
+  if (!p || p.user_id !== user.id) throw new AppError('NOT_FOUND', '项目不存在');
   return p;
 }
 
@@ -1140,13 +1155,17 @@ export const routes = [
   ['GET', '/api/blueprints', async () => blueprintEngine.templates()],
 
   // —— 资产 ——
-  ['POST', '/api/projects/:id/assets', async ({ params, body }) => assetLibrary.create({
-    projectId: params.id, assetType: body.assetType, name: body.name,
-    locks: body.locks ?? [], lockValues: body.lockValues ?? {}, imageUrl: body.imageUrl ?? null, meta: body.meta ?? {},
-  })],
+  ['POST', '/api/projects/:id/assets', async ({ params, body, req }) => {
+    // V4.15：资产是账号资产，写之前先确认这个项目归你（R1/R2）
+    const p = projectOf(req, params.id);
+    return assetLibrary.create({
+      projectId: p.id, assetType: body.assetType, name: body.name, userId: p.user_id,
+      locks: body.locks ?? [], lockValues: body.lockValues ?? {}, imageUrl: body.imageUrl ?? null, meta: body.meta ?? {},
+    });
+  }],
   ['GET', '/api/projects/:id/assets', async ({ params, query, req }) => {
-    projectOf(req, params.id);
-    return assetLibrary.list(params.id, query.type || null);
+    const p = projectOf(req, params.id);
+    return assetLibrary.list(params.id, query.type || null, p.user_id);
   }],
   // —— 资产总览（V4.10）：角色 / 场景 / 道具分组 + 出图进度 ——
   ['GET', '/api/projects/:id/assets/overview', async ({ params, req }) => {
@@ -1297,23 +1316,62 @@ export const routes = [
       results,
     };
   }],
-  ['POST', '/api/projects/:id/assets/impact', async ({ params, body }) => assetLibrary.impactOfUpdate({
-    projectId: params.id, assetCode: body.assetCode, newVersion: body.newVersion, costPerShot: body.costPerShot ?? 6,
-  })],
+  ['POST', '/api/projects/:id/assets/impact', async ({ params, body, req }) => {
+    projectOf(req, params.id);
+    return assetLibrary.impactOfUpdate({
+      projectId: params.id, assetCode: body.assetCode, newVersion: body.newVersion, costPerShot: body.costPerShot ?? 6,
+    });
+  }],
   // 情绪资产：把情绪卡固化成该角色的表演锁
-  ['POST', '/api/projects/:id/assets/emotion', async ({ params, body }) => assetLibrary.createEmotion({
-    projectId: params.id, emotionCode: body.emotionCode, characterCode: body.characterCode ?? null,
-    name: body.name ?? null, lockValues: body.lockValues ?? {}, intensity: body.intensity ?? null,
-  })],
+  ['POST', '/api/projects/:id/assets/emotion', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    return assetLibrary.createEmotion({
+      projectId: p.id, emotionCode: body.emotionCode, characterCode: body.characterCode ?? null,
+      name: body.name ?? null, lockValues: body.lockValues ?? {}, intensity: body.intensity ?? null,
+      userId: p.user_id,
+    });
+  }],
   ['GET', '/api/projects/:id/assets/emotion', async ({ params, query, req }) => {
     projectOf(req, params.id);
     return assetLibrary.emotionsOf(params.id, query.characterCode || null);
   }],
-  ['POST', '/api/projects/:id/assets/:code/emotion-palette', async ({ params, body }) => assetLibrary.setEmotionPalette(
-    params.id, params.code, { baseline: body.baseline ?? null, palette: body.palette ?? [], forbid: body.forbid ?? [] }
-  )],
-  ['GET', '/api/projects/:id/assets/:code/emotion-palette', async ({ params }) =>
-    assetLibrary.emotionPaletteOf(params.id, params.code)],
+  ['POST', '/api/projects/:id/assets/:code/emotion-palette', async ({ params, body, req }) => {
+    projectOf(req, params.id);
+    return assetLibrary.setEmotionPalette(
+      params.id, params.code, { baseline: body.baseline ?? null, palette: body.palette ?? [], forbid: body.forbid ?? [] }
+    );
+  }],
+  ['GET', '/api/projects/:id/assets/:code/emotion-palette', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return assetLibrary.emotionPaletteOf(params.id, params.code);
+  }],
+
+  // —— 资产归属与永久保留（V4.15）——
+  // 主动删除：唯一会真的移除资产的入口，必须 confirm，删完给凭证
+  ['DELETE', '/api/projects/:id/assets/:code', async ({ params, body, req }) => {
+    const p = ownedProjectOf(req, params.id);
+    return assetLibrary.remove({
+      projectId: p.id, code: params.code, userId: p.user_id,
+      confirm: body?.confirm === true, reason: body?.reason ?? '',
+    });
+  }],
+  // 小程序的 request 封装对 DELETE 支持不一致，留一个 POST 别名（同一套校验）
+  ['POST', '/api/projects/:id/assets/:code/delete', async ({ params, body, req }) => {
+    const p = ownedProjectOf(req, params.id);
+    return assetLibrary.remove({
+      projectId: p.id, code: params.code, userId: p.user_id,
+      confirm: body?.confirm === true, reason: body?.reason ?? '',
+    });
+  }],
+  ['GET', '/api/projects/:id/assets/deletions', async ({ params, req }) => {
+    const p = projectOf(req, params.id);
+    return { items: assetLibrary.deletions({ projectId: p.id, userId: p.user_id }) };
+  }],
+  // 账号资产总账：给用户看"东西都还在"，也给纠纷留证据；只读，没有清理入口
+  ['GET', '/api/me/assets', async ({ req }) => {
+    const user = authService.requireUser(req);
+    return assetOwnership.accountLedger(user.id);
+  }],
 
   // —— 项目素材库（V4.2）：小说文本 / 参考图 / 参考视频 ——
   ['GET', '/api/projects/:id/materials', async ({ params, req }) => {
@@ -2046,6 +2104,15 @@ export const routes = [
 
   // —— 管理员账号（V4.7）：小程序内也能进后台 ——
   // 这三个是公开接口（否则没人能建第一个管理员），但都不回吐激活码本身。
+  // 资产隔离自检（V4.15）：上线前/出事时跑一遍，任何 OWNER_MISMATCH 都是越权写入的证据
+  ['GET', '/api/admin/assets/isolation', async ({ req }) => {
+    adminConsole.assertAdmin(req);
+    return assetOwnership.auditIsolation();
+  }],
+  ['GET', '/api/admin/assets/rule', async ({ req }) => {
+    adminConsole.assertAdmin(req);
+    return assetOwnership.RULE;
+  }],
   ['GET', '/api/admin/bootstrap', async () => adminConsole.bootstrapStatus()],
   ['POST', '/api/admin/bootstrap', async ({ body }) => adminConsole.bootstrap(body ?? {})],
   ['POST', '/api/admin/login', async ({ body }) => adminConsole.login(body ?? {})],

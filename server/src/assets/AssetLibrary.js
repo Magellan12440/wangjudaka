@@ -10,6 +10,7 @@ import { db } from '../store/db.js';
 import seeds from '../seeds/loader.js';
 import { fail, ERR } from '../core/errors.js';
 import { newId, nowIso } from '../core/util.js';
+import { resolveOwner, projectOwner, recordDeletion, deletionLog } from './AssetOwnership.js';
 
 const COL = 'assets';
 const SNAP = 'asset_snapshots';
@@ -23,8 +24,12 @@ export class AssetLibrary {
    * 以前只按"当前数量 +1"自动编号，于是剧本里的 CH07（配角）会被建成 CH02 ——
    * 分镜引用 CH07 时照样找不到资产，系统只好再补一张空卡，配角脸和设定图永远对不上。
    * 现在有 code 就用 code（必须唯一），没有才自动编号。
+   *
+   * V4.15：主人由项目决定并落库（R1）。调用方传了 userId 就顺手校验一遍，
+   * 传错不是"忽略"，而是直接拒绝——免得某条路径悄悄往别人项目里写。
    */
-  create({ projectId, assetType, name, code = null, locks = [], lockValues = {}, imageUrl = null, meta = {} }) {
+  create({ projectId, assetType, name, code = null, locks = [], lockValues = {}, imageUrl = null, meta = {}, userId = null }) {
+    const ownerId = resolveOwner(projectId, userId);
     const tpl = seeds.lockTemplate(assetType);
     if (!tpl) fail(ERR.BAD_REQUEST, `未知资产类型: ${assetType}`);
     // 锁必须显式给出：自动补齐会让"一致性"形同虚设，这里不接受少于下限的锁
@@ -56,6 +61,9 @@ export class AssetLibrary {
     const asset = db.insert(COL, {
       id: newId('asset'),
       project_id: projectId,
+      // R1：资产跟着账号走，不是跟着项目走。项目归档/迁移都不影响这张卡的归属
+      user_id: ownerId,
+      owner_state: 'ok',
       asset_type: assetType,
       asset_code: assetCode,
       name,
@@ -83,7 +91,8 @@ export class AssetLibrary {
    *
    * @param {object} p { projectId, emotionCode, characterCode, name, lockValues{}, intensity }
    */
-  createEmotion({ projectId, emotionCode, characterCode = null, name = null, lockValues = {}, intensity = null }) {
+  createEmotion({ projectId, emotionCode, characterCode = null, name = null, lockValues = {}, intensity = null, userId = null }) {
+    const ownerId = resolveOwner(projectId, userId);
     const card = seeds.emotion(emotionCode);
     if (!card) fail(ERR.EMOTION_CARD_NOT_FOUND, `情绪卡不存在: ${emotionCode}`);
     // 卡片自带 8 条表演锁；调用方可按角色覆写（如"这道疤在他愤怒时会发白"）
@@ -97,6 +106,8 @@ export class AssetLibrary {
     return db.insert(COL, {
       id: newId('asset'),
       project_id: projectId,
+      user_id: ownerId,
+      owner_state: 'ok',
       asset_type: 'emotion',
       asset_code: code,
       name: name ?? `${card.name}`,
@@ -169,8 +180,33 @@ export class AssetLibrary {
     return { baseline: 'EMO-CALM-02', palette: fallback, forbid: [], is_default: true };
   }
 
-  list(projectId, assetType = null) {
+  list(projectId, assetType = null, userId = null) {
+    // 传了 userId 就必须是真主人；不传是内部调用（编译器/剪辑），由上层路由负责验主
+    if (userId) resolveOwner(projectId, userId);
     return db.find(COL, (a) => a.project_id === projectId && (!assetType || a.asset_type === assetType));
+  }
+
+  /**
+   * 删除资产（R4）：只有主人能删，且必须显式确认；删完留凭证。
+   *
+   * 注意这是**唯一**会真的移除资产卡片的入口。项目归档、会员到期、长期未登录
+   * 都不会走到这里——库里的东西要么用户自己删，要么一直在。
+   */
+  remove({ projectId, code, userId, confirm = false, reason = '' }) {
+    if (!userId) fail(ERR.AUTH_REQUIRED, '请先登录');
+    // 非主人一律按"项目不存在"回，不给 403 —— 403 等于确认了这个项目存在
+    if (projectOwner(projectId) !== userId) fail(ERR.NOT_FOUND, '项目不存在');
+    if (confirm !== true) fail(ERR.BAD_REQUEST, '删除资产需要显式确认（confirm: true）');
+    const asset = this.get(projectId, code);
+    if (!asset) fail(ERR.ASSET_NOT_FOUND, `资产不存在: ${code}`);
+    const receipt = recordDeletion({ userId, projectId, asset, reason });
+    db.remove(COL, asset.id);
+    return { removed: true, asset_code: asset.asset_code, receipt_id: receipt.id, receipt };
+  }
+
+  deletions({ projectId, userId }) {
+    if (!userId) fail(ERR.AUTH_REQUIRED, '请先登录');
+    return deletionLog({ userId, projectId });
   }
 
   /** 更新资产 → 版本 +1（旧镜头不受影响） */

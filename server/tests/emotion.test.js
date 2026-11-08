@@ -10,8 +10,19 @@ import { segmentEmotion } from '../src/compiler/segments.js';
 import * as V from '../src/compiler/validators.js';
 import { ERR } from '../src/core/errors.js';
 import { makeReq } from './helpers.js';
+import { db } from '../src/store/db.js';
 
 const EM = 'EMO-RAGE-SUPPRESSED-04';
+const EM_P = 'proj_emotion_test';
+const EM_U = 'u_emotion_test';
+// V4.15：资产卡必须挂在真实项目与账号下（主人由项目继承）
+if (!db.findOne('projects', (x) => x.id === EM_P)) {
+  db.insert('projects', {
+    id: EM_P, user_id: EM_U, title: '情绪库测试项目',
+    spec: { style_code: 'STY-DUSHI', aspect: '9:16', quality: '1080p' },
+    created_at: new Date().toISOString(),
+  });
+}
 
 test('情绪库：40 张卡 / 5 类 / 8 条表演锁 / 引用全部有效', () => {
   assert.equal(seeds.emotionCards.length, 40);
@@ -127,7 +138,7 @@ test('编译器：分镜图（image）同样强制情绪，不等到视频才用
 });
 
 test('资产库：情绪卡固化为角色表演资产，可调色板、可版本化', () => {
-  const P = 'proj_emotion_test';
+  const P = EM_P;
   const a = assetLibrary.createEmotion({
     projectId: P, emotionCode: EM, characterCode: 'CH01', name: '林默·压抑的暴怒',
     lockValues: { jaw: 'jaw clenched with a faint scar pulling white at the hinge' },
