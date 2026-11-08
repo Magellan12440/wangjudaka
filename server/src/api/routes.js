@@ -30,6 +30,8 @@ import { renderer } from '../media/Renderer.js';
 import { distributionHub } from '../distribution/DistributionHub.js';
 import analytics from '../analytics/Analytics.js';
 import consistencyChecker from '../qc/ConsistencyChecker.js';
+import consistencyGuard from '../qc/ConsistencyGuard.js';
+import directorAgent, { CORE_LIBS, CHAIN } from '../director/DirectorAgent.js';
 import compliancePack from '../compliance/CompliancePack.js';
 import { db } from '../store/db.js';
 import canvasService from '../canvas/CanvasService.js';
@@ -730,18 +732,35 @@ export const routes = [
 
     const style = seeds.style(p.spec?.style_code);
     const plan = planRec?.plan;
+    // 五维一致性摘要（V4.11）：只读、不落库，避免每次刷新都写一条体检记录
+    let guard = null;
+    try {
+      guard = consistencyGuard.audit(p.id, { persist: false });
+    } catch { guard = null; }
+
     const shots = (planRec?.storyboard?.shots ?? []).slice(0, 24).map((s) => ({
       no: s.no,
       episode: s.episode,
       duration: s.duration,
       shot_card: seeds.shot(s.shot_card)?.name ?? s.shot_card,
       shot_code: s.shot_card,
+      move_code: s.camera_move ?? null,
+      move: seeds.shot(s.camera_move)?.name ?? s.camera_move ?? '',
       lighting: (s.lighting_codes ?? []).map((c) => seeds.lighting(c)?.name ?? c).join(' / '),
+      lighting_codes: s.lighting_codes ?? [],
       transition: seeds.transition(s.transition)?.name ?? s.transition,
+      transition_code: s.transition ?? null,
       rhythm: s.rhythm,
       emotion: s.emotion ?? '—',
+      emotions: s.emotions ?? {},
       dialogue: s.dialogue ?? '',
       speaker: s.speaker ?? '',
+      scene: s.scene ?? '',
+      props: s.props ?? [],
+      action_start: s.action_start ?? '',
+      picked: s.picked ?? null,
+      // 人工改写过的镜，前端要能显示「已手动改过」，避免用户以为导演又乱改
+      manual: (s.manual_override?.fields ?? []).length > 0,
     }));
 
     const jobs = productionService.list(p.id);
@@ -824,6 +843,22 @@ export const routes = [
         warnings: (gate.warnings ?? []).slice(0, 5),
       } : null,
       docs,
+      // 虚拟导演（V4.11）：只回轻量摘要，完整面板走 /director
+      director: {
+        name: '内置虚拟导演',
+        mode: directorAgent.policyOf(p.id).mode,
+        pinned: Object.entries(directorAgent.policyOf(p.id).libs ?? {})
+          .filter(([, v]) => v.mode === 'pinned' && v.code)
+          .map(([k, v]) => ({ kind: k, code: v.code, name: promptLibrary.KINDS[k]?.name ?? k })),
+        plan_policy: plan?.global?.director_policy ?? null,
+      },
+      consistency: guard ? {
+        kpi: guard.kpi,
+        dimensions: (guard.dimensions ?? []).map((d) => ({
+          key: d.key, name: d.name, ok: d.ok, failed: d.failed, total: d.total,
+          first: d.issues?.[0] ? { shot_no: d.issues[0].shot_no, text: d.issues[0].issues?.[0]?.text ?? '' } : null,
+        })),
+      } : null,
       materials: materialService.stats(p.id),
       materials_used: (planRec?.materials_used ?? []).length,
     };
@@ -1083,6 +1118,37 @@ export const routes = [
       projectId: p.id, assetCode: params.code, userId: p.user_id, force: body?.force === true,
     });
   }],
+  // —— 手动改资产设定（V4.11）：改名 / 改描述 / 改锁；改完要重绘才会落到画面上 ——
+  ['POST', '/api/projects/:id/assets/:code/update', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const cur = assetLibrary.get(p.id, params.code);
+    if (!cur) throw new AppError('ASSET_NOT_FOUND', `资产不存在：${params.code}`);
+    const patch = {};
+    if (body?.name !== undefined) {
+      const name = String(body.name).trim().slice(0, 40);
+      if (!name) throw new AppError('BAD_REQUEST', '名字不能为空');
+      patch.name = name;
+    }
+    if (body?.locks !== undefined) {
+      patch.locks = (body.locks ?? []).map((x) => String(x).trim()).filter(Boolean).slice(0, 8);
+    }
+    if (body?.desc !== undefined) {
+      patch.lock_values = { ...(cur.lock_values ?? {}), desc: String(body.desc).slice(0, 400) };
+    }
+    if (body?.lockValues !== undefined) {
+      patch.lock_values = { ...(cur.lock_values ?? {}), ...(body.lockValues ?? {}) };
+    }
+    const updated = assetLibrary.update(p.id, params.code, patch);
+    return {
+      ok: true,
+      asset_code: updated.asset_code,
+      name: updated.name,
+      version: updated.version,
+      locks: updated.locks,
+      lock_values: updated.lock_values,
+      note: '设定已更新（版本 +1）。要让画面跟着变，请点「重绘」。',
+    };
+  }],
   ['POST', '/api/projects/:id/assets/images', async ({ params, body, req }) => {
     const p = projectOf(req, params.id);
     return assetImageService.generateBatch({
@@ -1257,6 +1323,70 @@ export const routes = [
   ['GET', '/api/projects/:id/shots/:shotNo/generations', async ({ params, req }) => {
     projectOf(req, params.id);
     return { items: shotService.history(params.id, params.shotNo) };
+  }],
+  // —— 手动改写某一镜（V4.11）：改设定不花钱，想变画面再点重出 ——
+  ['POST', '/api/projects/:id/shots/:shotNo/update', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    return shotService.updateShot({ projectId: p.id, shotNo: params.shotNo, patch: body?.patch ?? body ?? {} });
+  }],
+  // —— 单镜重出（V4.11）：图 / 视频各自重生成，历史版本保留 ——
+  ['POST', '/api/projects/:id/shots/:shotNo/regenerate', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    return shotService.regenerateShot({
+      projectId: p.id,
+      shotNo: params.shotNo,
+      kind: body?.kind === 'video' ? 'video' : 'image',
+      mode: body?.mode ?? 'resample',
+      patch: body?.patch ?? {},
+    });
+  }],
+  // —— 多版本选定（V4.11）：选定后剪辑与分发就用这一版 ——
+  ['POST', '/api/projects/:id/shots/:shotNo/pick', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    if (!body?.generationId) throw new AppError('BAD_REQUEST', '缺少 generationId');
+    return shotService.pick({ projectId: p.id, shotNo: params.shotNo, generationId: body.generationId });
+  }],
+
+  // —— 虚拟导演（V4.11）：链式把关 + 四库手动引用 ——
+  ['GET', '/api/director', async () => ({
+    name: '内置虚拟导演',
+    role: '按链式顺序把控全流程，把九个内置技巧库强制落到每一环；用户可手动指定要用的卡',
+    core_libs: CORE_LIBS.map((k) => ({
+      kind: k, name: promptLibrary.KINDS[k].name, hint: promptLibrary.KINDS[k].hint,
+    })),
+    chain: CHAIN.map((c) => ({ key: c.key, name: c.name, libs: c.libs, what: c.what })),
+    rules: [
+      '情绪 / 转场 / 运镜 / 节奏四库在任何生成前必须有可解析的卡，缺卡即拒绝生成',
+      '用户 pin 的卡优先于导演自动选择，并写入总谱与决策日志',
+      '人工改写镜头会同步回总谱，保证"只有一份事实"',
+      '五维一致性（角色/道具/场景/内容/声音字幕）是底层强制规则，任一维不过不出图、不交付',
+    ],
+  })],
+  ['GET', '/api/projects/:id/director', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return directorAgent.overview(params.id);
+  }],
+  ['POST', '/api/projects/:id/director/policy', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    return directorAgent.setPolicy(p.id, body ?? {});
+  }],
+  ['POST', '/api/projects/:id/director/policy/reset', async ({ params, req }) => {
+    const p = projectOf(req, params.id);
+    return directorAgent.resetPolicy(p.id);
+  }],
+  ['GET', '/api/projects/:id/director/log', async ({ params, query, req }) => {
+    projectOf(req, params.id);
+    return { items: directorAgent.trail(params.id, query.limit ?? 40) };
+  }],
+
+  // —— 五维一致性（V4.11）：体检 / 锁情况 ——
+  ['GET', '/api/projects/:id/consistency', async ({ params, query, req }) => {
+    projectOf(req, params.id);
+    return consistencyGuard.audit(params.id, { episode: query.episode || null });
+  }],
+  ['GET', '/api/projects/:id/consistency/locks', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return consistencyGuard.locksOf(params.id);
   }],
 
   // —— 剪辑成片（V4.2）：剪辑单 → 字幕/配乐/音效 → mp4 ——
@@ -1506,6 +1636,11 @@ export const routes = [
     threshold: +(query.threshold ?? 0.82), episode: query.episode ?? null,
   })],
   ['GET', '/api/qc/consistency/advice/:id', async ({ params }) => consistencyChecker.adviceFor(params.id)],
+  // —— 五维一致性（V4.11）：底层强制规则的结构化体检 ——
+  ['GET', '/api/qc/consistency/guard', async ({ query }) => {
+    if (!query.projectId) throw new AppError('BAD_REQUEST', '缺少 projectId');
+    return consistencyGuard.audit(query.projectId, { episode: query.episode || null });
+  }],
   ['POST', '/api/qc/delivery-gate', async ({ body }) => compliancePack.deliveryGate({
     projectId: body.projectId, episodeNo: body.episodeNo ?? 'E01', threshold: +(body.threshold ?? 0.82),
   })],

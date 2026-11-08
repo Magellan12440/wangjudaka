@@ -315,8 +315,17 @@ async function main() {
     await call('POST', '/api/redeem', { code: data(bigCodes).codes[0] }, true);
 
     const vidBad = await call('POST', `/api/projects/${projectId}/shots/${shotB}/generate`, { kind: 'video' }, true);
-    ok('无关键帧时视频被拒 409', vidBad.status === 409 && vidBad.json.code === 'SHOT_SOURCE_REQUIRED',
+    // 没资产图时会被五维一致性先拦（422），有关键帧但没资产图则是 409 —— 两者都算"如实拒绝"
+    ok('无关键帧时视频被拒',
+      (vidBad.status === 409 && vidBad.json.code === 'SHOT_SOURCE_REQUIRED')
+      || (vidBad.status === 422 && vidBad.json.code === 'CONSISTENCY_VIOLATION'),
       `${vidBad.status} ${vidBad.json && vidBad.json.code}`);
+
+    // V4.11：五维一致性要求先出资产设定图（角色/场景），分镜才有视觉依据
+    const sheetChars = await call('POST', `/api/projects/${projectId}/assets/images`, { type: 'character', limit: 4 }, true);
+    ok('角色资产图先出', sheetChars.status === 200 && data(sheetChars).done >= 1, sheetChars.text.slice(0, 120));
+    const sheetScenes = await call('POST', `/api/projects/${projectId}/assets/images`, { type: 'scene', limit: 4 }, true);
+    ok('场景资产图先出', sheetScenes.status === 200 && data(sheetScenes).done >= 1, sheetScenes.text.slice(0, 120));
 
     const imgGen = await call('POST', `/api/projects/${projectId}/shots/${shotA}/generate`, { kind: 'image' }, true);
     ok('按镜出关键帧', imgGen.status === 200 && Boolean(data(imgGen).url), imgGen.text.slice(0, 120));

@@ -16,6 +16,8 @@ import { db } from '../store/db.js';
 import { newId, nowIso } from '../core/util.js';
 import { fail, ERR } from '../core/errors.js';
 import assetLibrary from '../assets/AssetLibrary.js';
+import { directorAgent } from '../director/DirectorAgent.js';
+import { directorPlanEngine } from '../pipeline/DirectorPlan.js';
 import seeds from '../seeds/loader.js';
 import { logger } from '../core/redact.js';
 
@@ -120,6 +122,16 @@ export class ScriptLibrary {
       ? { ...(cand.outline ?? {}), title: clampStr(title, 60) }
       : (cand.outline ?? {});
 
+    // V4.11：选定即代表这条链路正式开工 —— 先过虚拟导演闸门（四库必须落实），
+    // 再把用户 pin 的技巧重新落到这一版总谱上（候选可能是 pin 之前生成的）。
+    directorAgent.assertStage(projectId, 'plan');
+    try {
+      directorAgent.applyToPlan(cand.plan, projectId);
+      cand.plan.validation = directorPlanEngine.validate(cand.plan);
+    } catch (e) {
+      logger.warn('选定剧本时应用导演策略失败，沿用候选自带编排', { projectId, error: e.message });
+    }
+
     // 1) 项目总谱：覆盖成选中的那一版（导演总谱与分镜必须同源，不能拼两份）
     const rec = {
       project_id: projectId,
@@ -150,6 +162,17 @@ export class ScriptLibrary {
 
     // 3) 个人资产库：选定即入库（同一份候选重复点「选定」不会重复入库）
     const vaultId = this.upsertFromCandidate({ userId: userId ?? null, projectId, cand, outline, assets });
+
+    directorAgent.log({
+      projectId, stage: 'script', action: 'select_candidate',
+      decisions: [
+        `选定《${outline.title ?? '未命名'}》（${cand.id}）`,
+        `按此版落 ${assets.total} 张资产卡`,
+        `总谱自检 ${cand.plan?.validation?.ok ? '通过' : '未通过'}`,
+      ],
+      gate: { ok: Boolean(cand.plan?.validation?.ok), issues: (cand.plan?.validation?.problems ?? []).slice(0, 5) },
+      actor: 'user',
+    });
 
     return { plan_id: cand.plan_id, assets, vault_id: vaultId };
   }

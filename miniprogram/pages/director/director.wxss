@@ -1,0 +1,80 @@
+/* 虚拟导演页（V4.11）：延续「晴光」浅色体系，卡片分层，重点在可读性而不是装饰 */
+.lib-row {
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid #EEF2F8;
+}
+.lib-row:last-child { border-bottom: none; padding-bottom: 6rpx; }
+.lib-name { font-size: 28rpx; font-weight: 650; color: #16233A; }
+.lib-cur {
+  background: #F7FAFF;
+  border: 1rpx solid #E4ECF8;
+  border-radius: 14rpx;
+  padding: 14rpx 18rpx;
+}
+.lib-cur-code { font-size: 23rpx; color: #3C5A80; line-height: 1.5; }
+
+.mini-btn {
+  font-size: 23rpx; color: #16233A; background: #F2F6FD;
+  border-radius: 999rpx; padding: 12rpx 26rpx; margin-right: 16rpx;
+}
+.mini-btn.ghost { background: #FFFFFF; border: 1rpx solid #E2E9F4; color: #5B6A80; }
+
+.chain-row {
+  display: flex; align-items: flex-start; gap: 16rpx;
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid #EEF2F8;
+}
+.chain-row:last-child { border-bottom: none; }
+.chain-dot {
+  flex: none; width: 16rpx; height: 16rpx; border-radius: 50%;
+  background: #DDE4EF; margin-top: 12rpx;
+}
+.chain-dot.on { background: #2FBF8F; }
+.chain-dot.bad { background: #E2685F; }
+.chain-name { font-size: 27rpx; font-weight: 620; color: #16233A; }
+
+.dim-row {
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid #EEF2F8;
+}
+.dim-row:last-child { border-bottom: none; }
+.dim-mark {
+  width: 34rpx; font-size: 26rpx; font-weight: 700; text-align: center;
+}
+.dim-mark.ok { color: #2FBF8F; }
+.dim-mark.bad { color: #E2685F; }
+.dim-name { font-size: 26rpx; font-weight: 620; color: #16233A; margin-left: 6rpx; }
+
+.rule-row {
+  display: flex; gap: 14rpx; align-items: flex-start;
+  padding: 12rpx 0;
+}
+.rule-idx {
+  flex: none; width: 34rpx; height: 34rpx; border-radius: 50%;
+  background: #FFF1DF; color: #B4551A;
+  font-size: 20rpx; text-align: center; line-height: 34rpx;
+}
+.rule-text { flex: 1; font-size: 23rpx; color: #4A5A70; line-height: 1.65; }
+
+.log-row {
+  padding: 14rpx 0;
+  border-bottom: 1rpx solid #EEF2F8;
+}
+.log-row:last-child { border-bottom: none; }
+.log-text { font-size: 23rpx; color: #3C4A5E; line-height: 1.6; }
+
+/* 库选择弹层 */
+.sheet-list {
+  max-height: 56vh;
+  margin-top: 12rpx;
+}
+.opt-row {
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #EEF2F8;
+}
+.opt-row.on { background: #FFFBF4; border-radius: 12rpx; padding-left: 14rpx; padding-right: 14rpx; }
+.opt-code {
+  font-size: 21rpx; color: #8B95A5; letter-spacing: 0.4rpx;
+}
+.opt-name { font-size: 27rpx; font-weight: 620; color: #16233A; }
+.opt-text { font-size: 22rpx; color: #7A8698; line-height: 1.6; }

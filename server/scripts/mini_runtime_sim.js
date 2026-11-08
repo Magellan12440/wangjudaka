@@ -78,6 +78,8 @@ const wx = {
   setStorageSync: (k, v) => storage.set(k, v),
   removeStorageSync: (k) => storage.delete(k),
   showToast: (o) => { toasts.push(o.title); },
+  showLoading: () => {},
+  hideLoading: () => {},
   showModal: (o) => {
     modals.push({ title: o.title || '', content: o.content || '' });
     o.success && o.success({ confirm: true, cancel: false, content: o.content || '' });
@@ -315,12 +317,20 @@ async function main() {
     ok('交付清单 6 项', (project.data.deliveryItems || []).length === 6);
     ok('角色资产已落库', (project.data.assets || {}).total >= 3, String(project.data.assets && project.data.assets.total));
 
-    // 视频必须先有关键帧（服务端闸门）
+    // 视频必须先有关键帧（服务端闸门：没有关键帧 / 没过五维一致性都拦）
     const shotNo = ((project.data.shots || [])[1] || {}).no;
     modals.length = 0;
     project.genShot({ currentTarget: { dataset: { no: shotNo, kind: 'video' } } });
     await sleep(1200);
-    ok('无关键帧时视频被拦下', modals.some((m) => /关键帧/.test(m.content)), JSON.stringify(modals.slice(-1)));
+    ok('无关键帧时视频被拦下', modals.some((m) => /关键帧|一致性/.test(m.content)), JSON.stringify(modals.slice(-1)));
+
+    // V4.11：五维一致性要求先有资产设定图（角色/场景），分镜才有视觉依据
+    project.genAssetType({ currentTarget: { dataset: { type: 'character' } } });
+    await sleep(3200);
+    project.genAssetType({ currentTarget: { dataset: { type: 'scene' } } });
+    await sleep(3200);
+    ok('资产设定图已就绪', ((project.data.assetProgress || {}).ready || 0) >= 2,
+      JSON.stringify(project.data.assetProgress && project.data.assetProgress.ready));
 
     // 按镜出关键帧
     project.genShot({ currentTarget: { dataset: { no: shotNo, kind: 'image' } } });
@@ -598,7 +608,7 @@ async function main() {
         .then((r) => r.json()).catch(() => null);
       const j2 = stepRes && stepRes.data;
       ok('托管单步推进有回执', Boolean(j2 && ['running', 'paused', 'done'].includes(j2.status)),
-        JSON.stringify(j2 && j2.status));
+        `${j2 && j2.status} ${JSON.stringify((j2 && j2.episode_states || []).map((s) => s.error))}`);
       ok('推进后进度结构可读', Boolean(j2 && j2.progress && typeof j2.progress.percent === 'number'),
         JSON.stringify(j2 && j2.progress));
     }

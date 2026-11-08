@@ -68,8 +68,18 @@ export class GenerateService {
   }) {
     const available = ledger.balance(userId);
 
-    // 1) 编译（12 校验在此完成）
-    const payload = compiler.compile({ ...compileRequest, kind, available_credits: available, options: { ...(compileRequest.options ?? {}), purpose } });
+    // 1) 编译（12 校验 + 五维一致性在此完成）
+    // 五维一致性是底层强制规则：真实出图/出片一律打开，前端传什么选项都关不掉。
+    // 资产设定图走独立分支（此刻还没有资产可校验），不在此列。
+    const isMediaShot = (kind === 'image' || kind === 'video')
+      && compileRequest?.options?.mode !== 'asset_sheet'
+      && Boolean(compileRequest?.shot);
+    const compileOptions = {
+      ...(compileRequest.options ?? {}),
+      purpose,
+      ...(isMediaShot ? { enforce_consistency: true } : {}),
+    };
+    const payload = compiler.compile({ ...compileRequest, kind, available_credits: available, options: compileOptions });
 
     // 2) 预扣
     const hold = ledger.hold({
@@ -93,6 +103,9 @@ export class GenerateService {
       prompt_zh: payload.prompt_zh,
       prompt_en: payload.prompt_en,
       cards: payload.cards,
+      // 编译输入（V4.11）：重生成必须能拿到"当初到底怎么编译的"，
+      // 否则 resample 只会拿到一个空 patch，必然在编译器里炸掉。
+      compile_input: snapshotOf(compileRequest),
       status: 'running',
       created_at: nowIso(),
     });
@@ -170,57 +183,44 @@ export class GenerateService {
     }
   }
 
-  /** 按镜号重生成（四种粒度：同参重抽 / 改提示词 / 换参考图 / 换模型） */
+  /**
+   * 按镜号重生成（四种粒度：同参重抽 / 改提示词 / 换参考图 / 换模型）。
+   *
+   * V4.11 修正：以前这里只把 patch 原样丢回编译器 —— resample 模式等于传了一个空请求，
+   * 编译器第一行就报「风格不存在」。现在以当初落盘的 compile_input 为底，再叠加补丁，
+   * 这样「重出一次」是真的同一套参数换种子，而不是重新猜一遍。
+   */
   async regenerate({ userId, projectId, generationId, mode = 'resample', patch = {} }) {
     const old = db.findOne(COL, (g) => g.id === generationId);
     if (!old) fail(ERR.NOT_FOUND, '生成记录不存在');
-    const idemKey = `regen:${generationId}:${mode}:${Object.keys(patch).length}`;
-    const base = {
-      kind: old.kind,
-      project: patch.project ?? {},
-      shot: patch.shot ?? {},
-      assets: patch.assets ?? {},
-      model: old.model,
-      shot_no: old.shot_no,
-    };
-    if (mode === 'resample') {
-      // 同参重抽：换 seed
-      return this.run({
-        userId,
-        projectId,
-        kind: old.kind,
-        purpose: old.purpose,
-        idemKey,
-        meta: { shotNo: old.shot_no, take: (old.take ?? 0) + 1 },
-        compileRequest: { ...patch, options: { seed: undefined } },
+    const base = old.compile_input ? JSON.parse(JSON.stringify(old.compile_input)) : null;
+    if (!base) {
+      fail(ERR.BAD_REQUEST, '这条生成记录缺少编译输入（旧版本产物），请直接回镜头卡片重新生成', {
+        generation_id: generationId, hint: '新版记录都会带 compile_input',
       });
     }
-    if (mode === 'change_prompt') return this.#runPatch({ userId, projectId, old, patch, idemKey, mode });
-    if (mode === 'change_reference') return this.#runPatch({ userId, projectId, old, patch, idemKey, mode });
-    if (mode === 'change_model') {
+    const merged = mergeCompileInput(base, patch);
+    const idemKey = `regen:${generationId}:${mode}:${Date.now()}`;
+    const take = (old.take ?? 0) + 1;
+
+    if (mode === 'resample' || mode === 'change_prompt' || mode === 'change_reference') {
+      // 三种模式都不该沿用旧种子：沿用等于"重抽"抽到同一张
+      merged.options = { ...(merged.options ?? {}), seed: undefined };
       return this.run({
-        userId,
-        projectId,
-        kind: old.kind,
-        purpose: old.purpose,
-        idemKey,
-        meta: { shotNo: old.shot_no },
-        compileRequest: { ...patch, model: patch.model },
+        userId, projectId, kind: old.kind, purpose: old.purpose, idemKey,
+        meta: { shotNo: old.shot_no, take, primaryAssetCode: old.compile_input?.shot?.characters?.[0] ?? null },
+        compileRequest: merged,
+      });
+    }
+    if (mode === 'change_model') {
+      if (!patch.model) fail(ERR.BAD_REQUEST, '换模型模式必须指定 model');
+      return this.run({
+        userId, projectId, kind: old.kind, purpose: old.purpose, idemKey,
+        meta: { shotNo: old.shot_no, take },
+        compileRequest: { ...merged, model: patch.model },
       });
     }
     fail(ERR.BAD_REQUEST, `未知重生成模式: ${mode}`);
-  }
-
-  #runPatch({ userId, projectId, old, patch, idemKey, mode }) {
-    return this.run({
-      userId,
-      projectId,
-      kind: old.kind,
-      purpose: old.purpose,
-      idemKey,
-      meta: { shotNo: old.shot_no },
-      compileRequest: patch,
-    });
   }
 
   list(projectId, shotNo = null) {
@@ -256,6 +256,42 @@ function buildReferenceFeatures(compileRequest, payload) {
     lighting_codes: [...new Set(lighting)],
     style_code: compileRequest?.project?.style_code ?? null,
   };
+}
+
+/**
+ * 编译输入快照：只留"重生成需要复现"的字段。
+ * 不存 payload（里面有 stamp 与最终提示词），存的是输入 —— 输入才是可复现的唯一事实。
+ */
+const SNAPSHOT_FIELDS = [
+  'project', 'shot', 'assets', 'lighting', 'transition', 'grammar',
+  'emotion_map', 'libraries', 'options', 'model', 'shot_no', 'rhythm', 'asset',
+];
+function snapshotOf(compileRequest = {}) {
+  const out = {};
+  for (const f of SNAPSHOT_FIELDS) {
+    if (compileRequest[f] === undefined) continue;
+    try {
+      out[f] = JSON.parse(JSON.stringify(compileRequest[f]));
+    } catch {
+      // 循环引用/不可序列化的字段直接丢弃，宁可少存也不能让整条记录写不进去
+    }
+  }
+  return out;
+}
+
+/** 以原编译输入为底，叠加用户的改写补丁（子对象逐键合并，不整体替换） */
+function mergeCompileInput(base = {}, patch = {}) {
+  const merged = { ...base };
+  for (const [k, v] of Object.entries(patch ?? {})) {
+    if (v === undefined) continue;
+    const isPlain = v && typeof v === 'object' && !Array.isArray(v);
+    if (isPlain && base[k] && typeof base[k] === 'object' && !Array.isArray(base[k])) {
+      merged[k] = { ...base[k], ...v };
+    } else {
+      merged[k] = v;
+    }
+  }
+  return merged;
 }
 
 export const generateService = new GenerateService();

@@ -32,7 +32,8 @@
       <view class="p-hero-inner layer">
         <!-- 多项目（V4.7）：在这部剧里也能换剧或再开一部 -->
         <view class="p-top">
-          <view class="p-top-btn tap" hover-class="tap-on" bindtap="openSwitcher">⇄ 我的剧组</view>
+          <view class="p-top-btn tap" hover-class="tap-on" bindtap="openDirector">导 演</view>
+          <view class="p-top-btn tap" hover-class="tap-on" bindtap="openSwitcher">⇄ 剧组</view>
           <view class="p-top-btn tap" hover-class="tap-on" bindtap="newProject">＋ 新建</view>
         </view>
         <view class="between">
@@ -413,7 +414,9 @@
                   >{{assetBusy === item.code ? '…' : (item.image_url ? '重绘' : '出图')}}</view>
                 </view>
                 <view class="asset-name ellipsis">{{item.name}}</view>
-                <view class="asset-sub">{{item.code}} · {{item.locks}} 锁</view>
+                <view class="asset-sub">{{item.code}} · {{item.locks}} 锁
+                  <text class="asset-edit tap" data-code="{{item.code}}" data-name="{{item.name}}" catchtap="editAsset">改设定</text>
+                </view>
               </view>
             </view>
           </view>
@@ -431,7 +434,9 @@
                   <view class="asset-gen tap {{assetBusy ? 'off' : ''}}" hover-class="tap-on" data-code="{{item.code}}" data-force="{{item.image_url ? '1' : '0'}}" bindtap="genAsset">{{assetBusy === item.code ? '…' : (item.image_url ? '重绘' : '出图')}}</view>
                 </view>
                 <view class="asset-name ellipsis">{{item.name}}</view>
-                <view class="asset-sub">{{item.code}}</view>
+                <view class="asset-sub">{{item.code}}
+                  <text class="asset-edit tap" data-code="{{item.code}}" data-name="{{item.name}}" catchtap="editAsset">改设定</text>
+                </view>
               </view>
             </view>
           </view>
@@ -449,7 +454,9 @@
                   <view class="asset-gen tap {{assetBusy ? 'off' : ''}}" hover-class="tap-on" data-code="{{item.code}}" data-force="{{item.image_url ? '1' : '0'}}" bindtap="genAsset">{{assetBusy === item.code ? '…' : (item.image_url ? '重绘' : '出图')}}</view>
                 </view>
                 <view class="asset-name ellipsis">{{item.name}}</view>
-                <view class="asset-sub">{{item.code}}</view>
+                <view class="asset-sub">{{item.code}}
+                  <text class="asset-edit tap" data-code="{{item.code}}" data-name="{{item.name}}" catchtap="editAsset">改设定</text>
+                </view>
               </view>
             </view>
           </view>
@@ -460,6 +467,23 @@
 
       <!-- ===== 镜头 ===== -->
       <block wx:if="{{tab === 'gens'}}">
+        <view class="card" wx:if="{{consistency && !consistency.empty}}">
+          <view class="between">
+            <text class="title">一致性底座</text>
+            <text class="pill {{consistency.kpi.ok ? 'pill-green' : 'pill-red'}}">{{consistency.kpi.pass}}/{{consistency.kpi.total}} 镜全过</text>
+          </view>
+          <view class="sub mt8">五维任一不过，这一镜既不能出图也不能交付。缺什么会写清楚。</view>
+          <view class="dim-chips mt12">
+            <view wx:for="{{consistency.dimensions}}" wx:key="key" class="dim-chip {{item.ok ? 'ok' : 'bad'}}">
+              {{item.name}}{{item.ok ? ' ✓' : ' ' + item.failed}}
+            </view>
+          </view>
+          <view wx:if="{{directorPinned.length}}" class="tiny mt12">
+            你指定的技巧：<text wx:for="{{directorPinned}}" wx:key="kind">{{index ? ' · ' : ''}}{{item.name}} {{item.code}}</text>
+          </view>
+          <view class="btn btn-sm btn-ghost mt16 tap" hover-class="tap-on" bindtap="openDirector">看导演与一致性明细</view>
+        </view>
+
         <view class="card">
           <view class="between">
             <text class="title">逐镜出片</text>
@@ -485,6 +509,7 @@
               <view class="row">
                 <text class="shot-no">{{item.no}}</text>
                 <text class="pill pill-gray pill-no-dot" style="margin-left:12rpx">{{item.shot_card}}</text>
+                <text wx:if="{{item.manual}}" class="pill pill-gold pill-no-dot" style="margin-left:8rpx">已改</text>
               </view>
               <text class="tiny">{{item.duration}}s</text>
             </view>
@@ -498,18 +523,41 @@
               <view class="shot-thumb-tag">关键帧</view>
             </view>
             <view class="shot-actions">
-              <view class="mini-btn tap" hover-class="tap-on" data-no="{{item.no}}" data-kind="image" bindtap="genShot">
-                {{item.imageUrl ? '重出关键帧' : '生成关键帧'}}
-              </view>
-              <view class="mini-btn ghost tap" hover-class="tap-on" data-no="{{item.no}}" data-kind="video" bindtap="genShot">
-                {{item.videoUrl ? '重出视频' : '生成视频'}}
-              </view>
+              <view class="mini-btn tap" hover-class="tap-on" data-no="{{item.no}}" bindtap="openShotEdit">改一改</view>
+              <view
+                wx:if="{{item.imageUrl}}"
+                class="mini-btn ghost tap"
+                hover-class="tap-on"
+                data-no="{{item.no}}"
+                data-kind="image"
+                bindtap="regenShot"
+              >{{busy === item.no + ':image' ? '重出中…' : '重出关键帧'}}</view>
+              <view
+                wx:else
+                class="mini-btn ghost tap"
+                hover-class="tap-on"
+                data-no="{{item.no}}"
+                data-kind="image"
+                bindtap="genShot"
+              >{{busy === item.no + ':image' ? '生成中…' : '生成关键帧'}}</view>
+              <view
+                class="mini-btn ghost tap"
+                hover-class="tap-on"
+                data-no="{{item.no}}"
+                data-kind="video"
+                bindtap="{{item.videoUrl ? 'regenShot' : 'genShot'}}"
+              >{{item.videoUrl ? '重出视频' : '生成视频'}}</view>
+            </view>
+            <view wx:if="{{item.pickedId}}" class="tiny mt8">已选定一版 · 剪辑会用这一版</view>
+            <view class="shot-actions" wx:if="{{item.imageUrl || item.videoUrl}}">
+              <view class="mini-btn tap" hover-class="tap-on" data-no="{{item.no}}" bindtap="openShotVersions">选版本</view>
             </view>
           </view>
         </view>
 
         <view class="card" wx:if="{{gens.total}}">
           <view class="title">生成记录</view>
+          <view class="sub mt8">同一镜可以重出多次。点「选这版」定下正式版，剪辑与分发都用它。</view>
           <view class="list-item" wx:for="{{gens.items}}" wx:key="id" data-id="{{item.id}}" bindtap="previewGen">
             <view class="list-avatar {{item.isVideo ? 'cover-b' : 'cover-c'}}">{{item.kindChar}}</view>
             <view class="list-main">
@@ -899,5 +947,96 @@
     </scroll-view>
     <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="newProject">＋ 新建一部剧</view>
     <view class="sheet-cancel tap" hover-class="tap-on" bindtap="closeSwitcher">取消</view>
+  </view>
+
+  <!-- 改一改（V4.11）：改设定不花钱，想变画面再重出 -->
+  <view wx:if="{{editSheet}}" class="sheet-mask" bindtap="closeShotEdit"></view>
+  <view wx:if="{{editSheet}}" class="sheet">
+    <view class="sheet-bar"></view>
+    <view class="between">
+      <view>
+        <view class="sheet-title">{{editShot.no}} · 改一改</view>
+        <view class="tiny mt4">改完只更新设定；画面要不要跟着变，由你点「重出」决定。</view>
+      </view>
+      <text class="sheet-close tap" bindtap="closeShotEdit">关闭</text>
+    </view>
+
+    <scroll-view scroll-y class="edit-scroll">
+      <view class="field-label mt8"><text>镜别</text><text class="opt">{{editForm.shot_card}}</text></view>
+      <view class="chips">
+        <view
+          wx:for="{{shotKinds}}"
+          wx:key="code"
+          class="chip chip-sm {{editForm.shot_card === item.code ? 'on' : ''}}"
+          data-field="shot_card"
+          data-value="{{item.code}}"
+          bindtap="pickEditField"
+        >{{item.name}}</view>
+      </view>
+
+      <view class="field-label mt8"><text>运镜</text><text class="opt">{{editForm.camera_move}}</text></view>
+      <view class="chips">
+        <view
+          wx:for="{{moveKinds}}"
+          wx:key="code"
+          class="chip chip-sm {{editForm.camera_move === item.code ? 'on' : ''}}"
+          data-field="camera_move"
+          data-value="{{item.code}}"
+          bindtap="pickEditField"
+        >{{item.name}}</view>
+      </view>
+
+      <view class="field-label mt8"><text>镜长</text><text class="opt">{{editForm.duration}} 秒</text></view>
+      <view class="chips">
+        <view
+          wx:for="{{durationOptions}}"
+          wx:key="*this"
+          class="chip chip-sm {{editForm.duration === item ? 'on' : ''}}"
+          data-field="duration"
+          data-value="{{item}}"
+          bindtap="pickEditField"
+        >{{item}}s</view>
+      </view>
+
+      <view class="field-label mt8"><text>对白</text><text class="opt">留空 = 无台词</text></view>
+      <textarea
+        class="textarea" style="height:140rpx;line-height:1.6"
+        value="{{editForm.dialogue}}"
+        maxlength="120"
+        data-field="dialogue"
+        bindinput="onEditInput"
+        placeholder="这一镜说的那句话"
+        placeholder-class="input-ph"
+      />
+
+      <view class="field-label mt16"><text>说话人</text><text class="opt">角色编号，如 CH01</text></view>
+      <input
+        class="input"
+        value="{{editForm.speaker}}"
+        maxlength="12"
+        data-field="speaker"
+        bindinput="onEditInput"
+        placeholder="CH01"
+        placeholder-class="input-ph"
+      />
+
+      <view class="field-label mt16"><text>画面动作</text><text class="opt">这一镜在演什么</text></view>
+      <textarea
+        class="textarea" style="height:140rpx;line-height:1.6"
+        value="{{editForm.action_start}}"
+        maxlength="200"
+        data-field="action_start"
+        bindinput="onEditInput"
+        placeholder="例如：他双手平按玻璃桌，下颌紧绷"
+        placeholder-class="input-ph"
+      />
+
+      <view class="hint mt16">改镜别/运镜/时长会同步回导演总谱，保证全片只有一份事实；角色名单不允许在这里改（换人要回剧本重选）。</view>
+    </scroll-view>
+
+    <view class="btn btn-block mt16 tap {{editBusy ? 'btn-disabled' : ''}}" hover-class="tap-on" bindtap="saveShotEdit">
+      {{editBusy ? '保存中…' : '保存设定'}}
+    </view>
+    <view class="sheet-cancel tap" hover-class="tap-on" bindtap="closeShotEdit">取消</view>
   </view>
 </view>

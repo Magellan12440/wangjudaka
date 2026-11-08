@@ -94,7 +94,10 @@ class EditService {
 
     const missing = [];
     const rows = shots.map((s) => {
-      const g = byShot.get(s.no);
+      // V4.11：用户挑过的版本优先（同一镜可能重出过多次，剪辑不能自作主张拿最新那版）
+      const pickId = s.picked?.video_generation_id || s.picked?.image_generation_id || null;
+      const pinned = pickId ? gens.find((x) => x.id === pickId) : null;
+      const g = pinned ?? byShot.get(s.no);
       if (!g) missing.push(s.no);
       const emotionCodes = Object.values(s.emotions ?? {}).filter(Boolean);
       return {

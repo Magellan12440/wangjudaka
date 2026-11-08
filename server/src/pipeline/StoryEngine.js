@@ -10,6 +10,7 @@
 import seeds from '../seeds/loader.js';
 import { generateService } from './GenerateService.js';
 import { directorPlanEngine } from './DirectorPlan.js';
+import { directorAgent } from '../director/DirectorAgent.js';
 import { rhythmMaster } from '../rhythm/RhythmMaster.js';
 import { config } from '../config/env.js';
 import { logger } from '../core/redact.js';
@@ -107,7 +108,27 @@ export class StoryEngine {
         return globalThis.__lingwuAssetLibrary?.emotionPaletteOf?.(projectId, code) ?? null;
       } catch { return null; }
     };
-    return directorPlanEngine.build({ outline, spec, planId, paletteResolver: projectId ? resolvePalette : null });
+    const plan = directorPlanEngine.build({ outline, spec, planId, paletteResolver: projectId ? resolvePalette : null });
+
+    // V4.11：用户手动 pin 的技巧库在这里落到总谱（运镜/转场/情绪/节奏），
+    // 然后重跑一次自检 —— 人工选择不能把结构规则撞坏，撞坏了就当场暴露出来。
+    if (projectId) {
+      try {
+        const applied = directorAgent.applyToPlan(plan, projectId);
+        plan.validation = directorPlanEngine.validate(plan);
+        directorAgent.log({
+          projectId, stage: 'plan', action: 'apply_policy',
+          decisions: [
+            ...Object.entries(applied.applied).filter(([, v]) => v > 0).map(([k, v]) => `${k} 应用 ${v} 处`),
+            ...applied.warnings.map((w) => `未应用：${w}`),
+          ],
+          gate: { ok: Boolean(plan.validation?.ok), issues: (plan.validation?.problems ?? []).slice(0, 5) },
+        });
+      } catch (e) {
+        logger.warn('导演策略落总谱失败，已保留自动编排', { projectId, error: e.message });
+      }
+    }
+    return plan;
   }
 
   /** 总谱自检报告（供 API / 画布 / 流水线在进入剧本前调用） */

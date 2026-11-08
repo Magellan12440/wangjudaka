@@ -8,6 +8,7 @@
     "pages/recharge/recharge",
     "pages/scripts/scripts",
     "pages/project/project",
+    "pages/director/director",
     "pages/invite/invite",
     "pages/legal/legal",
     "pages/login/login",

@@ -269,6 +269,19 @@ Page({
     assetProgress: { total: 0, ready: 0, character: { total: 0, ready: 0 }, scene: { total: 0, ready: 0 }, prop: { total: 0, ready: 0 } },
     assetBusy: '',
     shotBusy: '',
+
+    // 手动改镜头（V4.11）：改设定不花钱，想变画面再点重出
+    editSheet: false,
+    editShot: null,
+    editForm: { shot_card: '', camera_move: '', duration: 4, dialogue: '', speaker: '', action_start: '' },
+    editBusy: false,
+    shotKinds: [],
+    moveKinds: [],
+    durationOptions: [2, 3, 4, 5, 6, 8],
+
+    // 五维一致性摘要（V4.11）
+    consistency: null,
+    directorPinned: [],
   },
 
   onLoad(q) {
@@ -463,6 +476,8 @@ Page({
       ...s,
       imageUrl: (byShot[s.no] && byShot[s.no].image) || '',
       videoUrl: (byShot[s.no] && byShot[s.no].video) || '',
+      pickedId: (s.picked && (s.picked.video_generation_id || s.picked.image_generation_id)) || '',
+      lockedText: (s.move ? `${s.shot_card} · ${s.move}` : s.shot_card) || '',
     }));
 
     this.setData({
@@ -520,6 +535,8 @@ Page({
       },
       qc,
       gate,
+      consistency: d.consistency || null,
+      directorPinned: (d.director && d.director.pinned) || [],
       shell,
       shellForm: {
         seriesTitle: shell.series_title || p.title || '',
@@ -1084,6 +1101,188 @@ Page({
         wx.showModal({ title: '生成未完成', content: map[err.code] || err.message || '请稍后重试', showCancel: false });
       })
       .then(() => this.setData({ busy: '' }));
+  },
+
+  // ——— 虚拟导演 / 手动改镜头 / 多版本选定（V4.11）———
+
+  openDirector() {
+    motion.haptic();
+    wx.navigateTo({ url: `/pages/director/director?id=${encodeURIComponent(this.data.projectId)}` });
+  },
+
+  /** 重出：保留历史版本，沿用这一镜上一次的编译输入（而不是重新猜一遍） */
+  regenShot(e) {
+    const { no, kind } = e.currentTarget.dataset;
+    if (!no || this.data.busy) return;
+    motion.haptic();
+    this.setData({ busy: `${no}:${kind}` });
+    api.regenerateShot(this.data.projectId, no, kind || 'image', 'resample')
+      .then((r) => {
+        wx.showToast({ title: `${kind === 'video' ? '视频' : '关键帧'}重出完成 · ${r.credits} 点`, icon: 'none' });
+        return this.reload(false);
+      })
+      .catch((err) => {
+        const map = {
+          INSUFFICIENT_CREDITS: '点数不足，请先充值',
+          SHOT_SOURCE_REQUIRED: '请先生成这一镜的关键帧',
+          CONSISTENCY_VIOLATION: '这一镜还没过一致性检查，先补资产或改镜头',
+        };
+        wx.showModal({
+          title: '重出未完成',
+          content: map[err.code] || err.message || '请稍后重试',
+          showCancel: false,
+        });
+      })
+      .then(() => this.setData({ busy: '' }));
+  },
+
+  /** 打开「改一改」：只改镜别/运镜/时长/对白/动作，改完不自动花钱 */
+  openShotEdit(e) {
+    const no = e.currentTarget.dataset.no;
+    const item = this.data.shotItems.find((x) => x.no === no);
+    if (!item) return;
+    motion.haptic();
+    this.setData({
+      editSheet: true,
+      editShot: item,
+      editForm: {
+        shot_card: item.shot_code || '',
+        camera_move: item.move_code || '',
+        duration: Number(item.duration) || 4,
+        dialogue: item.dialogue || '',
+        speaker: item.speaker || '',
+        action_start: item.action_start || '',
+      },
+    });
+    if (!this.data.shotKinds.length) this.loadShotKinds();
+  },
+
+  closeShotEdit() {
+    this.setData({ editSheet: false });
+  },
+
+  loadShotKinds() {
+    Promise.all([api.shotCards('distance'), api.shotCards('movement')])
+      .then(([dist, move]) => {
+        this.setData({
+          shotKinds: (dist || []).map((c) => ({ code: c.code, name: c.name })),
+          moveKinds: (move || []).map((c) => ({ code: c.code, name: c.name })),
+        });
+      })
+      .catch(() => { /* 卡片列表拉不到时仍可改对白与时长 */ });
+  },
+
+  pickEditField(e) {
+    const { field, value } = e.currentTarget.dataset;
+    if (!field) return;
+    motion.haptic();
+    this.setData({ [`editForm.${field}`]: value });
+  },
+
+  onEditInput(e) {
+    const field = e.currentTarget.dataset.field;
+    if (!field) return;
+    this.setData({ [`editForm.${field}`]: e.detail.value });
+  },
+
+  saveShotEdit() {
+    if (this.data.editBusy || !this.data.editShot) return;
+    const f = this.data.editForm;
+    motion.haptic();
+    this.setData({ editBusy: true });
+    const patch = {
+      shot_card: f.shot_card,
+      camera_move: f.camera_move,
+      duration: Number(f.duration) || 4,
+      dialogue: (f.dialogue || '').trim() || null,
+      speaker: (f.speaker || '').trim() || null,
+      action_start: (f.action_start || '').trim() || null,
+    };
+    api.updateShot(this.data.projectId, this.data.editShot.no, patch)
+      .then((r) => {
+        this.setData({ editBusy: false, editSheet: false });
+        wx.showModal({
+          title: '已保存',
+          content: (r && r.note) || '设定已更新。想让画面跟着变，请点「重出这一镜」。',
+          showCancel: false,
+        });
+        return this.reload(false);
+      })
+      .catch((err) => {
+        this.setData({ editBusy: false });
+        wx.showModal({ title: '没保存成功', content: (err && err.message) || '稍后再试', showCancel: false });
+      });
+  },
+
+  /** 从生成记录里选一版作为该镜正式版（剪辑与分发都会用它） */
+  pickGeneration(e) {
+    const { id, no } = e.currentTarget.dataset;
+    if (!id || !no || this.data.busy) return;
+    motion.haptic();
+    this.setData({ busy: `pick:${id}` });
+    api.pickShot(this.data.projectId, no, id)
+      .then(() => {
+        wx.showToast({ title: '已设为正式版', icon: 'none' });
+        return this.reload(false);
+      })
+      .catch((err) => wx.showModal({ title: '设置失败', content: (err && err.message) || '稍后再试', showCancel: false }))
+      .then(() => this.setData({ busy: '' }));
+  },
+
+  /** 选出这一镜的正式版：列出历史版本，点哪版用哪版 */
+  openShotVersions(e) {
+    const no = e.currentTarget.dataset.no;
+    if (!no || this.data.busy) return;
+    motion.haptic();
+    api.shotHistory(this.data.projectId, no)
+      .then((d) => {
+        const items = ((d && d.items) || []).filter((x) => x.status === 'done' && x.url).slice(0, 6);
+        if (!items.length) {
+          wx.showToast({ title: '这一镜还没有可选的版本', icon: 'none' });
+          return;
+        }
+        wx.showActionSheet({
+          itemList: items.map((x) => {
+            const t = String(x.created_at || '').slice(5, 16).replace('T', ' ');
+            return `${x.kind === 'video' ? '视频' : '关键帧'} · ${t}${x.picked ? '（当前）' : ''}`;
+          }),
+          success: (r) => {
+            const target = items[r.tapIndex];
+            if (!target || target.picked) return;
+            this.pickGeneration({ currentTarget: { dataset: { id: target.id, no } } });
+          },
+          fail: () => {},
+        });
+      })
+      .catch((err) => wx.showModal({ title: '版本读取失败', content: (err && err.message) || '稍后再试', showCancel: false }));
+  },
+
+  /** 改资产设定（V4.11）：改描述会进下一次出图的提示词；改完要重绘才会变 */
+  editAsset(e) {
+    const { code, name } = e.currentTarget.dataset;
+    if (!code) return;
+    motion.haptic();
+    wx.showModal({
+      title: `改「${name || code}」的设定`,
+      editable: true,
+      placeholderText: '一句话：外形、气质、标志性细节',
+      confirmText: '保存',
+      success: (r) => {
+        if (!r.confirm) return;
+        const desc = String(r.content || '').trim();
+        if (!desc) {
+          wx.showToast({ title: '没写内容', icon: 'none' });
+          return;
+        }
+        api.updateAsset(this.data.projectId, code, { desc })
+          .then((res) => {
+            wx.showToast({ title: '已保存，点重绘生效', icon: 'none' });
+            return this.loadAssets();
+          })
+          .catch((err) => wx.showModal({ title: '没保存成功', content: (err && err.message) || '稍后再试', showCancel: false }));
+      },
+      fail: () => {},
+    });
   },
 
   // ——— 其他动作 ———

@@ -19,6 +19,7 @@ import { db } from '../store/db.js';
 import { fail, ERR } from '../core/errors.js';
 import { nowIso, round } from '../core/util.js';
 import consistencyChecker from '../qc/ConsistencyChecker.js';
+import consistencyGuard from '../qc/ConsistencyGuard.js';
 
 /** 证据页固定 7 类，缺一不可（与 §13.2 checklist 对齐） */
 export const EVIDENCE_PAGES = [
@@ -184,6 +185,14 @@ export class CompliancePack {
    */
   deliveryGate({ projectId, episodeNo = 'E01', threshold = 0.82 }) {
     const qc = consistencyChecker.report(projectId, { threshold, episode: episodeNo });
+    // V4.11：五维一致性（角色/道具/场景/内容/声音字幕）是底层强制规则，
+    // 交付前必须整片过一遍 —— 图与图像不像是一回事，结构与声音对不上是另一回事。
+    let fiveDim = null;
+    try {
+      fiveDim = consistencyGuard.audit(projectId, { episode: episodeNo });
+    } catch {
+      fiveDim = null;
+    }
     let evidence;
     let pack = null;
     try {
@@ -204,6 +213,16 @@ export class CompliancePack {
       blockers.push({ code: b.type === 'drift' ? 'QC_DRIFT' : 'QC_MANUAL_REVIEW', issue: `${b.shot_no}: ${b.type === 'drift' ? `漂移分 ${b.score}` : b.note}` });
     }
     if (qc.total_shots === 0) blockers.push({ code: 'QC_EMPTY', issue: '尚未做任何一致性自检' });
+    // 五维结构化一致性：任一维不过即阻断（这是硬规则，不是建议）
+    for (const d of fiveDim?.dimensions ?? []) {
+      if (d.ok) continue;
+      const first = d.issues?.[0];
+      blockers.push({
+        code: 'CONSISTENCY_DIM_FAILED',
+        issue: `${d.name}未通过：${d.failed}/${d.total} 镜有问题` +
+          (first ? `（例 ${first.shot_no}：${first.issues?.[0]?.text ?? ''}）` : ''),
+      });
+    }
     for (const p of evidence.problems ?? []) blockers.push({ code: p.code, issue: p.issue });
     return {
       ready: blockers.length === 0,
@@ -212,6 +231,7 @@ export class CompliancePack {
       blockers,
       warnings,
       consistency: qc,
+      consistency_guard: fiveDim,
       evidence,
       next_actions: blockers.length
         ? ['按 drift_shots 的建议重生成或补接比对服务', '重新生成合规包', '再次调用本闸门']

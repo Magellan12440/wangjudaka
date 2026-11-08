@@ -438,3 +438,42 @@ curl -s -o /dev/null -w "%{http_code}\n" https://<域名>/api/admin/overview  # 
 
 **验收**：`npm run verify` 全绿 —— 353 单测（新增 `script_library` 8 项 / `asset_sheet` 5 项）/
 13 前端 / 15 组体检 / 151 运行时 / 71 部署 / 22+78 冒烟；版本 4.10.0
+
+---
+
+## V4.11.0 — 亮点：内置虚拟导演 / 五维一致性底层强制 / 生成物随手改随手重出
+
+**A. 虚拟导演：把「每一环真的用了库」变成可执行的事**
+- 新增 `director/DirectorAgent.js`：九个链式节点（大纲 → 总谱 → 剧本 → 节奏 → 资产 → 分镜 → 片段 → 成片 → 分发），
+  每节点声明必须应用的库；前一步不过闸，后一步不许开工
+- **强制**：情绪 / 转场 / 运镜 / 节奏四库在任何生成前都必须解析出真实卡号。用户不选，导演按剧情与风格自动挑；
+  选了就按用户的来（`pinned`），并写进总谱 `global.director_policy` 与决策日志
+- **手动引用不破坏结构**：运镜整片统一；转场只替换原本已是非硬切的拍（配额与 8.5 秒间隔仍由总谱裁决）；
+  情绪必须落在该角色调色板内且强度跳变 ≤2；节奏只落到推进/冲突段，开场钩子、反转落点、共情高点、集末钩子保留
+- 新页 `pages/director`（项目页顶部「导演」进入）：链式进度、四库选择（含每张卡的中文说明）、五维状态、决策日志
+- 新接口：`GET /api/projects/:id/director`、`POST .../director/policy`、`POST .../director/policy/reset`、
+  `GET .../director/log`、`GET /api/director`
+
+**B. 五维一致性 = 底层强制规则（不是"生成后再看看"）**
+- 新增 `qc/ConsistencyGuard.js`，与图像相似度（`ConsistencyChecker`）互补：
+  - **角色**：资产卡 + 连续性锁（按模板下限，角色 4 条）+ 设定图
+  - **道具**：镜头点名的道具必须是已建卡的那一件，且带锁
+  - **场景**：同一集空间引用同一张场景卡，带空间/光源锁 + 概念图
+  - **内容**：镜别/运镜/光影/转场/情绪/节奏必须与总谱一致；对白与说话人自洽
+  - **声音字幕**：每个有戏的角色有固定声线资产（缺则自动补一份，绝不让同一角色换嗓子）；
+    对白按字幕同步规则算容量与语速，放不下就拦
+- 三道闸：编译期（`guardCompile`，花钱前拦住）→ 镜头生成前（`assertBeforeGenerate`，缺卡按模板补齐但仍需出图）
+  → 交付闸门（`CompliancePack.deliveryGate` 纳入五维 blockers）
+- 新接口：`GET /api/projects/:id/consistency`、`GET /api/projects/:id/consistency/locks`、`GET /api/qc/consistency/guard`
+
+**C. 生成物随手改、随手重出、多版本可选**
+- 新增 `POST /shots/:shotNo/update`：改镜别 / 运镜 / 光影 / 转场 / 情绪 / 场景 / 道具 / 时长 / 对白 / 动作；
+  **改写同步回总谱**（只有一份事实），角色名单不允许在这里改（换人要回剧本重选）
+- 新增 `POST /shots/:shotNo/regenerate`：单镜重出图/视频，保留历史版本
+- 新增 `POST /shots/:shotNo/pick`：从历史里选定正式版；剪辑 `collectShots` 优先采用选定版本（不再一律取最新）
+- **修复 `regenerate` 的真实缺陷**：老实现只把 patch 丢回编译器，`resample` 传的是空请求，必然报「风格不存在」。
+  现在生成时落 `compile_input` 快照，重出以它为底再叠加补丁；老记录给出明确指引而不是编译错误
+- 前端镜头卡：「改一改」（弹层改参数，不自动花钱）→「重出这一镜」→「选版本」；镜头 tab 顶部有五维状态与已 pin 的技巧
+
+**验收**：`npm run verify` 全绿 —— 382 单测（新增 `director_agent` 8 / `consistency_guard` 14 / `shot_edit` 7）/
+13 前端 / 15 组体检 / 152 运行时 / 71 部署 / 22+16+80 冒烟；版本 4.11.0

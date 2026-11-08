@@ -27,6 +27,7 @@ import {
 } from './segments.js';
 import * as V from './validators.js';
 import * as prompts from '../prompts/PromptLibrary.js';
+import { guardCompile } from '../qc/ConsistencyGuard.js';
 
 export class PromptCompiler {
   /**
@@ -196,6 +197,27 @@ export class PromptCompiler {
       ...(req.shot?.ambient ?? []),
     ]);
     for (const w of safe.warnings) warnings.push(`含敏感要素需人工确认：${w}`);
+
+    // —— 五维一致性闸门（V4.11 底层强制）——
+    // 为什么在这里也要跑一遍：GenerateService 是唯一出图出口，但它只拿得到 compileRequest。
+    // 把结构一致性（角色/道具/场景/内容/声音字幕）放在编译期，等于"花钱之前就拦住"。
+    // 是否启用由服务端（GenerateService）决定，前端无法关闭，也不会被 /compile/preview 误伤。
+    if (req.options?.enforce_consistency) {
+      const guard = guardCompile({
+        shot: req.shot,
+        assets: req.assets,
+        libraries: { sync: req.libraries?.sync ?? null },
+      });
+      if (!guard.ok) {
+        fail(ERR.CONSISTENCY_VIOLATION, `五维一致性未通过，已拒绝生成：${guard.hard.slice(0, 4).join('；')}`, {
+          shot_no: req.shot_no ?? null,
+          dims: guard.dims,
+        });
+      }
+      for (const dim of Object.values(guard.dims)) {
+        for (const w of dim.warnings) warnings.push(`一致性提示：${w}`);
+      }
+    }
 
     V.checkCredits({ availableCredits: req.available_credits, estimatedCredits });
 

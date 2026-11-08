@@ -16,6 +16,8 @@ import { fail, ERR } from '../core/errors.js';
 import { ensureProjectPlan } from './PlanBuilder.js';
 import { normalizeEpisodeNo } from './EditService.js';
 import shotService from './ShotService.js';
+import assetImageService from './AssetImageService.js';
+import consistencyGuard from '../qc/ConsistencyGuard.js';
 import editService from './EditService.js';
 import ledger from '../ledger/Ledger.js';
 
@@ -110,6 +112,28 @@ export class ProductionService {
       }
 
       // 2) 出片：本集缺多少补多少，每步最多 2 个产物
+      // 2.0) 资产先行（V4.11）：五维一致性要求角色/场景先有设定图。
+      // 一键托管不能因为"还没出定妆图"直接失败 —— 那等于把最该自动的一步丢回给用户。
+      const usedChars = new Set(shots.flatMap((s) => s.characters ?? []));
+      const usedScenes = new Set(shots.map((s) => s.scene).filter(Boolean));
+      // 先补卡再查：分镜里出现但资产库没有的角色/场景，按模板补一张（带锁，仍需出图）
+      for (const s of shots.slice(0, 2)) consistencyGuard.ensureAssetCards(project.id, s);
+      const allAssets = db.find('assets', (a) => a.project_id === project.id);
+      const needSheets = allAssets.filter((a) => !a.image_url && (
+        (a.asset_type === 'character' && usedChars.has(a.asset_code))
+        || (a.asset_type === 'scene' && usedScenes.has(a.asset_code))
+      ));
+      for (const a of needSheets.slice(0, 4)) {
+        try {
+          await assetImageService.generate({
+            projectId: project.id, assetCode: a.asset_code, userId: project.user_id,
+          });
+        } catch (e) {
+          if (e.code === ERR.INSUFFICIENT_CREDITS || e.code === 'INSUFFICIENT_CREDITS') throw e;
+          logger.warn('托管出资产图失败，继续尝试出片', { asset: a.asset_code, msg: e.message });
+        }
+      }
+
       const videoType = project.spec?.video_type ?? project.spec?.videoType ?? 'dynamic';
       const needVideo = videoType !== 'static';
       const gens = db.find('generations', (g) => g.project_id === project.id && g.status === 'done');

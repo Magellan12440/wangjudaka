@@ -411,6 +411,8 @@ module.exports = {
   platforms: () => request({ url: '/api/platforms' }),
   emotionCards: (params) => request({ url: '/api/emotion-cards', data: params || {} }),
   emotionCard: (code) => request({ url: `/api/emotion-cards/${enc(code)}` }),
+  shotCards: (dim) => request({ url: '/api/shot-cards', data: dim ? { dim } : {} }),
+  transitions: () => request({ url: '/api/transitions' }),
 
   // —— 账户 ——
   balance: (userId) => request({ url: '/api/account/balance', data: { userId } }),
@@ -476,6 +478,11 @@ module.exports = {
       url: `/api/projects/${enc(projectId)}/assets/${enc(code)}/image`,
       method: 'POST', data: { force: !!force }, toast: true, timeout: 180000,
     }),
+  updateAsset: (projectId, code, patch) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/assets/${enc(code)}/update`,
+      method: 'POST', data: patch || {}, toast: true,
+    }),
   generateAssetImages: (projectId, type, limit) =>
     request({
       url: `/api/projects/${enc(projectId)}/assets/images`,
@@ -487,6 +494,34 @@ module.exports = {
       method: 'POST', data: { episode: episode || null, limit: limit || 6 }, toast: true, timeout: 300000,
     }),
   docsCheck: (projectId) => request({ url: `/api/projects/${enc(projectId)}/docs/check` }),
+
+  // —— 虚拟导演与五维一致性（V4.11）——
+  director: (projectId) => request({ url: `/api/projects/${enc(projectId)}/director` }),
+  directorPolicy: (projectId, payload) =>
+    request({ url: `/api/projects/${enc(projectId)}/director/policy`, method: 'POST', data: payload, toast: true }),
+  directorPolicyReset: (projectId) =>
+    request({ url: `/api/projects/${enc(projectId)}/director/policy/reset`, method: 'POST', data: {}, toast: true }),
+  consistency: (projectId, episode) =>
+    request({ url: `/api/projects/${enc(projectId)}/consistency`, data: episode ? { episode } : {} }),
+  // —— 手动改写 / 单镜重出 / 多版本选定（V4.11）——
+  updateShot: (projectId, shotNo, patch) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/shots/${enc(shotNo)}/update`,
+      method: 'POST', data: { patch }, toast: true,
+    }),
+  regenerateShot: (projectId, shotNo, kind, mode) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/shots/${enc(shotNo)}/regenerate`,
+      method: 'POST', data: { kind: kind || 'image', mode: mode || 'resample' },
+      toast: true, timeout: 300000,
+    }),
+  pickShot: (projectId, shotNo, generationId) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/shots/${enc(shotNo)}/pick`,
+      method: 'POST', data: { generationId }, toast: true,
+    }),
+  shotHistory: (projectId, shotNo) =>
+    request({ url: `/api/projects/${enc(projectId)}/shots/${enc(shotNo)}/generations` }),
 
   // —— 剧壳（片头片尾 / 系列标识） ——
   projectShell: (projectId) => request({ url: `/api/projects/${enc(projectId)}/shell` }),

@@ -1,0 +1,180 @@
+<view class="screen {{pageAnim ? 'screen-in' : ''}}">
+  <view class="aurora"><view class="aurora-a"></view><view class="aurora-b"></view></view>
+
+  <view class="layer" style="padding: 24rpx 32rpx 0">
+    <view class="eyebrow">DIRECTOR</view>
+    <view class="h1" style="margin-top:10rpx">虚拟导演</view>
+    <view class="sub mt8">它不写词也不画图，它负责让每一环都用对套路，并且前后不打架。</view>
+
+    <block wx:if="{{loading}}">
+      <view class="card mt24">
+        <view class="skeleton sk-line" style="width:45%"></view>
+        <view class="skeleton sk-line"></view>
+        <view class="skeleton sk-line" style="width:70%"></view>
+      </view>
+    </block>
+
+    <block wx:elif="{{error}}">
+      <view class="card mt24">
+        <view class="error-text">{{error}}</view>
+        <view class="btn btn-sm btn-ghost mt16 tap" hover-class="tap-on" bindtap="load">重试</view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <!-- 导演身份 -->
+      <view class="card mt24">
+        <view class="between">
+          <view class="row">
+            <view class="list-avatar cover-c">导</view>
+            <view style="margin-left:18rpx">
+              <view class="title">{{ov.director.name}}</view>
+              <view class="tiny mt4">{{ov.director.style || '按项目风格自动定调'}}</view>
+            </view>
+          </view>
+          <text class="pill {{ov.mode === 'enforce' ? 'pill-green' : 'pill-gray'}}">{{ov.mode === 'enforce' ? '强制把关中' : '仅提示'}}</text>
+        </view>
+        <view class="sub mt16">{{ov.director.role}}</view>
+        <view wx:if="{{ov.next}}" class="notice mt16">
+          <view class="dot"></view>
+          <view class="flex1">下一步：{{ov.next.name}} · {{ov.next.what}}</view>
+        </view>
+      </view>
+
+      <!-- 四库手动引用 -->
+      <view class="card mt24">
+        <view class="between">
+          <text class="title">导演技巧库</text>
+          <text class="tiny tap" bindtap="resetAll">全部交回导演</text>
+        </view>
+        <view class="sub mt8">不选的时候导演自己挑；你点了哪张，就用哪张，并记进决策日志。</view>
+
+        <view wx:for="{{ov.core_libs}}" wx:key="kind" class="lib-row">
+          <view class="between">
+            <view class="flex1">
+              <view class="lib-name">{{item.name}}</view>
+              <view class="tiny mt4">{{item.hint}}</view>
+            </view>
+            <text class="pill {{item.mode === 'pinned' ? 'pill-gold' : 'pill-gray'}}">{{item.mode === 'pinned' ? '我指定' : '导演选'}}</text>
+          </view>
+          <view class="lib-cur mt12">
+            <text class="lib-cur-code">{{item.effective_label}}</text>
+          </view>
+          <view class="row mt12">
+            <view class="mini-btn tap" hover-class="tap-on" data-kind="{{item.kind}}" bindtap="openLib">
+              {{item.mode === 'pinned' ? '换一张' : '手动选择'}}
+            </view>
+            <view wx:if="{{item.mode === 'pinned'}}" class="mini-btn ghost tap" hover-class="tap-on" data-kind="{{item.kind}}" bindtap="useAuto">交回导演</view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 链式把控 -->
+      <view class="card mt24">
+        <view class="between">
+          <text class="title">链式把关</text>
+          <text class="tiny">前一步不过闸，后一步不开工</text>
+        </view>
+        <view wx:for="{{ov.chain}}" wx:key="key" class="chain-row">
+          <view class="chain-dot {{item.gate.ok ? (item.done ? 'on' : '') : 'bad'}}"></view>
+          <view class="flex1">
+            <view class="between">
+              <text class="chain-name">{{item.name}}</text>
+              <text class="pill {{item.statusCls}} pill-no-dot">{{item.statusText}}</text>
+            </view>
+            <view class="tiny mt4">{{item.what}}</view>
+            <view class="tiny mt4" style="color:#8B95A5">用库：{{item.libText}}</view>
+            <view wx:if="{{item.issueText}}" class="tiny mt4" style="color:#D9534F">{{item.issueText}}</view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 五维一致性 -->
+      <view class="card mt24">
+        <view class="between">
+          <text class="title">一致性底座</text>
+          <text wx:if="{{consistency && consistency.kpi}}" class="pill {{consistency.kpi.ok ? 'pill-green' : 'pill-red'}}">
+            {{consistency.kpi.pass}}/{{consistency.kpi.total}} 镜全过
+          </text>
+        </view>
+        <view class="sub mt8">五条规则是底层强制：任一维不过，这一镜既不能出图，也不能交付。</view>
+
+        <block wx:if="{{consistency && !consistency.empty}}">
+          <view wx:for="{{consistency.dims}}" wx:key="key" class="dim-row">
+            <view class="between">
+              <view class="row">
+                <text class="dim-mark {{item.ok ? 'ok' : 'bad'}}">{{item.mark}}</text>
+                <text class="dim-name">{{item.name}}</text>
+              </view>
+              <text class="tiny">{{item.desc}}</text>
+            </view>
+            <view class="tiny mt4">{{item.what}}</view>
+            <view wx:if="{{item.sample}}" class="tiny mt4" style="color:#D9534F">{{item.sample}}</view>
+          </view>
+        </block>
+        <view wx:else class="tiny mt16">还没有分镜，等剧本定版后这里会自动体检。</view>
+      </view>
+
+      <!-- 规则 -->
+      <view class="card mt24">
+        <view class="title">这个导演的规矩</view>
+        <view wx:for="{{rules}}" wx:key="*this" class="rule-row">
+          <text class="rule-idx">{{index + 1}}</text>
+          <text class="rule-text">{{item}}</text>
+        </view>
+      </view>
+
+      <!-- 决策日志 -->
+      <view class="card mt24">
+        <view class="between">
+          <text class="title">最近决策</text>
+          <text class="tiny">可追溯</text>
+        </view>
+        <view wx:if="{{!ov.log.length}}" class="tiny mt16">还没有决策记录。</view>
+        <view wx:for="{{ov.log}}" wx:key="id" class="log-row">
+          <view class="between">
+            <text class="tiny">{{item.stage}} · {{item.action}}</text>
+            <text class="tiny">{{item.timeText}}</text>
+          </view>
+          <view class="log-text mt4">{{item.text}}</view>
+        </view>
+      </view>
+
+      <view class="btn btn-block mt24 tap" hover-class="tap-on" bindtap="goProject">回项目继续做</view>
+      <view class="gap32"></view>
+    </block>
+  </view>
+
+  <!-- 库选择弹层 -->
+  <view wx:if="{{sheet}}" class="sheet-mask" bindtap="closeLib"></view>
+  <view wx:if="{{sheet}}" class="sheet">
+    <view class="sheet-bar"></view>
+    <view class="between">
+      <view>
+        <view class="title">{{sheetName}}</view>
+        <view class="tiny mt4">{{sheetHint}}</view>
+      </view>
+      <text class="tiny tap" bindtap="closeLib">关闭</text>
+    </view>
+    <view class="row mt16">
+      <view class="chip chip-sm {{!sheetCode ? 'on' : ''}}" data-kind="{{sheetKind}}" bindtap="useAuto">交给导演</view>
+    </view>
+    <scroll-view scroll-y class="sheet-list">
+      <view
+        wx:for="{{options}}"
+        wx:key="code"
+        class="opt-row tap {{item.on ? 'on' : ''}}"
+        hover-class="tap-on"
+        data-code="{{item.code}}"
+        bindtap="chooseOption"
+      >
+        <view class="between">
+          <text class="opt-code">{{item.code}}</text>
+          <text wx:if="{{item.on}}" class="pill pill-gold pill-no-dot">当前</text>
+        </view>
+        <view class="opt-name mt4">{{item.name}}</view>
+        <view class="opt-text mt4">{{item.text}}</view>
+      </view>
+    </scroll-view>
+  </view>
+</view>

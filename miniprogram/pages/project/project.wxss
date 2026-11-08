@@ -484,3 +484,20 @@
 .asset-sub { font-size: 19rpx; color: #9AA5B5; margin-top: 2rpx; }
 
 .lib-link { color: #C4691A; }
+
+/* —— 改一改弹层（V4.11）：内容多时内部滚动，按钮始终在手边 —— */
+.edit-scroll { max-height: 52vh; padding-right: 4rpx; }
+
+/* —— 一致性底座（V4.11）：五维状态一眼可见 —— */
+.dim-chips { display: flex; flex-wrap: wrap; gap: 10rpx; }
+.dim-chip {
+  font-size: 20rpx; border-radius: 10rpx; padding: 7rpx 14rpx; line-height: 1.4;
+}
+.dim-chip.ok { background: #EAF8F2; color: #1E8F6A; }
+.dim-chip.bad { background: #FDECEA; color: #C0392B; }
+
+/* —— 资产改设定入口（V4.11）：小而不抢镜 —— */
+.asset-edit {
+  font-size: 19rpx; color: #C4691A; margin-left: 8rpx;
+  text-decoration: underline; text-underline-offset: 3rpx;
+}
