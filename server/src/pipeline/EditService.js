@@ -16,6 +16,7 @@ import { MEDIA_ROOT } from '../api/media.js';
 import shellService from '../shell/ShellService.js';
 import { modelCatalog } from '../relay/ModelCatalog.js';
 import { fail, ERR } from '../core/errors.js';
+import directorAgent from '../director/DirectorAgent.js';
 
 /** 光影 → 氛围：音效排点靠它决定铺雨声还是风声 */
 const ATMOSPHERE_BY_LIGHT = {
@@ -58,9 +59,9 @@ const SYNC_BY_RECIPE = {
   'EDR-SERIES': 'SYN-STD',
 };
 
-/** 按项目设定挑剪辑配方：优先用户手选，其次风格默认，最后兜底短剧强钩 */
-function pickEditRecipe(project) {
-  const explicit = project.spec?.edit_recipe;
+/** 按项目设定挑剪辑配方：优先用户手选（项目设定 → 导演面板）→ 风格默认 → 兜底短剧强钩 */
+function pickEditRecipe(project, pinned = null) {
+  const explicit = project.spec?.edit_recipe ?? pinned;
   if (explicit && seeds.editRecipe(explicit)) return seeds.editRecipe(explicit);
   const byStyle = project.spec?.style_code ? seeds.style(project.spec.style_code)?.edit_recipe : null;
   if (byStyle && seeds.editRecipe(byStyle)) return seeds.editRecipe(byStyle);
@@ -161,9 +162,11 @@ class EditService {
       ...(shellSegs.outro ? [shellSegs.outro] : []),
     ];
 
-    const recipe = pickEditRecipe(project);
+    // V4.11：虚拟导演面板 pin 的剪辑配方 / 字幕规则也在这里生效
+    const pinnedLibs = directorAgent.libraryOverrides(projectId);
+    const recipe = pickEditRecipe(project, pinnedLibs.edit ?? null);
     const syncRule = seeds.subtitleSyncRule(
-      project.spec?.subtitle_sync ?? SYNC_BY_RECIPE[recipe?.code] ?? 'SYN-STD'
+      project.spec?.subtitle_sync ?? pinnedLibs.sync ?? SYNC_BY_RECIPE[recipe?.code] ?? 'SYN-STD'
     ) ?? seeds.subtitleSync?.[0] ?? null;
 
     const built = editPlan.buildEditPlan({
