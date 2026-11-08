@@ -87,7 +87,7 @@
 .upload-name { font-size: 21rpx; color: #2A3446; font-weight: 550; }
 .upload-sub { font-size: 17rpx; color: #9AA5B5; margin-top: 4rpx; }
 .note-input-wrap { position: relative; }
-.note-input { height: 76rpx; font-size: 23rpx; padding: 0 22rpx; }
+.note-input { height: 76rpx; line-height: 76rpx; font-size: 23rpx; padding: 0 22rpx; }
 .uploading {
   display: flex; align-items: center;
   margin-top: 18rpx; font-size: 22rpx; color: #E08A22;

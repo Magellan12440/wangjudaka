@@ -533,6 +533,28 @@ async function main() {
     const onR = await call('POST', '/api/leaderboard/participation', { optOut: false }, true);
     ok('可重新参与榜单', onR.status === 200 && data(onR).participating === true);
 
+    // 16.7 电脑端上传指引（V4.18）：红果/抖音只能电脑端，手机侧要给足步骤与复制项
+    const plats = await call('GET', '/api/platforms');
+    const platList = Array.isArray(data(plats).items) ? data(plats).items : (data(plats) || []);
+    ok('平台卡片带「能不能手机传」角标',
+      platList.length > 0 && platList.every((p) => p.client_kind && typeof p.desktop_only === 'boolean'));
+    ok('红果被标成只能在电脑端',
+      platList.find((p) => p.code === 'PLT-HONGGUO')?.desktop_only === true);
+
+    const gd = await call('GET', '/api/distribute/desktop-guide?platform=PLT-HONGGUO');
+    ok('红果电脑端指引可取', gd.status === 200 && data(gd).desktop_only === true, String(gd.status));
+    ok('指引步骤细到「在哪个页面做」',
+      (data(gd).steps || []).length >= 5 && (data(gd).steps || []).every((s) => s.title && s.where));
+    ok('指引给出可复制的入口', (data(gd).handoff || []).some((h) => h.key === 'entry' && h.copyable === true));
+    ok('指引带剧目信息粘贴包', String(data(gd).paste_text || '').includes('上传入口'));
+    ok('指引永不代提交', data(gd).no_auto_submit === true && data(gd).policy.auto_submit === false);
+
+    const gdDy = await call('GET', '/api/distribute/desktop-guide?platform=PLT-DOUYIN');
+    ok('抖音也标成必须电脑端签约', data(gdDy).desktop_only === true && String(data(gdDy).why).includes('签约'));
+
+    const gdBad = await call('GET', '/api/distribute/desktop-guide?platform=PLT-NOT-EXIST');
+    ok('未知平台返回 404，不硬编', gdBad.status === 404, String(gdBad.status));
+
     // 17. 凭据零命中
     const joined = allText.join('\n');
     ok('响应不含 sk- 密钥', !/sk-[A-Za-z0-9]{8,}/.test(joined));

@@ -194,6 +194,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/leaderboard` | 榜单（**公开可读**，未登录也返回同一份）。带登录态时多返回 `me`（我的名次 / 距前 1000 差多少）。条目只有名次、昵称、金额、作品数、平台数、涨跌，**不含 user_id** |
+| GET | `/api/platforms` | 8 个分发平台（含 `upload_client`、`client_kind`、`desktop_only`，手机端据此打「电脑端/手机可传」角标） |
 | GET | `/api/leaderboard/rules` | 榜单口径（容量 1000 / 每日刷新 / 默认参与 / 4 条说明），前端文案与此同源 |
 | POST | `/api/leaderboard/participation` | `{optOut:true}` 退出榜单并**当场重建**当天快照；`{optOut:false}` 恢复参与 |
 | POST | `/api/admin/leaderboard/refresh` | 管理端手动重算（`X-Admin-Token`），返回与上一份快照的新增/掉榜人数 |
@@ -301,6 +302,20 @@
 | GET | `/api/upload/bundles?distributionId=` | 导出记录 |
 
 所有响应恒带 `no_auto_submit:true`、`policy.auto_submit:false`；非法状态 → `UPLOAD_STATUS_INVALID`。
+
+### 电脑端上传指引（V4.18，小程序侧）
+
+红果、抖音等平台的签约与剧集挂载只在电脑端创作者中心提供。这两个接口把「手机上能做完的事」备齐：
+材料清单、分步指引、可复制的入口/成片/材料包/剧目信息粘贴包。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/distribute/client-kinds` | 8 个平台的上传端形态：`desktop_only`（只能电脑端）/ `desktop_preferred`（电脑端为主） |
+| GET | `/api/distribute/desktop-guide?platform=&projectId=&episode=` | 单平台指引：`why` / `prep[]` / `steps[]{no,title,where,detail,done}` / `pitfalls[]` / `handoff[]` / `paste_text` / `no_auto_submit` |
+
+`handoff` 固定四项：`entry`（创作者中心）、`film`（成片下载）、`pack`（材料包下载）、`paste`（剧目信息粘贴包）。
+未备好的项 `copyable:false` 且 `hint` 指明下一步去哪；`steps[].done` 恒为 false（进度只记在用户本机）。
+平台不存在 → 404。
 
 ### 比对 provider 配置 / 异步自检（P0-1 框架）
 

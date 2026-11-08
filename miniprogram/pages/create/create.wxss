@@ -333,7 +333,8 @@
 }
 .custom-num {
   width: 190rpx; text-align: center;
-  padding: 14rpx 16rpx; font-size: 28rpx;
+  /* 高度已由全局 .input 给到 92rpx，这里再给纵向 padding 会二次挤压文字 */
+  padding: 0 16rpx; font-size: 28rpx;
 }
 .custom-unit {
   margin-left: 14rpx; font-size: 24rpx; color: #6E7B8E;

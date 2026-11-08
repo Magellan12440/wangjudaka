@@ -735,6 +735,13 @@
 
           <view class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="preparePack">{{packBusy ? '打包中…' : '打包审核材料'}}</view>
 
+          <!-- 红果/抖音只能电脑端：这里先说清，并给一条通往「分平台步骤」的路 -->
+          <view class="notice mt16">
+            <view class="dot"></view>
+            <view class="flex1">红果、抖音的签约与剧集挂载只在电脑端创作者中心提供。手机上先把材料备齐、把要填的字复制好，到电脑只剩粘贴。</view>
+          </view>
+          <view class="btn btn-block btn-ghost mt12 tap" hover-class="tap-on" bindtap="goDistribute">看电脑端上传指引（分平台步骤）</view>
+
           <block wx:if="{{pack}}">
             <view class="kv mt16"><text class="kv-k">压缩包</text><text class="kv-v">{{pack.files.length}} 个文件 · {{pack.episode}}</text></view>
             <view class="kv" wx:for="{{pack.files}}" wx:key="name">

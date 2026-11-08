@@ -42,6 +42,7 @@ import * as FRAME from '../core/frame.js';
 import { db } from '../store/db.js';
 import canvasService from '../canvas/CanvasService.js';
 import uploadHelper from '../distribution/UploadHelper.js';
+import desktopUploadGuide from '../distribution/DesktopUploadGuide.js';
 import { configureProviders, providerStatus } from '../qc/providers/index.js';
 import tryServeStatic, { staticStatus } from './static.js';
 import tryServeMedia from './media.js';
@@ -1981,6 +1982,35 @@ export const routes = [
   ['POST', '/api/upload/mark', async ({ body }) => uploadHelper.markUploaded(body.distributionId, body)],
   ['GET', '/api/upload/submissions', async ({ query }) => uploadHelper.submissions(query.distributionId)],
   ['GET', '/api/upload/bundles', async ({ query }) => uploadHelper.bundles(query.distributionId)],
+
+  // —— 电脑端上传指引（V4.18）：小程序只备料+指引，登录/上传/签约在电脑端 ——
+  ['GET', '/api/distribute/client-kinds', async () => ({ items: desktopUploadGuide.overview() })],
+  ['GET', '/api/distribute/desktop-guide', async ({ query }) => {
+    const platform = seeds.platform(query.platform ?? query.platformCode);
+    if (!platform) throw new AppError('NOT_FOUND', `平台不存在: ${query.platform ?? query.platformCode}`);
+    const ctx = {};
+    if (query.projectId) {
+      const p = db.findOne('projects', (x) => x.id === query.projectId);
+      if (!p) throw new AppError('NOT_FOUND', '项目不存在');
+      const spec = p.spec ?? {};
+      const planRec = db.findOne('director_plans', (x) => x.project_id === p.id);
+      const script = planRec?.script ?? null;
+      const episode = query.episode ?? null;
+      const films = editService.films(p.id);
+      const film = (episode ? films.find((f) => String(f.episode) === String(episode)) : null) ?? films[0] ?? null;
+      ctx.title = p.title;
+      ctx.episodes = script?.episodes?.length ?? null;
+      ctx.episodeSec = spec.episode_sec ?? null;
+      ctx.aspect = spec.aspect ?? null;
+      ctx.synopsis = spec.prompt ? String(spec.prompt).slice(0, 120) : null;
+      ctx.aiLabel = config.compliance.aiLabelText;
+      ctx.filmUrl = film?.url ?? null;
+      const packs = submissionPack.list(p.id);
+      const pack = (episode ? packs.find((x) => String(x.episode) === String(episode)) : null) ?? packs[0] ?? null;
+      ctx.packUrl = pack?.zip_url ?? null;
+    }
+    return desktopUploadGuide.guideFor(platform, ctx);
+  }],
 
   // —— 比对 provider 配置 / 异步自检（阶段 H / P0-1）——
   ['GET', '/api/qc/providers/config', async () => providerStatus()],

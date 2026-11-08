@@ -11,6 +11,7 @@ import { db } from '../store/db.js';
 import { fail, ERR } from '../core/errors.js';
 import { newId, nowIso } from '../core/util.js';
 import analytics from '../analytics/Analytics.js';
+import desktopUploadGuide from './DesktopUploadGuide.js';
 
 const COL = 'distributions';
 
@@ -29,6 +30,10 @@ export class DistributionHub {
       entry_note: p.entry_note ?? null,
       identity_choice: p.identity_choice,
       upload_client: p.upload_client,
+      // V4.18：手机上要一眼看出「这个平台能不能在手机传」，别点进去才发现只能电脑端
+      client_kind: desktopUploadGuide.desktopOnlyOf(p) ? 'desktop_only' : 'desktop_preferred',
+      client_kind_text: desktopUploadGuide.desktopOnlyOf(p) ? '只能在电脑端' : '电脑端为主',
+      desktop_only: desktopUploadGuide.desktopOnlyOf(p),
       in_app_embeddable: false, // 恒为 false：第三方业务域名无法在小程序内嵌
       api_available: p.api_available,
       review_days: p.review_days,

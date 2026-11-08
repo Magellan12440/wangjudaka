@@ -675,6 +675,14 @@ module.exports = {
     request({ url: `/api/distribution/${enc(id)}/contract`, method: 'POST', data: payload || {}, toast: true }),
   platformSummary: (projectId) => request({ url: '/api/distribution/summary', data: { projectId } }),
 
+  // —— 电脑端上传指引（V4.18）——
+  // 红果/抖音等平台只能电脑端上传签约，小程序这边负责备料、步骤与一键复制
+  desktopGuide: (platformCode, projectId, episode) =>
+    request({
+      url: '/api/distribute/desktop-guide',
+      data: { platform: platformCode, projectId: projectId || undefined, episode: episode || undefined },
+    }),
+
   // —— 质检 / 交付 ——
   qcProviders: () => request({ url: '/api/qc/providers' }),
   qcReport: (projectId, params) =>

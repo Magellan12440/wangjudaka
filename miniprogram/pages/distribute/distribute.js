@@ -76,6 +76,11 @@ Page({
     pack: null,
     packBusy: '',
     uploaded: false,
+    // 电脑端上传指引（V4.18）
+    guide: null,
+    guideCode: '',
+    guideBusy: false,
+    guideDoneCount: 0,
   },
 
   onLoad() {
@@ -238,7 +243,79 @@ Page({
   },
 
   closeSheet() {
-    this.setData({ sheetPlatform: null, statsTask: null });
+    this.setData({ sheetPlatform: null, statsTask: null, guide: null });
+  },
+
+  // —— 电脑端上传指引（V4.18）——
+  // 红果/抖音的签约、剧集挂载只在电脑端创作者中心提供。手机端能做的就是：
+  // 把材料备齐、把要填的字拼成一段、把步骤讲到"哪一页点哪个按钮"。
+  openGuide(e) {
+    const code = e.currentTarget.dataset.code
+      || (this.data.sheetPlatform && this.data.sheetPlatform.code)
+      || this.data.guideCode;
+    if (!code) return;
+    const ep = this.data.taskEp || (this.data.films[0] && this.data.films[0].episode) || '';
+    this.setData({ sheetPlatform: null, statsTask: null, guideCode: code, guideBusy: true });
+    wx.showLoading({ title: '准备指引…', mask: true });
+    api.desktopGuide(code, this.data.projectId, ep)
+      .then((g) => {
+        const done = wx.getStorageSync(`guideDone:${code}`) || [];
+        const arr = Array.isArray(done) ? done : [];
+        const steps = (g.steps || []).map((s) => ({ ...s, done: arr.indexOf(s.no) >= 0 }));
+        const guide = { ...g, steps };
+        this.setData({
+          guide,
+          guideBusy: false,
+          guideDoneCount: steps.filter((s) => s.done).length,
+        });
+      })
+      .catch((err) => {
+        this.setData({ guideBusy: false });
+        wx.showToast({ title: (err && err.message) || '指引加载失败', icon: 'none' });
+      })
+      .then(() => wx.hideLoading());
+  },
+
+  /** 勾掉一步：只记在本机，不上报（这是用户自己的施工进度） */
+  toggleGuideStep(e) {
+    const no = Number(e.currentTarget.dataset.no);
+    const g = this.data.guide;
+    if (!g) return;
+    const steps = (g.steps || []).map((s) => (s.no === no ? { ...s, done: !s.done } : s));
+    const done = steps.filter((s) => s.done).map((s) => s.no);
+    this.setData({ guide: { ...g, steps }, guideDoneCount: done.length });
+    try {
+      wx.setStorageSync(`guideDone:${g.platform.code}`, done);
+    } catch (err) { /* 存不下就算了，不影响看步骤 */ }
+  },
+
+  copyGuideItem(e) {
+    const key = e.currentTarget.dataset.key;
+    const g = this.data.guide;
+    if (!g) return;
+    const item = (g.handoff || []).find((x) => x.key === key);
+    if (!item) return;
+    if (!item.copyable || !item.value) {
+      wx.showToast({ title: item.hint || '这一项还没准备好', icon: 'none' });
+      return;
+    }
+    wx.setClipboardData({
+      data: String(item.value),
+      success: () => wx.showToast({ title: '已复制，去电脑粘贴', icon: 'none' }),
+    });
+  },
+
+  copyGuidePaste() {
+    const g = this.data.guide;
+    if (!g || !g.paste_text) return;
+    wx.setClipboardData({
+      data: g.paste_text,
+      success: () => wx.showModal({
+        title: '粘贴包已复制',
+        content: '到电脑端上传表单里整段粘贴，再按字段拆开。里面含剧名、集数、时长、画幅、AI 说明与下载链接。',
+        showCancel: false,
+      }),
+    });
   },
 
   copyLink() {

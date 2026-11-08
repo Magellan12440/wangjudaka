@@ -114,8 +114,39 @@
         >
           <view class="pf {{item.cls}}">{{item.short}}</view>
           <text class="pf-name">{{item.label}}</text>
+          <!-- 手机上先说清「能不能在手机传」，别点进去才发现只能电脑端 -->
+          <text class="pf-badge {{item.desktop_only ? 'pf-badge-pc' : 'pf-badge-ok'}}">{{item.desktop_only ? '电脑端' : '手机可传'}}</text>
         </view>
       </view>
+
+      <!-- 电脑端上传指引（V4.18）：红果/抖音等只能电脑端签约上传 -->
+      <view class="card card-gold">
+        <view class="between">
+          <text class="title">电脑端上传指引</text>
+          <text class="pill pill-gold">红果 / 抖音必看</text>
+        </view>
+        <view class="sub mt8">红果、抖音的签约与剧集挂载只在电脑端创作者中心提供。手机这边帮你把材料备齐、把要填的字复制好，到电脑上只剩粘贴和点提交。</view>
+
+        <view class="gd-flow mt16">
+          <view class="gd-flow-item"><text class="gd-flow-no">1</text><text class="gd-flow-t">手机备料</text></view>
+          <view class="gd-flow-arrow">›</view>
+          <view class="gd-flow-item"><text class="gd-flow-no">2</text><text class="gd-flow-t">一键复制</text></view>
+          <view class="gd-flow-arrow">›</view>
+          <view class="gd-flow-item"><text class="gd-flow-no">3</text><text class="gd-flow-t">电脑粘贴提交</text></view>
+        </view>
+
+        <view class="chips mt16">
+          <view
+            wx:for="{{platforms}}"
+            wx:key="code"
+            class="chip chip-sm tap {{guideCode === item.code ? 'on' : ''}}"
+            hover-class="tap-on"
+            data-code="{{item.code}}"
+            bindtap="openGuide"
+          >{{item.label}}</view>
+        </view>
+      </view>
+
       <view class="notice notice-dark mt16">
         <view class="dot"></view>
         <view class="flex1">小程序无法内嵌第三方平台（业务域名限制）。这里提供官方入口、材料清单与状态跟踪，上传/审核/签约/提现在电脑端完成。</view>
@@ -385,7 +416,73 @@
       <view class="btn btn-block mt24" data-code="{{sheetPlatform.code}}" bindtap="createTask">在{{sheetPlatform.name}}建任务 · {{taskEp || 'E01'}}</view>
       <view class="btn btn-block btn-ghost mt16" bindtap="createAll">一次铺到所有平台</view>
       <view class="btn btn-block btn-ghost mt16" bindtap="copyLink">复制创作者中心入口</view>
+      <view class="btn btn-block btn-ghost mt16" data-code="{{sheetPlatform.code}}" bindtap="openGuide">电脑端上传指引（步骤 + 一键复制）</view>
       <view class="hint mt16">入口：{{sheetPlatform.creator_url}}</view>
+    </view>
+  </view>
+
+  <!-- 电脑端上传指引（V4.18） -->
+  <view wx:if="{{guide}}" class="sheet-mask" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-bar"></view>
+      <view class="sheet-head">
+        <text class="sheet-title">{{guide.platform.name}} · 电脑端上传</text>
+        <text class="sheet-close" bindtap="closeSheet">关闭</text>
+      </view>
+
+      <view class="gd-why">
+        <text class="gd-why-tag">{{guide.client_kind === 'desktop_only' ? '只能电脑端' : '电脑端为主'}}</text>
+        <text class="gd-why-txt">{{guide.why}}</text>
+      </view>
+
+      <!-- 一、手机上先备齐 -->
+      <view class="gd-sec">一、手机上先备齐这 {{guide.prep.length}} 样</view>
+      <view wx:for="{{guide.prep}}" wx:key="key" class="gd-prep">
+        <text class="gd-prep-dot {{item.required ? 'req' : ''}}"></text>
+        <view class="flex1">
+          <view class="gd-prep-t">{{item.label}}<text wx:if="{{!item.required}}" class="gd-opt">选填</text></view>
+          <view class="gd-prep-d">{{item.detail}}</view>
+        </view>
+      </view>
+
+      <!-- 二、复制到电脑 -->
+      <view class="gd-sec">二、复制这几样到电脑</view>
+      <view wx:for="{{guide.handoff}}" wx:key="key" class="gd-copy {{item.copyable ? '' : 'off'}}">
+        <view class="flex1">
+          <view class="gd-copy-k">{{item.label}}</view>
+          <view class="gd-copy-v">{{item.value || item.hint}}</view>
+        </view>
+        <text class="gd-copy-btn tap" hover-class="tap-on" data-key="{{item.key}}" bindtap="copyGuideItem">{{item.copyable ? '复制' : '未就绪'}}</text>
+      </view>
+      <view class="btn btn-block mt16 tap" hover-class="tap-on" bindtap="copyGuidePaste">一键复制剧目信息粘贴包</view>
+
+      <!-- 三、电脑端步骤 -->
+      <view class="gd-sec">
+        <text>三、电脑端照着做</text>
+        <text class="gd-progress">{{guideDoneCount}}/{{guide.steps.length}}</text>
+      </view>
+      <view
+        wx:for="{{guide.steps}}"
+        wx:key="no"
+        class="gd-step tap {{item.done ? 'done' : ''}}"
+        hover-class="tap-on"
+        data-no="{{item.no}}"
+        bindtap="toggleGuideStep"
+      >
+        <text class="gd-step-no">{{item.done ? '✓' : item.no}}</text>
+        <view class="flex1">
+          <view class="gd-step-t">{{item.title}}<text wx:if="{{item.where}}" class="gd-where">{{item.where}}</text></view>
+          <view class="gd-step-d">{{item.detail}}</view>
+        </view>
+      </view>
+
+      <block wx:if="{{guide.pitfalls.length}}">
+        <view class="gd-sec">四、容易踩的坑</view>
+        <view class="gd-pit" wx:for="{{guide.pitfalls}}" wx:key="*this">· {{item}}</view>
+      </block>
+
+      <view class="gd-disc">{{guide.disclaimer}}</view>
+      <view class="btn btn-block mt16" data-key="entry" bindtap="copyGuideItem">复制创作者中心网址</view>
     </view>
   </view>
 

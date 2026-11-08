@@ -366,6 +366,25 @@ async function main() {
     await sleep(600);
     ok('分发页收益测算出数', Boolean(dist.data.calc && dist.data.calc.net), JSON.stringify(dist.data.calc && dist.data.calc.net));
 
+    // —— 5a. 电脑端上传指引（V4.18）——
+    ok('平台卡片标了「能不能手机传」',
+      (dist.data.platforms || []).every((p) => p.client_kind && typeof p.desktop_only === 'boolean'), '');
+    dist.openGuide({ currentTarget: { dataset: { code: 'PLT-HONGGUO' } } });
+    await sleep(900);
+    ok('红果指引能打开且标明只能电脑端',
+      Boolean(dist.data.guide && dist.data.guide.desktop_only === true), JSON.stringify(dist.data.guide && dist.data.guide.client_kind));
+    ok('指引给出步骤与可复制项',
+      ((dist.data.guide && dist.data.guide.steps) || []).length >= 5
+      && ((dist.data.guide && dist.data.guide.handoff) || []).length >= 3, '');
+    dist.toggleGuideStep({ currentTarget: { dataset: { no: 1 } } });
+    ok('勾掉一步会记进度',
+      dist.data.guideDoneCount === 1 && dist.data.guide.steps[0].done === true, String(dist.data.guideDoneCount));
+    dist.toggleGuideStep({ currentTarget: { dataset: { no: 1 } } });
+    ok('再点一次能取消勾选', dist.data.guideDoneCount === 0, String(dist.data.guideDoneCount));
+    dist.closeSheet();
+    ok('关掉指引弹层即清空', dist.data.guide === null);
+
+
     // 建一条分发任务 + 回填数据（验证写链路）
     dist.setData({ projectId, sheetPlatform: dist.data.platforms[0] });
     dist.createTask({ currentTarget: { dataset: { code: dist.data.platforms[0].code } } });

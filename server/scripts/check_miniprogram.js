@@ -312,6 +312,41 @@ ok('配色体系统一检查完成');
 }
 ok('隐私合规检查完成');
 
+// —— 7. 输入框可读性（V4.18）——
+// 原生 <input> 自身高度只有约 1.4rem。如果只给上下 padding 而不定高，
+// 盒模型会把内容区挤到几个像素，用户输入的字只能看见半截（剧壳那四个输入框就是这样）。
+{
+  const appWxss = read(path.join(ROOT, 'app.wxss'));
+  const m = appWxss.match(/(^|\n)\.input\s*\{([^}]*)\}/);
+  if (!m) bad('全局 .input 有独立规则', '和 .textarea 合写时无法只给 input 定高');
+  else {
+    const body = m[2];
+    if (!/height\s*:/.test(body)) {
+      bad('全局 .input 设定明确高度', '原生 input 高度不足，叠加上下 padding 会把文字裁成半截');
+    }
+    const pd = body.match(/padding\s*:\s*([^;]+);/);
+    if (pd && String(pd[1]).trim().split(/\s+/)[0] !== '0') {
+      bad('全局 .input 纵向 padding 归零', `当前 ${pd[1].trim()}，纵向留白应交给 height + line-height`);
+    }
+  }
+
+  // 页面里自己给输入框设了 height 的，必须同时给 line-height，否则文字上下不居中
+  for (const dir of fs.readdirSync(path.join(ROOT, 'pages'))) {
+    const f = path.join(ROOT, 'pages', dir, `${dir}.wxss`);
+    if (!exists(f)) continue;
+    const src = read(f);
+    const re = /\.([A-Za-z-]*input[A-Za-z-]*)\s*\{([^}]*)\}/g;
+    let mm;
+    while ((mm = re.exec(src))) {
+      const body = mm[2];
+      if (/height\s*:/.test(body) && !/line-height\s*:/.test(body)) {
+        bad(`输入框高度与行高配套: ${dir}.wxss .${mm[1]}`, '设了 height 就要给 line-height，否则文字不居中');
+      }
+    }
+  }
+}
+ok('输入框可读性检查完成');
+
 // —— 结果 ——
 console.log(`\n小程序体检：${pass} 组通过${fail.length ? ` / ${fail.length} 项失败` : ''}`);
 if (warn.length) {
