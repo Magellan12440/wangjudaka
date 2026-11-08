@@ -226,6 +226,11 @@
 | POST | `/api/story/chain` | 一句话 → 大纲 → 总谱 → 剧本 → 分镜 → 节奏闸门（全链路结构化产物） |
 | POST | `/api/projects/:id/plan` | 项目创建后生成并持久化总谱（集合 `director_plans`） |
 | GET | `/api/projects/:id/plan` | 读回同一份总谱（含 outline / plan / script / storyboard） |
+| GET | `/api/projects/:id/director/brief` | **V4.17** 定调：`tone / one_liner / theme / color / camera / cut / sound / avoid / checkpoints / derived_from`（有 plan 读 plan，无 plan 现场推导，确定性输出） |
+| GET | `/api/projects/:id/director/grammar?episode=` | **V4.17** 镜头语法体检：11 类判据（时长越界 / 连续同卡 / 同运镜 / 景别卡死 / 跳级硬切 / 开场无交代 / 快切无呼吸 / 快慢对比 <1.5 倍 / 特写过载 / 集末无定格 / 全硬切），打分 A/B/C/D |
+| GET | `/api/projects/:id/director/preflight?shotNo=` | **V4.17** 单镜预检：时长与叙事目的区间、景别、参考图齐备性、提示词预算一次给全 |
+
+三个导演接口均走账号隔离：非本人项目返回 **404**（不泄漏存在性）。
 
 `/api/story/plan` 请求：`{outline, spec, projectId?, planId?}`。
 `/api/story/chain` 请求：`{userId, projectId, prompt, spec, model?}`。

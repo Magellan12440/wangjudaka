@@ -30,6 +30,7 @@ import * as prompts from '../prompts/PromptLibrary.js';
 import * as specLib from '../prompts/SpecLibrary.js';
 import { qualityOf } from '../core/frame.js';
 import { guardCompile } from '../qc/ConsistencyGuard.js';
+import promptBudget from '../director/PromptBudget.js';
 
 export class PromptCompiler {
   /**
@@ -318,6 +319,14 @@ export class PromptCompiler {
     const resolution = spec.resolution;
     const seed = req.options?.seed ?? seedFrom(`${req.shot_no}|${modelCode}|${enParts.join('')}|${req.shot?.take ?? 0}`);
 
+    // —— 提示词预算体检（V4.17）：只算账、只告警，不改写提示词 ——
+    const budget = promptBudget.audit({
+      prompt: `${libText} ${enParts.join(' ')}. ${neg.en}.`,
+      negative: neg.en,
+      references: references.filter((r) => r.url),
+    });
+    for (const line of promptBudget.warningLines(budget)) warnings.push(line);
+
     const payload = {
       shot_no: req.shot_no ?? null,
       kind,
@@ -355,6 +364,9 @@ export class PromptCompiler {
       },
       continuity_locks: locks,
       dialogue_check: dlg,
+      // V4.17：提示词预算体检。超字数/多参考图同框/参考图与文字重描打架，
+      // 这三类是"扣了钱但效果莫名变差"的常见原因，必须在发请求前就说清。
+      budget,
       estimated_credits: estimatedCredits,
       compile_warnings: warnings,
       compiled_at: new Date().toISOString(),

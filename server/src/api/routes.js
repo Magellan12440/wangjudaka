@@ -1569,6 +1569,23 @@ export const routes = [
     return { items: directorAgent.trail(params.id, query.limit ?? 40) };
   }],
 
+  // —— 导演引擎 2.0（V4.17）——
+  // 定调：这部片要什么感觉。每一项带 target，下游拿它当尺子，而不是各自理解一遍风格。
+  ['GET', '/api/projects/:id/director/brief', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return directorAgent.brief(params.id);
+  }],
+  // 语法体检：一致性管"人和物崩没崩"，这里管"这组镜头剪起来顺不顺"
+  ['GET', '/api/projects/:id/director/grammar', async ({ params, query, req }) => {
+    projectOf(req, params.id);
+    return directorAgent.grammar(params.id, { episode: query.episode ? Number(query.episode) : null });
+  }],
+  // 提示词预算预检：花钱之前先看会不会超字数 / 参考图打架
+  ['GET', '/api/projects/:id/director/preflight', async ({ params, query, req }) => {
+    projectOf(req, params.id);
+    return directorAgent.preflight(params.id, { shotNo: query.shotNo ?? null });
+  }],
+
   // —— 五维一致性（V4.11）：体检 / 锁情况 ——
   ['GET', '/api/projects/:id/consistency', async ({ params, query, req }) => {
     projectOf(req, params.id);

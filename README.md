@@ -480,6 +480,61 @@ curl -s -o /dev/null -w "%{http_code}\n" https://<域名>/api/admin/overview  # 
 
 ---
 
+## V4.17.0 — 导演引擎多角度优化（节奏落到秒 / 一次定调 / 九列分镜 / 写得对也要剪得顺）
+
+**调研结论先摆出来**：现有 GitHub 开源方案**没有一个能直接替换**本引擎。
+Agent Skill 类（`shanyin-director-master`、`drama-skills`、`screenwriter-skill`、`ManjuForge`、`OnlyShot`）
+只能借方法论，没有服务端 API；平台类（`huobao-drama`、`aid-studio`、`WeiMeng`、`ViMax`）
+是 AGPL / 无 LICENSE / 商用受限，且技术栈与「零第三方运行时依赖」冲突。
+所以本轮**继续自研，把开源方案里的判据与列定义补进来**，修四个真实病灶。
+完整调研见 `docs/导演引擎开源方案调研.md`。
+
+**病灶一：整集等长 —— 节奏给了，落不了地**
+- 老实现按 `集时长 / 镜数` 平分，13 镜排 86 秒就是每镜 6.6 秒：前 3 秒不快、反转不给重量
+- 新增 `director/ShotTiming.js`：**九种叙事目的**（开场钩子 2–3.5s / 交代 3.5–5s / 推进 2.5–3.5s /
+  展现 4–5s / 情绪 4–5.5s / 转折 5–7s / 共情 5–8s / 呼应 4–5s / 集末钩子 3–4s），
+  区间取 **叙事目的 ∩ 景别 len_hint ∩ [1s,10s]**
+- `functionOf()` 单独做一层翻译：节奏库的 `purpose` 是**结构位置**（黄金三秒、反转落点），
+  叙事目的是**这一镜在全片干什么**。直接透传会出现「集末钩子被当成升华给 10 秒」
+- 分配三阶段：区间体检（镜数少→放开上限按比例摊，不然整集短 40%；镜数多→压下限，
+  不然总额减不下来）→ 水位法 24 轮归一 → 末位补偿（避免 0.3s 碎渣）
+- `stats.timing` 三个可量化指标：`total`（必须等于集时长）、**`contrast = max/min`**、
+  `fast_ratio`。老实现每镜等长，`contrast` 恒为 1.0——本轮修的就是这个；`validate()` 新增强制告警
+
+**病灶二：没有统一定调 —— 各环节各自理解风格**
+- 新增 `director/DirectingBrief.js`：`tone / one_liner / theme / color(三色角色) /
+  camera(景别覆盖) / cut(剪辑倾向) / sound(声音策略) / avoid(明确不要) / checkpoints(可验收点)`
+- **确定性推导，不走 LLM**：同一份项目输入必得同一份 brief。定调一旦随机，下游全链路跟着漂
+- 落 `plan.global.directing_brief`；`brief(projectId)` 优先读已存 plan，没生成过则现场推导
+  （`derived_from:'derived'`），保证「没跑过也能看到定调」
+
+**病灶三：分镜只有 8 列 —— 缺「叙事目的」**
+- 第 9 列补齐：`narrative_function / narrative_label / narrative_intent`（"这一镜为什么存在"）
+- 分镜表、`storyboard` 视图、单镜预检三处同源透传，不各算一套
+
+**病灶四：没人管剪起来顺不顺 —— 一致性只管人崩没崩**
+- 新增 `director/ShotGrammar.js`：11 类判据 —— 时长越界 / 连续同卡 / 连续同运镜 /
+  景别卡死 / 景别跳级硬切 / 开场无交代 / 快切后无呼吸 / 快慢对比不足 1.5 倍 /
+  特写过载 / 集末无定格 / 全硬切无过渡
+- 打分 A/B/C/D，`overview()` 直接带出，导演页不用额外请求
+- 分工写清楚：**一致性守卫管「人和物崩没崩」，语法体检管「剪起来顺不顺」**
+
+**顺手补的一处烧钱点：提示词预算**
+- 新增 `director/PromptBudget.js`：字符预算（默认 1500，`PROMPT_MAX_CHARS` 可调）、
+  同框参考图 ≤3、**有角色参考图还重描身体/五官**要拦（图文打架会出"平均脸"）
+- 编译期审计，告警并入 `compile_warnings`，预算快照 `budget` 随产物落 `generate.budget`，
+  前端能在产物详情里看到「这条提示词花了多少预算、哪一项踩线」
+
+**新增接口**（均走原账号隔离，非本人项目 404）
+- `GET /api/projects/:id/director/brief` — 定调
+- `GET /api/projects/:id/director/grammar?episode=` — 镜头语法体检
+- `GET /api/projects/:id/director/preflight?shotNo=` — 单镜预检（时长/景别/参考图/预算一次给全）
+
+**验收**：465 单测（新增 `director_engine` 12）/ 13 前端 / 166 运行时 / 71 部署 /
+22+16+127 冒烟全绿；版本 4.17.0
+
+---
+
 ## V4.16.0 — 分发收益排行榜（全平台全时间 · 前 1000 名 · 每日刷新 · 默认全员参与）
 
 **用户口径原话**：所有用户可见；统计所有平台、所有时间收益累加；不做单平台榜、不做日榜周榜；

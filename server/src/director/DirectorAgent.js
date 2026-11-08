@@ -21,6 +21,9 @@ import seeds from '../seeds/loader.js';
 import * as prompts from '../prompts/PromptLibrary.js';
 import { fail, ERR } from '../core/errors.js';
 import { newId, nowIso } from '../core/util.js';
+import { shotGrammar } from './ShotGrammar.js';
+import { directingBrief } from './DirectingBrief.js';
+import { audit as auditBudget } from './PromptBudget.js';
 
 const POLICY = 'director_policies';
 const LOG = 'director_logs';
@@ -359,6 +362,72 @@ export class DirectorAgent {
     return { applied, warnings, plan };
   }
 
+  /**
+   * 导演定调（V4.17）。
+   * 优先用总谱里已落库的那一份；老项目没有就按当前风格/导演档案即时推一份（标 derived），
+   * 避免"老项目打不开新面板"。
+   */
+  brief(projectId) {
+    const rec = db.findOne('director_plans', (x) => x.project_id === projectId);
+    const saved = rec?.plan?.global?.directing_brief ?? null;
+    if (saved) {
+      return { ...saved, source: 'plan', plan_id: rec?.plan_id ?? null, timing: rec?.plan?.stats?.timing ?? [] };
+    }
+    const style = seeds.style(rec?.plan?.style_code) ?? seeds.style('STY-DUSHI');
+    const director = seeds.director(rec?.plan?.director_code) ?? seeds.director(style.director_profile_default);
+    return {
+      ...directingBrief.build({ outline: rec?.outline ?? {}, spec: { style_code: style.code, director_code: director.code }, style, director }),
+      source: 'derived',
+      plan_id: null,
+      timing: [],
+      note: '这个项目还没有生成总谱，定调是按当前风格与导演档案推导的',
+    };
+  }
+
+  /** 镜头语法体检（V4.17）：读已排好的分镜，给"剪起来顺不顺"的判断 */
+  grammar(projectId, { episode = null } = {}) {
+    const rec = db.findOne('director_plans', (x) => x.project_id === projectId);
+    const result = shotGrammar.auditProject(projectId, { planRecord: rec });
+    if (!episode) return result;
+    const issues = result.issues.filter((i) => Number(i.episode) === Number(episode));
+    const count = (sev) => issues.filter((i) => i.severity === sev).length;
+    return {
+      ...result,
+      episode,
+      issues,
+      counts: { error: count('error'), warn: count('warn'), info: count('info') },
+      summary: issues.length ? `${issues.length} 条语法提示（第 ${episode} 集）` : `第 ${episode} 集镜头语法没问题`,
+    };
+  }
+
+  /**
+   * 提示词预算预检（V4.17）：不花钱先看会不会超字数、参考图会不会打架。
+   * 读的是最近一次真实生成的提示词；没有生成记录就如实说没有，不编一个分数。
+   */
+  preflight(projectId, { shotNo = null } = {}) {
+    const gens = db.find('generations', (g) => g.project_id === projectId && (!shotNo || g.shot_no === shotNo));
+    if (!gens.length) {
+      return {
+        ok: true, level: 'none', shot_no: shotNo,
+        message: shotNo ? `第 ${shotNo} 镜还没有生成记录，先出一次图/视频再看预算` : '这个项目还没有生成记录',
+        warnings: [],
+      };
+    }
+    const latest = gens.sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))[0];
+    const stored = latest.budget ?? latest.payload?.budget ?? null;
+    const computed = stored ?? auditBudget({
+      prompt: latest.prompt_en ?? '',
+      references: Array.isArray(latest.payload?.reference_images) ? latest.payload.reference_images : [],
+    });
+    return {
+      ...computed,
+      shot_no: latest.shot_no ?? shotNo,
+      generation_id: latest.id,
+      model: latest.model ?? null,
+      source: stored ? 'recorded' : 'recomputed',
+    };
+  }
+
   /** 决策日志：谁在哪个节点做了什么决定，为什么。可查、可审计。 */
   log({ projectId, stage, action, decisions = [], gate = null, actor = 'director' }) {
     return db.insert(LOG, {
@@ -419,6 +488,11 @@ export class DirectorAgent {
       };
     });
 
+    // V4.17：定调 + 语法体检进面板。以前导演面板只有"链走到哪一步"，
+    // 看不到"这部片要什么感觉"和"镜头剪起来顺不顺"，出了片才知道跑偏。
+    const brief = this.brief(projectId);
+    const grammar = this.grammar(projectId);
+
     return {
       project_id: projectId,
       director: {
@@ -426,6 +500,23 @@ export class DirectorAgent {
         name: seeds.director(planRec?.plan?.director_code)?.name ?? '内置虚拟导演',
         style: planRec?.plan?.style_code ?? null,
         role: '把九个内置库按链路强制落地，并对每一环节的产物负责',
+      },
+      brief: {
+        source: brief.source,
+        tone: brief.tone,
+        one_liner: brief.one_liner,
+        checkpoints: brief.checkpoints ?? [],
+        avoid: brief.avoid ?? [],
+        timing: brief.timing ?? [],
+      },
+      grammar: {
+        ok: grammar.ok,
+        score: grammar.score,
+        grade: grammar.grade,
+        summary: grammar.summary,
+        counts: grammar.counts,
+        // 面板只放前 8 条，全量在 /director/grammar
+        issues: (grammar.issues ?? []).slice(0, 8),
       },
       mode: policy.mode,
       core_libs: CORE_LIBS.map((k) => ({

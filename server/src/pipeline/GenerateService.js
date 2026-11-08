@@ -103,6 +103,9 @@ export class GenerateService {
       prompt_zh: payload.prompt_zh,
       prompt_en: payload.prompt_en,
       cards: payload.cards,
+      // V4.17：把提示词预算快照下来，事后能回答"这条为什么效果差"——
+      // 超字数被模型截断，光看 prompt 是看不出来的，得看当时的用量。
+      budget: payload.budget ?? null,
       // 编译输入（V4.11）：重生成必须能拿到"当初到底怎么编译的"，
       // 否则 resample 只会拿到一个空 patch，必然在编译器里炸掉。
       compile_input: snapshotOf(compileRequest),

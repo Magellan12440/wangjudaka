@@ -382,6 +382,10 @@ export class StoryEngine {
           emotions: { ...b.emotions },
           emotion_cards: { ...b.emotion_cards },
           tension: b.tension,
+          // V4.17：九列分镜表的第 9 列——这一镜在叙事里干什么、为什么是这个长度
+          narrative_function: b.narrative_function ?? null,
+          narrative_label: b.narrative_label ?? null,
+          narrative_intent: b.narrative_intent ?? null,
           bgm_mood: [...b.bgm_mood],
           // 语法配方（构图/焦段/调色/氛围）：来自总谱，编译器要用它拼"为什么这么拍"
           grammar: b.grammar ?? null,

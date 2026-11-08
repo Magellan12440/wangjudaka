@@ -22,6 +22,8 @@ import seeds from '../seeds/loader.js';
 import { rhythmMaster } from '../rhythm/RhythmMaster.js';
 import { fail, ERR } from '../core/errors.js';
 import { seedFrom, weightedPick, clamp } from '../core/util.js';
+import { allocate as allocateTiming, intentOf } from '../director/ShotTiming.js';
+import { directingBrief } from '../director/DirectingBrief.js';
 import { aspectOf, qualityOf } from '../core/frame.js';
 
 /** 风格 shot_mix 的简称 → 镜头卡编码 */
@@ -101,22 +103,20 @@ export class DirectorPlan {
     for (const ep of outline.episodes) {
       const epSec = ep.duration_sec ?? spec.episode_sec ?? 90;
       const per = Math.max(2, Math.ceil(epSec / Math.min(director.avg_shot_len, 10)));
-      const dur = clamp(round2(epSec / per), 2, 10);
-      const maxNonHard = Math.max(0, Math.floor(per * quota) - 1); // -1 预留集末定格
-      let nonHardUsed = 0;
-      let lastNonHardAtSec = -Infinity;
-      let elapsed = 0;
 
-      const beats = [];
       const usedRecipes = new Set();   // 同一集内不重复用同一条语法配方
       // 配方要"点"不要"铺"：连续上会变成公式感，所以限条数 + 最小间隔
       const recipeCap = Math.max(2, Math.ceil(per / 5));
       let recipeUsed = 0;
       let lastRecipeAt = -Infinity;
+
+      // ——— 第一遍：定内容（节奏/情绪/镜别/光影/配方/运镜），此时还不知道每镜多长 ———
+      // 之所以拆两遍：V4.16 之前时长是「集时长 ÷ 镜数」，整集一样长，
+      // 节奏库算出的快慢根本落不了地。现在先定"拍什么"，再按叙事目的与景别分配时长。
+      const drafts = [];
       for (let i = 1; i <= per; i++) {
         const isOpen = i === 1;
         const isEnd = i === per;
-        const progress = i / per;
 
         // —— 节奏：把大纲里的钩子/冲突/反转/共情落到具体拍 ——
         const rhythm = this.#rhythmAt({ ep, i, per, isOpen, isEnd, rnd });
@@ -154,30 +154,11 @@ export class DirectorPlan {
           baseShot: shotCard, forbidden, used: usedRecipes, rnd,
           budgetLeft: recipeUsed < recipeCap && (i - lastRecipeAt) >= 2,
         });
+        if (recipe) { usedRecipes.add(recipe.code); recipeBeats += 1; recipeUsed += 1; lastRecipeAt = i; }
 
-        // —— 转场：配额 + 最小间隔 + 集末定格 + 情绪亲和（配方只做"候选偏好"，配额仍由这里裁决）——
-        const transition = this.#pickTransition({
-          style, director, ep, i, per, isOpen, isEnd, dur,
-          nonHardUsed, maxNonHard,
-          secSinceLastNonHard: elapsed - lastNonHardAtSec,
-          secToEpisodeEnd: (per - i) * dur,
-          emotionCards, rnd,
-          preferred: recipe?.transition ?? null,
-          preferredWhy: recipe?.why ?? null,
-        });
-        if (transition.code !== 'TRN-HARDCUT') {
-          if (transition.code !== 'TRN-FREEZE') nonHardUsed += 1;
-          lastNonHardAtSec = elapsed;
-        }
-        elapsed += dur;
-
-        // —— 配方落地：转场已过配额闸门，这里只替换镜别/运镜/光影并登记语法 ——
-        const applied = recipe
-          ? this.#applyRecipe({ recipe, isOpen, isEnd, lightingCodes, requiredLighting, transition, forbidden })
-          : null;
-        if (applied) { usedRecipes.add(recipe.code); recipeBeats += 1; recipeUsed += 1; lastRecipeAt = i; }
-
-        const moveCard = this.#pickMove({ director, shotCard: applied?.shot_card ?? shotCard, targetIntensity, rnd });
+        // 配方会把开场固定成远景建置，运镜要按"最终的镜别"来选
+        const plannedShot = recipe ? (isOpen ? 'SHT-WS' : recipe.shot) : shotCard;
+        const moveCard = this.#pickMove({ director, shotCard: plannedShot, targetIntensity, rnd });
 
         const bgmMood = [
           ...new Set([
@@ -186,36 +167,93 @@ export class DirectorPlan {
           ]),
         ].slice(0, 4);
 
-        beats.push({
-          beat_no: `E${String(ep.no).padStart(2, '0')}-B${String(i).padStart(3, '0')}`,
-          beat_purpose: rhythm.purpose,
+        drafts.push({
+          i, isOpen, isEnd, rhythm, targetIntensity, emotions, emotionCards,
+          shotCard, plannedShot, lightingCodes, recipe, moveCard, bgmMood,
+        });
+      }
+
+      // ——— 第二遍：分配时长（叙事目的 × 景别 × 张力），总和精确等于本集时长 ———
+      const timing = allocateTiming({
+        beats: drafts.map((d) => ({
+          beat_no: `E${String(ep.no).padStart(2, '0')}-B${String(d.i).padStart(3, '0')}`,
+          beat_purpose: d.rhythm.purpose,
+          shot_card: d.plannedShot,
+          tension: d.targetIntensity,
+        })),
+        epSec,
+        seed: `${planId ?? outline.title ?? 'plan'}|ep${ep.no}`,
+      });
+
+      // ——— 第三遍：按真实时长排转场（配额与最小间隔按秒算，短镜风格才不会踩线）———
+      const maxNonHard = Math.max(0, Math.floor(per * quota) - 1);
+      let nonHardUsed = 0;
+      let lastNonHardAtSec = -Infinity;
+      let elapsed = 0;
+      const beats = [];
+      for (const d of drafts) {
+        const t = timing.items[beats.length] ?? { duration_sec: round2(epSec / per) };
+        const dur = t.duration_sec;
+        const transition = this.#pickTransition({
+          style, director, ep, i: d.i, per, isOpen: d.isOpen, isEnd: d.isEnd, dur,
+          nonHardUsed, maxNonHard,
+          secSinceLastNonHard: elapsed - lastNonHardAtSec,
+          secToEpisodeEnd: epSec - elapsed - dur,
+          emotionCards: d.emotionCards, rnd,
+          preferred: d.recipe?.transition ?? null,
+          preferredWhy: d.recipe?.why ?? null,
+        });
+        if (transition.code !== 'TRN-HARDCUT') {
+          if (transition.code !== 'TRN-FREEZE') nonHardUsed += 1;
+          lastNonHardAtSec = elapsed;
+        }
+        elapsed = round2(elapsed + dur);
+
+        const applied = d.recipe
+          ? this.#applyRecipe({
+            recipe: d.recipe, isOpen: d.isOpen, isEnd: d.isEnd,
+            lightingCodes: d.lightingCodes, requiredLighting, transition, forbidden,
+          })
+          : null;
+
+        const beat = {
+          beat_no: `E${String(ep.no).padStart(2, '0')}-B${String(d.i).padStart(3, '0')}`,
+          beat_purpose: d.rhythm.purpose,
           duration_sec: dur,
           // ↓↓↓ 以下五项在剧本与分镜图之前就已定死，下游不得改写 ↓↓↓
-          shot_card: applied?.shot_card ?? shotCard,
-          camera_move: applied?.camera_move ?? moveCard,
-          lighting_codes: applied?.lighting_codes ?? lightingCodes,
+          shot_card: applied?.shot_card ?? d.shotCard,
+          camera_move: applied?.camera_move ?? d.moveCard,
+          lighting_codes: applied?.lighting_codes ?? d.lightingCodes,
           transition: transition.code,
           transition_reason: transition.reason,
-          rhythm_code: rhythm.code,
-          emotions,                       // { CH01: 'EMO-XXX', CH02: ... }
-          emotion_cards: Object.fromEntries(Object.entries(emotionCards).map(([k, v]) => [k, v.code])),
-          bgm_mood: bgmMood,
+          rhythm_code: d.rhythm.code,
+          emotions: d.emotions,                 // { CH01: 'EMO-XXX', CH02: ... }
+          emotion_cards: Object.fromEntries(Object.entries(d.emotionCards).map(([k, v]) => [k, v.code])),
+          bgm_mood: d.bgmMood,
           // ↑↑↑ 视听标注结束 ↑↑↑
+          // 叙事目的（九列分镜表的第 9 列）：这一镜在全片里干什么，为什么是这个长度
+          narrative_function: t.narrative_function ?? null,
+          narrative_label: t.narrative_label ?? null,
+          narrative_intent: t.narrative_function
+            ? intentOf({ beat: { shot_card: applied?.shot_card ?? d.shotCard, camera_move: applied?.camera_move ?? d.moveCard, narrative_function: t.narrative_function }, seconds: dur })
+            : null,
           // 大师语法：构图/焦段/调色/氛围 + 组合意图（PromptCompiler 会拼进提示词）
           grammar: applied?.grammar ?? null,
-          tension: targetIntensity,
-          conflict_code: rhythm.conflict_code ?? null,
-          reversal_code: rhythm.reversal_code ?? null,
-          is_episode_end: isEnd,
-          ending_hook: isEnd ? (ep.ending_hook ?? '悬念未解') : null,
-          last_3s_rule: isEnd ? { hold_freeze: true, no_dialogue: true } : null,
-        });
+          tension: d.targetIntensity,
+          conflict_code: d.rhythm.conflict_code ?? null,
+          reversal_code: d.rhythm.reversal_code ?? null,
+          is_episode_end: d.isEnd,
+          ending_hook: d.isEnd ? (ep.ending_hook ?? '悬念未解') : null,
+          last_3s_rule: d.isEnd ? { hold_freeze: true, no_dialogue: true } : null,
+        };
+        beats.push(beat);
       }
       allBeatCount += beats.length;
       planEpisodes.push({
         no: ep.no,
         duration_sec: epSec,
         beats,
+        timing: timing.stats,
         transition_quota: { max_non_hard: maxNonHard, quota, intense_director: isIntense },
         opening_hook: ep.hook?.code ?? null,
         ending_hook: ep.ending_hook ?? '悬念未解',
@@ -262,6 +300,9 @@ export class DirectorPlan {
         },
         rhythm_curve: director.rhythm_curve,
         rhythm_report: rhythmReport,
+        // V4.17：导演定调（电影手册里那份"这部片要什么感觉"）。
+        // 每一项都带可核对的 target，下游（分镜/剪辑/质检）拿它当尺子，而不是各理解一遍风格。
+        directing_brief: directingBrief.build({ outline, spec, style, director }),
         emotion_palettes: palettes,
         seed_cards: {
           director: director.code,
@@ -282,6 +323,8 @@ export class DirectorPlan {
       stats: {
         episodes: planEpisodes.length,
         beats: allBeatCount,
+        // V4.17：每集的节奏对比（最长镜/最短镜）。1.0 说明整集一个节奏——这次要修的就是它
+        timing: planEpisodes.map((e) => ({ episode: e.no, ...(e.timing ?? {}) })),
         recipe_beats: recipeBeats,
         total_sec: round2(planEpisodes.reduce((a, e) => a + e.duration_sec, 0)),
       },
@@ -361,6 +404,14 @@ export class DirectorPlan {
         problems.push({ item: `EP${ep.no}`, issue: `非硬切 ${nonHard} 超出配额 ${ep.transition_quota?.max_non_hard}` });
       }
       if (ep.beats?.[0]?.shot_card !== 'SHT-WS') warnings.push({ item: `EP${ep.no}`, issue: '开场非远景建置' });
+      // V4.17：节奏对比。整集一个时长等于没有节奏——不拦（还能出片），但必须让用户看见
+      const secs = (ep.beats ?? []).map((b) => Number(b.duration_sec) || 0).filter((x) => x > 0);
+      if (secs.length >= 6) {
+        const contrast = Math.max(...secs) / Math.max(0.1, Math.min(...secs));
+        if (contrast < 1.5) {
+          warnings.push({ item: `EP${ep.no}`, issue: `快慢对比仅 ${contrast.toFixed(2)} 倍（最快 ${Math.min(...secs)}s / 最慢 ${Math.max(...secs)}s），节奏偏平` });
+        }
+      }
     }
 
     if (shotKinds.size < 3) problems.push({ item: 'shot_mix', issue: `全剧仅 ${shotKinds.size} 种镜别，缺乏景别变化` });
