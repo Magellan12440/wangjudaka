@@ -470,10 +470,13 @@ export class PromptCompiler {
     const aspect = sheetSpec.aspect;
     const quality = sheetSpec.quality;
     const typeCn = { character: '角色定妆图', scene: '场景概念图', prop: '道具设定图' }[assetType] ?? '资产设定图';
+    // 用户手写的提示词排在最前（人写的优先于机器抽的），其余设定依次补充（V4.14）
     const desc = [
-      asset.lock_values?.traits, asset.lock_values?.role, asset.lock_values?.desc,
+      asset.lock_values?.prompt, asset.lock_values?.traits, asset.lock_values?.role, asset.lock_values?.desc,
       asset.meta?.traits, asset.meta?.desc,
     ].filter(Boolean).join('；');
+    // 本地参考图（V4.14）：用户上传的照片作为"长相/结构依据"进参考图列表
+    const userRefs = (req.options?.reference_images ?? []).filter((r) => r && r.url).slice(0, 4);
 
     const framing = assetType === 'character'
       ? '构图：单人全身入画，正面偏 3/4 角度，中性表情，纯浅灰背景，柔和顶光，便于后续镜头保持同一张脸'
@@ -519,8 +522,19 @@ export class PromptCompiler {
       prompt_en: `${s0.en} ${en}. ${neg.en}.`,
       prompt_zh: `${s0.zh}${zh}。负面排除：${neg.zh}。`,
       negative: neg.en,
-      reference_images: [],
-      pending_reference_plan: [{ role: assetType, asset_code: asset.asset_code ?? null }],
+      // 参考图：用户上传的本地照片（V4.14）。有图就必须真的进请求，
+      // 否则用户会觉得"传了没生效"——这正是 V4.12 修过的那类假生效。
+      reference_images: userRefs.map((r, i) => ({
+        url: r.url,
+        role: i === 0 ? 'identity_reference' : 'style_reference',
+        asset_code: asset.asset_code ?? null,
+        order: i + 1,
+        controls: i === 0 ? '长相 / 结构' : '服装与氛围',
+        required: false,
+      })),
+      pending_reference_plan: userRefs.length
+        ? []
+        : [{ role: assetType, asset_code: asset.asset_code ?? null }],
       params: {
         resolution: sheetSpec.resolution,
         aspect,

@@ -264,6 +264,54 @@ for (const f of files.filter((x) => /\.(wxss|wxml)$/.test(x))) {
 }
 ok('配色体系统一检查完成');
 
+// —— 隐私合规（V4.14）——
+// 这一组全是"线上必炸"的项：任一缺失，用户点上传就会被微信以隐私原因拒绝。
+{
+  const p = path.join(ROOT, 'utils/privacy.js');
+  if (!exists(p)) bad('隐私闸门模块存在', 'utils/privacy.js 缺失');
+  else {
+    const src = read(p);
+    for (const fn of ['init', 'ensure', 'resolveAgree', 'isPrivacyError', 'explain']) {
+      if (!new RegExp(`\\b${fn}\\b`).test(src)) bad(`隐私模块缺少 ${fn}()`);
+    }
+  }
+
+  const appSrc = read(path.join(ROOT, 'app.js'));
+  if (!/privacy\.init\s*\(/.test(appSrc)) {
+    bad('App 启动注册隐私回调（privacy.init）', '用户未同意时隐私接口会直接失败，页面无从接住');
+  }
+
+  const gate = path.join(ROOT, 'components/privacy-gate', 'index');
+  for (const ext of ['.js', '.json', '.wxml']) {
+    if (!exists(gate + ext)) bad(`隐私弹窗组件齐全: privacy-gate/index${ext}`);
+  }
+  if (exists(gate + '.wxml')) {
+    const g = read(gate + '.wxml');
+    // 微信只认这个 open-type，showModal 的确定按钮授予不了授权
+    if (!/open-type="agreePrivacyAuthorization"/.test(g)) {
+      bad('隐私弹窗使用微信认可的同意按钮', '缺少 open-type="agreePrivacyAuthorization"');
+    }
+    if (!/id="privacy-agree-btn"/.test(g)) {
+      bad('隐私弹窗按钮 id 与 resolve 的 buttonId 一致');
+    }
+  }
+
+  const appJson = app.usingComponents || {};
+  if (!appJson['privacy-gate']) bad('app.json 全局注册 privacy-gate 组件');
+
+  // 隐私接口调用页必须挂组件，否则 ensure() 无人应答
+  const pickerSrc = read(path.join(ROOT, 'utils/pickFile.js'));
+  if (!/privacy\.ensure/.test(pickerSrc)) bad('选文件前先过隐私闸门（privacy.ensure）');
+  const projectSrc = read(path.join(ROOT, 'pages/project/project.js'));
+  if (!/privacy\.ensure/.test(projectSrc)) bad('相册/相机前先过隐私闸门（privacy.ensure）');
+  for (const p2 of ['pages/create/create.wxml', 'pages/project/project.wxml', 'pages/login/login.wxml']) {
+    const f = path.join(ROOT, p2);
+    if (!exists(f)) continue;
+    if (!/<privacy-gate\s*\/>/.test(read(f))) bad(`页面挂载隐私弹窗: ${p2}`);
+  }
+}
+ok('隐私合规检查完成');
+
 // —— 结果 ——
 console.log(`\n小程序体检：${pass} 组通过${fail.length ? ` / ${fail.length} 项失败` : ''}`);
 if (warn.length) {

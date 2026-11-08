@@ -431,6 +431,9 @@ module.exports = {
   mockPaySuccess: (orderId) =>
     request({ url: '/api/pay/virtual/mock-success', method: 'POST', data: { orderId }, toast: true }),
   payOrders: () => request({ url: '/api/pay/virtual/orders' }),
+  // 支付结果轮询：success(支付完成) ≠ 到账，到账只认发货回调（V4.14）
+  payQuery: (orderId) => request({ url: '/api/pay/virtual/query', method: 'POST', data: { orderId } }),
+  payStatus: () => request({ url: '/api/pay/virtual/status' }),
 
   // —— 兑换码 ——
   redeem: (code, userId) =>
@@ -473,10 +476,34 @@ module.exports = {
 
   // —— 资产与分镜图（V4.10）——
   assetsOverview: (projectId) => request({ url: `/api/projects/${enc(projectId)}/assets/overview` }),
-  generateAssetImage: (projectId, code, force) =>
+  // 出图可带本次临时参数（模型/风格/画幅/画质），不改项目规格（V4.14）
+  generateAssetImage: (projectId, code, force, options) =>
     request({
       url: `/api/projects/${enc(projectId)}/assets/${enc(code)}/image`,
-      method: 'POST', data: { force: !!force }, toast: true, timeout: 180000,
+      method: 'POST', data: { force: !!force, options: options || null }, toast: true, timeout: 180000,
+    }),
+  // —— 分环节参数（V4.14）：剧本/角色/场景/道具/分镜/视频各自可换模型、风格、画幅、画质 ——
+  stageOptions: (projectId) => request({ url: `/api/projects/${enc(projectId)}/stage-options` }),
+  setStageOptions: (projectId, stage, patch) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/stage-options`,
+      method: 'POST', data: { stage, patch: patch || {} }, toast: true,
+    }),
+  // —— 资产参考图与自动填词（V4.14）——
+  addAssetReference: (projectId, code, images, mode) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/assets/${enc(code)}/reference`,
+      method: 'POST', data: { images: images || [], mode: mode || 'add' }, toast: true,
+    }),
+  assetPromptDraft: (projectId, code) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/assets/${enc(code)}/prompt-draft`,
+      method: 'POST', data: {}, toast: false,
+    }),
+  setAssetPrompt: (projectId, code, prompt) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/assets/${enc(code)}/prompt`,
+      method: 'POST', data: { prompt }, toast: true,
     }),
   updateAsset: (projectId, code, patch) =>
     request({

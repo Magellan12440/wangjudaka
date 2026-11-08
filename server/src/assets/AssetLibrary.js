@@ -196,6 +196,52 @@ export class AssetLibrary {
   }
 
   /**
+   * 挂/摘本地参考图（V4.14）。
+   *
+   * 与 update() 的区别：参考图是**输入**（长相依据），不是设定本身，
+   * 所以不动 version —— 否则用户每上传一张照片就把"设定版本"顶一格，
+   * 已经生成的分镜会全部被误判为"用的是旧版本角色"。
+   *
+   * @param {object} p { projectId, code, images: [{url,name,source}], mode: 'add'|'clear' }
+   */
+  attachReferences({ projectId, code, images = [], mode = 'add' }) {
+    const a = this.get(projectId, code);
+    if (!a) fail(ERR.ASSET_NOT_FOUND, `资产不存在: ${code}`);
+    const prev = Array.isArray(a.reference_images) ? a.reference_images : [];
+    const cap = 4; // 参考图太多会互相打架：4 张足够定住长相/服装/气质
+    let next;
+    if (mode === 'clear') {
+      next = [];
+    } else if (mode === 'set') {
+      next = images.slice(0, cap);
+    } else {
+      next = [...prev, ...images].slice(-cap);
+    }
+    return db.update(COL, a.id, {
+      reference_images: next,
+      reference_images_at: nowIso(),
+    });
+  }
+
+  /**
+   * 用户手改的提示词（V4.14）。
+   * 存在 lock_values.prompt 里 —— 它是"人对这个资产的最终表述"，
+   * 编译器会把它排在 traits/role/desc 之前（人写的优先于机器抽的）。
+   */
+  setPrompt({ projectId, code, prompt = '' }) {
+    const a = this.get(projectId, code);
+    if (!a) fail(ERR.ASSET_NOT_FOUND, `资产不存在: ${code}`);
+    const text = String(prompt ?? '').slice(0, 1200);
+    const lockValues = { ...(a.lock_values ?? {}) };
+    if (text) lockValues.prompt = text;
+    else delete lockValues.prompt;
+    return db.update(COL, a.id, {
+      lock_values: lockValues,
+      prompt_updated_at: nowIso(),
+    });
+  }
+
+  /**
    * 固化快照：镜头生成时调用，记录当时用的资产版本。
    * 之后改资产不会污染已生成镜头，且能算出影响面。
    */

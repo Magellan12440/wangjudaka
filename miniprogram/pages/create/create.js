@@ -1,5 +1,6 @@
 const api = require('../../utils/api.js');
 const motion = require('../../utils/motion.js');
+const privacy = require('../../utils/privacy.js');
 const { pickFile } = require('../../utils/pickFile.js');
 
 const ASPECTS = [
@@ -431,6 +432,35 @@ Page({
       .catch((e) => {
         this.setData({ scriptReading: false });
         if (!e || e.code === 'CANCEL') return;
+        /**
+         * 隐私类失败要单独说清（V4.14）。
+         * 以前这里只有一句「没能选到文件」，用户看到的就是「上传报错，因为隐私政策」，
+         * 却不知道是"自己没同意"还是"后台没声明用途"——两种处理方式完全不同。
+         */
+        if (e.code === 'PRIVACY_REQUIRED') {
+          const why = (e && e.detail) || {};
+          if (why.needDeclaration) {
+            wx.showModal({
+              title: why.title || '微信后台还没声明这个用途',
+              content: why.content,
+              showCancel: false,
+              confirmText: '知道了',
+            });
+            return;
+          }
+          wx.showModal({
+            title: why.title || '需要先同意隐私保护指引',
+            content: why.content || '微信要求先同意《用户隐私保护指引》才能选择文件。',
+            confirmText: '去同意',
+            cancelText: '手动粘贴',
+            success: (r) => {
+              if (!r.confirm) return;
+              // 再走一次：这次会把同意弹窗顶到前面，同意后自动继续选文件
+              this.pickScriptFile();
+            },
+          });
+          return;
+        }
         wx.showModal({
           title: '没能选到文件',
           content: (e && e.message) || '网络异常，请重试；也可以直接把正文粘贴进来。',

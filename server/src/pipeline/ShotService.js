@@ -19,6 +19,8 @@ import { assetLibrary } from '../assets/AssetLibrary.js';
 import { directorAgent } from '../director/DirectorAgent.js';
 import { consistencyGuard } from '../qc/ConsistencyGuard.js';
 import { assembly } from './Assembly.js';
+import { stageOptions, stageOfShot } from './StageOptions.js';
+import { aspectOf, qualityOf } from '../core/frame.js';
 import seeds from '../seeds/loader.js';
 import { fail, ERR } from '../core/errors.js';
 import { newId, nowIso } from '../core/util.js';
@@ -37,12 +39,37 @@ const EDITABLE = [
 
 export class ShotService {
   /**
+   * 合并「这一镜该用什么参数」：本次覆盖 > 环节设置 > 项目规格。
+   * 与 AssetImageService 的同名逻辑保持同一口径，避免两条链路各说各话。
+   */
+  #effective(projectId, stage, kind, overrides, project) {
+    const base = stageOptions.effective(projectId, stage);
+    const o = overrides || {};
+    const model = o.model ? modelCatalog.resolve(kind === 'video' ? 'video' : 'image', o.model) : base.model;
+    const styleCode = o.style_code ?? o.styleCode ?? base.style_code;
+    const style = seeds.style(styleCode);
+    const aspect = o.aspect ?? base.aspect;
+    const quality = o.quality ?? base.quality;
+    if (!aspectOf(aspect)) fail(ERR.SPEC_VIOLATION, `不支持的画幅：${aspect}`);
+    if (!qualityOf(quality)) fail(ERR.SPEC_VIOLATION, `不支持的画质：${quality}`);
+    return {
+      stage,
+      model,
+      style_code: styleCode,
+      palette: style?.palette ?? base.palette ?? [],
+      aspect,
+      quality,
+      project_spec: project?.spec ?? null,
+    };
+  }
+
+  /**
    * @param {object} p
    * @param {string} p.projectId
    * @param {string} p.shotNo 分镜号，如 E01-S001
    * @param {'image'|'video'} p.kind
    */
-  async generate({ projectId, shotNo, kind = 'image', userId = null }) {
+  async generate({ projectId, shotNo, kind = 'image', userId = null, overrides = null }) {
     const project = db.findOne(PROJECT, (x) => x.id === projectId);
     if (!project) fail(ERR.NOT_FOUND, '项目不存在');
     const planRec = db.findOne(PLANS, (x) => x.project_id === projectId);
@@ -51,6 +78,13 @@ export class ShotService {
     }
     const shot = planRec.storyboard.shots.find((s) => s.no === shotNo);
     if (!shot) fail(ERR.SHOT_NOT_FOUND, `分镜 ${shotNo} 不存在`);
+
+    /**
+     * 分环节参数（V4.14）：分镜图与视频各自可换模型 / 画幅 / 画质 / 风格。
+     * 注意它不会改动项目 spec —— 成片规格仍由项目决定，剪辑前还会再核一次。
+     */
+    const stage = stageOfShot(kind);
+    const eff = this.#effective(projectId, stage, kind, overrides, project);
 
     // —— 虚拟导演闸门：这一步该用的库必须齐（用户 pin 的卡优先，auto 由导演选）——
     directorAgent.assertStage(projectId, kind === 'video' ? 'shots' : 'storyboard');
@@ -129,22 +163,25 @@ export class ShotService {
     const materials = materialService.list(projectId).filter((m) => m.kind === 'image');
 
     // 用户手动选过的库（pin）在这里以 code 形式传给编译器，auto 的由总谱自带
-    const overrides = directorAgent.libraryOverrides(projectId);
+    const libOverrides = directorAgent.libraryOverrides(projectId);
 
     const compileRequest = {
       project: {
-        style_code: project.spec?.style_code,
+        ...(project.spec ?? {}),
+        // 环节参数覆盖项目级的那几项（风格/画幅/画质），其余规格字段仍按项目走
+        style_code: eff.style_code,
         director_code: project.spec?.director_code ?? null,
-        aspect: project.spec?.aspect ?? '9:16',
-        quality: project.spec?.quality ?? '1080p',
+        aspect: eff.aspect,
+        quality: eff.quality,
+        palette: eff.palette?.length ? eff.palette : (project.spec?.palette ?? undefined),
         // V4.12：片型与集数时长也要带下去，否则静态漫剧/解说漫仍会按动态漫剧的提示词出图
         video_type: project.spec?.video_type ?? 'dynamic',
         episode_count: project.spec?.episode_count ?? null,
         episode_sec: project.spec?.episode_sec ?? 90,
         total_minutes: project.spec?.total_minutes ?? 10,
       },
-      // 用户在本项目选的模型：不在可选目录里就回退默认，绝不把请求打到已下架上游
-      model: modelCatalog.resolve(kind, project.spec?.models?.[kind] ?? null),
+      // 用户在本环节选的模型：不在可选目录里就回退默认，绝不把请求打到已下架上游
+      model: modelCatalog.resolve(kind === 'video' ? 'video' : 'image', eff.model),
       shot_no: shot.no,
       shot: {
         shot_no: shot.no,
@@ -176,7 +213,7 @@ export class ShotService {
             shot_card: shot.shot_card,
           }
         : null,
-      libraries: Object.keys(overrides).length ? overrides : null,
+      libraries: Object.keys(libOverrides).length ? libOverrides : null,
       assets: { characters: chars, scenes, props, emotions: {} },
       options: {
         allow_pending_reference: true,
@@ -196,6 +233,10 @@ export class ShotService {
       meta: {
         shotNo: shot.no,
         primaryAssetCode: (shot.characters ?? [])[0] ?? null,
+        stage,
+        stage_options: {
+          model: eff.model, style_code: eff.style_code, aspect: eff.aspect, quality: eff.quality,
+        },
         assetsSnapshot: Object.fromEntries([
           ...Object.values(chars).map((c) => [c.asset_code, { version: c.version ?? 1, image_url: c.image_url }]),
           ...Object.values(scenes).map((c) => [c.asset_code, { version: c.version ?? 1, image_url: c.image_url }]),
@@ -204,7 +245,7 @@ export class ShotService {
           locks: Object.values(chars).flatMap((c) => c.locks ?? []).slice(0, 12),
           emotion_codes: Object.values(shot.emotions ?? {}).filter(Boolean),
           lighting_codes: shot.lighting_codes ?? [],
-          style_code: project.spec?.style_code ?? null,
+          style_code: eff.style_code ?? project.spec?.style_code ?? null,
           materials: materials.slice(0, 3).map((m) => m.name),
         },
       },
@@ -220,6 +261,14 @@ export class ShotService {
       ...result,
       shot_no: shot.no,
       kind,
+      // 这一镜实际用了什么参数（V4.14）：用户能核对"我选的那个模型/画幅真的生效了"
+      effective: {
+        stage,
+        model: eff.model,
+        style_code: eff.style_code,
+        aspect: eff.aspect,
+        quality: eff.quality,
+      },
       compile: {
         shot_card: shot.shot_card,
         lighting_codes: shot.lighting_codes ?? [],
@@ -227,7 +276,7 @@ export class ShotService {
         emotion: Object.values(shot.emotions ?? {})[0] ?? null,
         pending_references: pending,
         grammar_recipe: shot.grammar?.recipe ?? null,
-        director_libs: Object.fromEntries(Object.entries(overrides).map(([k, v]) => [k, v])),
+        director_libs: Object.fromEntries(Object.entries(libOverrides).map(([k, v]) => [k, v])),
       },
       consistency: {
         ok: guard.audit?.ok !== false,
@@ -460,16 +509,20 @@ export class ShotService {
    * 单镜重生成（保留历史版本，可回退）。
    * 没有同类生成记录时退化为首次生成；有则以原编译输入为底重新跑。
    */
-  async regenerateShot({ projectId, shotNo, kind = 'image', mode = 'resample', patch = {} }) {
+  async regenerateShot({ projectId, shotNo, kind = 'image', mode = 'resample', patch = {}, overrides = null }) {
     const project = db.findOne(PROJECT, (x) => x.id === projectId);
     if (!project) fail(ERR.NOT_FOUND, '项目不存在');
     const gens = db.find(GENS, (g) => g.project_id === projectId && g.shot_no === shotNo && g.kind === kind)
       .filter((g) => g.status === 'done')
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     const last = gens[0] ?? null;
-    if (!last) {
-      // 还没出过 → 直接按当前分镜出一次（这也是用户点「重出」时的预期）
-      return this.generate({ projectId, shotNo, kind, userId: project.user_id });
+    /**
+     * 换了模型 / 风格 / 画幅 / 画质 再点「重出」，必须重新编译（V4.14）。
+     * 原来无脑走 generateService.regenerate 是"拿上次的编译结果重跑"，
+     * 用户改了设置看到的却还是老样子 —— 典型的假生效。
+     */
+    if (!last || (overrides && Object.keys(overrides).length)) {
+      return this.generate({ projectId, shotNo, kind, userId: project.user_id, overrides });
     }
     const r = await generateService.regenerate({
       userId: project.user_id,

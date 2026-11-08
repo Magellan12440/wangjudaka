@@ -480,6 +480,70 @@ curl -s -o /dev/null -w "%{http_code}\n" https://<域名>/api/admin/overview  # 
 
 ---
 
+## V4.14.0 — 亮点：上传不再被隐私政策挡住 / 虚拟支付接入体检 / 每个环节都能自己选模型与参考图
+
+**问题**：①「改编我的素材」上传本地文件必失败，微信报 `api scope is not declared in the
+privacy agreement`，用户看到的只有「上传失败」；②虚拟支付代码在，但不知道还差哪几步，
+签名口径与官方不一致（沙箱看不出、正式全量失败），session_key 拿到就丢；
+③生成的每个环节只能用项目级的一套模型/风格/裁剪，用户想「角色图先用便宜模型试、分镜用好模型定稿」
+做不到，也没法上传自己的照片当长相依据。
+
+**A. 隐私授权：先过闸门，再调接口**
+- 新增 `utils/privacy.js`：`init()` 在 `App.onLaunch` 注册 `wx.onNeedPrivacyAuthorization`；
+  `ensure()` 在调隐私接口前要授权（已同意直接放行，未同意弹窗，同意后**原调用自动继续**）；
+  `explain()` 把微信 errMsg 分成两类可执行提示（后台没声明 / 用户没同意）
+- 新增 `components/privacy-gate`：同意按钮用微信唯一认可的
+  `open-type="agreePrivacyAuthorization"`（`wx.showModal` 的确定按钮授予不了授权），
+  挂在 `create` / `project` / `login` 三页
+- `pickFile` 与项目页选图/选视频都先过 `privacy.ensure()`；项目页旧实现连 `fail` 回调都没写，
+  所以表现是「点了没反应」——现在每种失败都说得清下一步
+- `mini:check` 新增第 16 组隐私合规检查（模块/组件/挂载点/闸门调用缺一不可）
+- 文档：`docs/隐私合规与上传报错.md`（含后台勾选清单；**后台声明这一步代码替不了**）
+
+**B. 虚拟支付：把「怎么接」变成可执行的清单**
+- 签名改成官方口径：`paySig = HMAC-SHA256(appKey, "requestVirtualPayment&" + signData)`、
+  `signature = HMAC-SHA256(session_key, signData)`，`signData` 为紧凑 JSON 且带 `platform`；
+  旧口径（`signData&org_key=...`）沙箱能过、正式必炸
+- **session_key 落库**：`jscode2session` 返回后写入用户记录 `wx_session_key`（`publicUser` 是白名单，不外泄）；
+  下单时自动取用，拿不到就如实标 `mode:'mock'` 并给 `hint`，不假装成功
+- 新增 `GET /api/pay/virtual/status`：把「AppID / 虚拟支付能力 / OfferID / AppKey / 环境 / 回调地址 / 支付形态」
+  七项算成 done/todo，缺哪项直接列出来（不回显任何密钥与环境变量名）
+- 新增 `POST /api/pay/virtual/query`：`success` ≠ 到账，前端改为按订单号轮询，
+  最多约 12 秒；仍未到账就明确告诉用户"钱付了、通知还没到"
+- 充值页未开通时直接显示「还差 N 步」（来自体检接口，不再只写一句"内测通道"）
+- 文档：`docs/虚拟支付接入指南.md`（开通 → 环境变量 → 时序图 → 沙箱联调 → 上线四必须 → 退款调账）
+
+**C. 分环节参数：七个环节各自选模型 / 风格 / 画幅 / 画质**
+- 新增 `pipeline/StageOptions.js`：`script / character / scene / prop / storyboard / video / film`
+  七个环节，各自声明支持哪些能力（剧本没有画幅、剪辑不能换风格）
+- **环节覆盖只作用于该环节的生成**，不改项目规格（成片规格仍由项目决定，剪辑前照样核）；
+  画幅/画质/模型非法值直接报错，不在可选池里的模型不接受 —— 不出现「设了但被悄悄换掉」
+- `ShotService` / `AssetImageService` 统一走 `#effective()`（本次覆盖 > 环节设置 > 项目规格），
+  两条链路同一口径；生成记录 `meta.stage_options` 留档，结果回 `effective` 供核对
+- 改了参数再点「重出」会**重新编译**（原来是拿上次编译结果重跑，等于改了没生效）
+- 剧本环节也吃这套：换模型影响文风与结构，换风格只影响这一版剧本
+- 新接口：`GET|POST /api/projects/:id/stage-options`
+
+**D. 本地参考图 + 自动填提示词**
+- 新增 `POST /assets/:code/reference`：上传本地照片挂到资产卡（最多 4 张，第 1 张作长相依据），
+  **不动 version**（参考图是输入，不是设定变更，否则已出的分镜会被误判为旧版本）
+- 新增 `pipeline/AssetPrompt.js` + `POST /assets/:code/prompt-draft`：从剧本原文按人名检索
+  外貌描写（按"外形相关词"打分取前 3 句），拼上画风 / 色板 / 参考图，**每条描写都带出处**
+  （第几集第几场哪一句），用户可核对可修改；`POST /assets/:code/prompt` 保存手写提示词
+- 编译器：`options.reference_images` 真的进 `reference_images`（第 1 张 `identity_reference`），
+  有参考图就不再挂「待补参考」；`lock_values.prompt` 排在 traits/desc 之前（人写的优先）
+
+**E. 看得见**
+- 项目页五个 tab 顶部出现「本环节设置」：角色 / 场景 / 道具 / 分镜图 / 视频片段 / 剧本；
+  面板里能选模型（带推荐位与单价）、风格（32 种，可展开）、画面比例、画质
+- 角色卡「改设定」换成完整面板：参考图九宫格（可增删）+ 提示词文本域 +「自动填词」+ 原文出处列表，
+  「只保存」与「保存并重绘」分开（不偷偷花钱）
+
+**验收**：435 单测（新增 `stage_options` 9 / `virtual_pay` 4，`spec_lock` 等原有用例全绿）/
+13 前端 / 16 组体检（新增隐私合规组）/ 152 运行时 / 71 部署 / 22+16+98 冒烟；版本 4.14.0
+
+---
+
 ## V4.13.0 — 亮点：32 个风格全链路生效 / 成片按索引装配、改一镜只换那一镜 / 配角不再丢脸
 
 **问题**：风格选了 32 个之一，实际只有一句画风字符串进了提示词——色板之外，转场偏好、节奏密度全被丢掉；

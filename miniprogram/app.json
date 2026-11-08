@@ -65,5 +65,8 @@
   "style": "v2",
   "sitemapLocation": "sitemap.json",
   "lazyCodeLoading": "requiredComponents",
+  "usingComponents": {
+    "privacy-gate": "/components/privacy-gate/index"
+  },
   "__usePrivacyCheck__": true
 }

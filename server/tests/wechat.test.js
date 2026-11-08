@@ -77,7 +77,10 @@ test('虚拟支付：mock 模式下单返回联调说明，不返回真实签名
   const order = virtualPay.createOrder({ userId: user.id, packageId: 'PKG-100' });
   assert.equal(order.mode, 'mock');
   assert.equal(order.points, 100);
-  assert.ok(order.notice.includes('WX_PAY_OFFER_ID'));
+  // 说明里要说清"没配商户号、怎么模拟发货"，但**不回显环境变量名**（V4.14 口径）
+  assert.ok(order.notice.includes('商户号'));
+  assert.ok(order.notice.includes('mock-success'));
+  assert.equal(/WX_[A-Z_]+/.test(order.notice), false, '接口不该回显环境变量名');
   assert.equal(order.requestVirtualPayment, undefined);
 });
 

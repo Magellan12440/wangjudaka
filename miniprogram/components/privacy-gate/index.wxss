@@ -1,0 +1,49 @@
+/* 隐私授权弹窗：底部卡片，与全局 sheet 风格一致但独立（组件不能依赖 app.wxss 的层级） */
+.pg-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(16, 26, 44, 0.42);
+  display: flex;
+  align-items: flex-end;
+  animation: pgFade 0.2s ease both;
+}
+@keyframes pgFade { from { opacity: 0; } to { opacity: 1; } }
+
+.pg-card {
+  width: 100%;
+  box-sizing: border-box;
+  background: #FFFFFF;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 40rpx 36rpx calc(40rpx + env(safe-area-inset-bottom));
+  animation: pgUp 0.26s cubic-bezier(0.16, 0.84, 0.28, 1) both;
+}
+@keyframes pgUp { from { transform: translate3d(0, 40rpx, 0); } to { transform: translate3d(0, 0, 0); } }
+
+.pg-title { font-size: 34rpx; font-weight: 700; color: #16233A; line-height: 1.4; }
+.pg-body { margin-top: 16rpx; font-size: 26rpx; color: #5A6779; line-height: 1.7; }
+.pg-link { margin-top: 16rpx; font-size: 26rpx; color: #FB7A34; }
+
+.pg-btn {
+  margin-top: 30rpx;
+  height: 92rpx;
+  line-height: 92rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #FF9A4D, #FB7A34);
+  color: #FFFFFF;
+  font-size: 30rpx;
+  font-weight: 600;
+  text-align: center;
+  border: none;
+  padding: 0;
+}
+.pg-btn::after { border: none; }
+.pg-btn:active { transform: scale(0.98); }
+
+.pg-later {
+  margin-top: 22rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #8B95A5;
+  padding: 10rpx 0;
+}

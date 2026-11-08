@@ -79,6 +79,17 @@
       <text class="nl-tag">内测</text>
       <text class="nl-text">当前未接入微信虚拟支付商户号，点支付会直接到账且不产生真实扣款。正式收款在后台配置后自动切换，无需更新小程序。</text>
     </view>
+    <!-- 接入体检（V4.14）：还差哪几步直接列出来，不用去翻文档 -->
+    <view wx:if="{{!live && payMissing.length}}" class="pay-missing">
+      <view class="pm-title">开通真实收款还差 {{payMissing.length}} 步</view>
+      <view wx:for="{{payMissing}}" wx:key="key" class="pm-row">
+        <text class="pm-dot">○</text>
+        <view class="flex1">
+          <view class="pm-label">{{item.label}}</view>
+          <view class="pm-todo">{{item.todo}}</view>
+        </view>
+      </view>
+    </view>
 
     <!-- 订单记录 -->
     <view class="section-head">

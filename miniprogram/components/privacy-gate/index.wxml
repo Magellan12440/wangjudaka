@@ -1,0 +1,18 @@
+<!-- 隐私授权弹窗：任何页面挂上它，隐私接口被拦时就会自动出现 -->
+<view wx:if="{{open}}" class="pg-mask" catchtouchmove="noop">
+  <view class="pg-card">
+    <view class="pg-title">同意{{contractName}}后继续</view>
+    <view class="pg-body">
+      为了让你能上传本地剧本、参考照片和视频，我们需要按《个人信息保护法》征得你的同意。
+      上传的内容只用于生成你的短剧，不会用于其它用途。
+    </view>
+    <view class="pg-link" bindtap="openContract">查看完整{{contractName}} ›</view>
+    <button
+      id="privacy-agree-btn"
+      class="pg-btn"
+      open-type="agreePrivacyAuthorization"
+      bindagreeprivacyauthorization="agree"
+    >同意并继续</button>
+    <view class="pg-later" bindtap="deny">暂不同意，只手动输入</view>
+  </view>
+</view>

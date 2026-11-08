@@ -4,6 +4,7 @@
 const api = require('./utils/api.js');
 const config = require('./config.js');
 const accounts = require('./utils/accounts.js');
+const privacy = require('./utils/privacy.js');
 
 App({
   globalData: {
@@ -31,6 +32,13 @@ App({
 
   onLaunch(options) {
     this.initWindow();
+    /**
+     * 隐私授权回调必须先注册（V4.14）。
+     * 不注册时，任何隐私接口（选择文件 / 相册 / 相机）在用户未同意前都会直接失败，
+     * 页面只能看到一个 errMsg，用户看到的就是「上传报错，因为隐私政策」。
+     * 注册后由页面上的 <privacy-gate /> 弹窗接住，同意即放行，原调用自动继续。
+     */
+    this.globalData.privacyReady = privacy.init();
     this.initCloud();
     this.warnPlaceholderHost();
     this.captureInviteCode(options);

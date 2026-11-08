@@ -245,6 +245,11 @@
 
       <!-- ===== 剧本 ===== -->
       <block wx:if="{{tab === 'script'}}">
+        <!-- 分环节设置（V4.14）：剧本这一环也可以单独换模型与文风 -->
+        <view class="stage-bar">
+          <text class="stage-bar-k">本环节设置</text>
+          <view class="stage-chip tap" hover-class="tap-on" data-stage="script" bindtap="openStage">剧本模型 / 文风</view>
+        </view>
         <!-- 第一步：先选一版。没选定之前，后面的角色/场景/道具都无从谈起 -->
         <view class="card pick-card">
           <view class="between">
@@ -374,6 +379,13 @@
 
       <!-- ===== 资产 ===== -->
       <block wx:if="{{tab === 'assets'}}">
+        <!-- 分环节设置（V4.14）：角色 / 场景 / 道具 各自可换模型、风格、画幅、画质 -->
+        <view class="stage-bar">
+          <text class="stage-bar-k">本环节设置</text>
+          <view class="stage-chip tap" hover-class="tap-on" data-stage="character" bindtap="openStage">角色</view>
+          <view class="stage-chip tap" hover-class="tap-on" data-stage="scene" bindtap="openStage">场景</view>
+          <view class="stage-chip tap" hover-class="tap-on" data-stage="prop" bindtap="openStage">道具</view>
+        </view>
         <view class="card">
           <view class="between">
             <view>
@@ -426,7 +438,7 @@
                   >{{assetBusy === item.code ? '…' : (item.image_url ? '重绘' : '出图')}}</view>
                 </view>
                 <view class="asset-name ellipsis">{{item.name}}<text wx:if="{{item.supporting}}" class="asset-badge">配角</text></view>
-                <view class="asset-sub">{{item.code}} · {{item.locks}} 锁
+                <view class="asset-sub">{{item.code}} · {{item.locks}} 锁<text wx:if="{{item.reference_count}}" class="asset-refn"> · 参考 {{item.reference_count}}</text>
                   <text class="asset-edit tap" data-code="{{item.code}}" data-name="{{item.name}}" catchtap="editAsset">改设定</text>
                 </view>
               </view>
@@ -479,6 +491,12 @@
 
       <!-- ===== 镜头 ===== -->
       <block wx:if="{{tab === 'gens'}}">
+        <!-- 分环节设置（V4.14）：分镜图与视频片段各自可换模型 / 风格 / 画幅 / 画质 -->
+        <view class="stage-bar">
+          <text class="stage-bar-k">本环节设置</text>
+          <view class="stage-chip tap" hover-class="tap-on" data-stage="storyboard" bindtap="openStage">分镜图</view>
+          <view class="stage-chip tap" hover-class="tap-on" data-stage="video" bindtap="openStage">视频片段</view>
+        </view>
         <view class="card" wx:if="{{consistency && !consistency.empty}}">
           <view class="between">
             <text class="title">一致性底座</text>
@@ -1075,3 +1093,139 @@
     <view class="sheet-cancel tap" hover-class="tap-on" bindtap="closeShotEdit">取消</view>
   </view>
 </view>
+
+<!-- ===== 分环节设置（V4.14）：只影响这一环节的生成，不改项目规格 ===== -->
+<view wx:if="{{stageSheet}}" class="sheet-mask" catchtouchmove="noop" bindtap="closeStage">
+  <view class="sheet" catchtap="noop">
+    <view class="sheet-bar"></view>
+    <view class="sheet-head">
+      <text class="sheet-title">{{stageTitle}} · 本环节设置</text>
+      <text class="sheet-close" bindtap="closeStage">关闭</text>
+    </view>
+    <scroll-view scroll-y class="sheet-scroll">
+      <view wx:if="{{stageHint}}" class="hint">{{stageHint}}</view>
+
+      <block wx:if="{{stageModels.length}}">
+        <view class="sheet-label">模型</view>
+        <view class="opt-wrap">
+          <view
+            wx:for="{{stageModels}}"
+            wx:key="code"
+            class="opt {{stageForm.model === item.code ? 'on' : ''}}"
+            hover-class="tap-on"
+            data-field="model"
+            data-value="{{item.code}}"
+            bindtap="pickStage"
+          >
+            <view class="opt-name">{{item.label}}<text wx:if="{{item.recommended}}" class="opt-tag">推荐</text></view>
+            <view class="opt-sub">{{item.price_text}}</view>
+          </view>
+        </view>
+      </block>
+
+      <block wx:if="{{stageStyles.length}}">
+        <view class="sheet-label">风格<text class="sheet-label-sub">只影响这一环节的画面语言</text></view>
+        <view class="chip-wrap">
+          <block wx:for="{{stageStyles}}" wx:key="code">
+            <view
+              wx:if="{{stageStyleAll || index < 8}}"
+              class="chip {{stageForm.style_code === item.code ? 'on' : ''}}"
+              hover-class="tap-on"
+              data-field="style_code"
+              data-value="{{item.code}}"
+              bindtap="pickStage"
+            >{{item.name}}</view>
+          </block>
+          <view class="chip chip-more tap" hover-class="tap-on" bindtap="toggleStageStyles">{{stageStyleAll ? '收起' : '全部 32 种 ›'}}</view>
+        </view>
+      </block>
+
+      <block wx:if="{{stageAspects.length}}">
+        <view class="sheet-label">画面比例</view>
+        <view class="chip-wrap">
+          <view
+            wx:for="{{stageAspects}}"
+            wx:key="code"
+            class="chip {{stageForm.aspect === item.code ? 'on' : ''}}"
+            hover-class="tap-on"
+            data-field="aspect"
+            data-value="{{item.code}}"
+            bindtap="pickStage"
+          >{{item.label}}</view>
+        </view>
+      </block>
+
+      <block wx:if="{{stageQualities.length}}">
+        <view class="sheet-label">画质</view>
+        <view class="chip-wrap">
+          <view
+            wx:for="{{stageQualities}}"
+            wx:key="code"
+            class="chip {{stageForm.quality === item.code ? 'on' : ''}}"
+            hover-class="tap-on"
+            data-field="quality"
+            data-value="{{item.code}}"
+            bindtap="pickStage"
+          >{{item.label}}</view>
+        </view>
+      </block>
+
+      <view class="hint mt16">这里的设置只作用于本环节的生成。成片规格（{{stageOpts.spec.aspect}} · {{stageOpts.spec.quality}} · {{episodeCount}} 集）不会被改动，剪辑前仍会按项目规格核对。</view>
+    </scroll-view>
+    <view class="btn btn-block mt16 tap {{stageBusy ? 'btn-disabled' : ''}}" hover-class="tap-on" bindtap="saveStage">
+      {{stageBusy ? '保存中…' : '保存本环节设置'}}
+    </view>
+  </view>
+</view>
+
+<!-- ===== 资产：参考图 + 提示词（V4.14） ===== -->
+<view wx:if="{{assetEdit}}" class="sheet-mask" catchtouchmove="noop" bindtap="closeAssetEdit">
+  <view class="sheet" catchtap="noop">
+    <view class="sheet-bar"></view>
+    <view class="sheet-head">
+      <text class="sheet-title">{{assetEdit.name}} · 长相与提示词</text>
+      <text class="sheet-close" bindtap="closeAssetEdit">关闭</text>
+    </view>
+    <scroll-view scroll-y class="sheet-scroll">
+      <view class="sheet-label">参考图<text class="sheet-label-sub">第 1 张作为长相依据，最多 4 张</text></view>
+      <view class="ref-wrap">
+        <view wx:for="{{assetEdit.refs}}" wx:key="url" class="ref-cell">
+          <image class="ref-img" src="{{item.url}}" mode="aspectFill" />
+          <view class="ref-del tap" hover-class="tap-on" data-index="{{index}}" catchtap="removeAssetRef">×</view>
+        </view>
+        <view wx:if="{{assetEdit.refs.length < 4}}" class="ref-add tap {{assetRefBusy ? 'off' : ''}}" hover-class="tap-on" bindtap="addAssetRef">
+          {{assetRefBusy ? '上传中…' : '＋ 上传本地照片'}}
+        </view>
+      </view>
+
+      <view class="sheet-label">
+        提示词
+        <text class="sheet-draft tap" hover-class="tap-on" bindtap="draftAssetPrompt">{{assetDraftBusy ? '抽取中…' : '自动填词 ›'}}</text>
+      </view>
+      <textarea
+        class="prompt-box"
+        value="{{assetEdit.prompt}}"
+        placeholder="点「自动填词」会从剧本里抽出这个人的原文描写，并结合风格与参考图写成一版；也可以自己改。"
+        placeholder-class="input-ph"
+        maxlength="1200"
+        auto-height
+        bindinput="onAssetPrompt"
+      />
+      <view wx:if="{{assetEdit.note}}" class="hint mt8">{{assetEdit.note}}</view>
+      <view wx:if="{{assetEdit.quotes.length}}" class="quote-list">
+        <view class="quote-k">原文出处</view>
+        <view wx:for="{{assetEdit.quotes}}" wx:key="text" class="quote-item">
+          <text class="quote-where">{{item.where}}</text>
+          <text class="quote-text">{{item.text}}</text>
+        </view>
+      </view>
+    </scroll-view>
+    <view class="row-2 mt16">
+      <view class="btn btn-ghost tap {{assetSaveBusy ? 'btn-disabled' : ''}}" hover-class="tap-on" data-redraw="0" bindtap="saveAssetPrompt">只保存</view>
+      <view class="btn tap {{assetSaveBusy ? 'btn-disabled' : ''}}" hover-class="tap-on" data-redraw="1" bindtap="saveAssetPrompt">{{assetSaveBusy ? '处理中…' : '保存并重绘'}}</view>
+    </view>
+  </view>
+</view>
+
+<!-- 隐私授权弹窗（V4.14）：选图/选文件被拦时自动出现 -->
+<privacy-gate />

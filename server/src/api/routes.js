@@ -22,6 +22,8 @@ import { directorPlanEngine } from '../pipeline/DirectorPlan.js';
 import { syncRun, syncProjectRuns, runProgress } from '../pipeline/RunSync.js';
 import shotService from '../pipeline/ShotService.js';
 import assetImageService from '../pipeline/AssetImageService.js';
+import { stageOptions } from '../pipeline/StageOptions.js';
+import assetPrompt from '../pipeline/AssetPrompt.js';
 import scriptLibrary from '../projects/ScriptLibrary.js';
 import editService from '../pipeline/EditService.js';
 import oneShot from '../pipeline/OneShot.js';
@@ -369,7 +371,10 @@ const CANDIDATE_ANGLES = [
 ];
 
 async function generateScriptCandidate(p, { angle = '', spec = null } = {}) {
-  const s = spec ?? p.spec ?? {};
+  // 剧本环节的分环节参数（V4.14）：模型与风格都允许在这一环节单独换
+  const st = stageOptions.effective(p.id, 'script');
+  const s0 = spec ?? p.spec ?? {};
+  const s = { ...s0, style_code: st.style_code ?? s0.style_code };
   const prompt = [s.prompt || p.title || '未命名漫剧', angle].filter(Boolean).join('\n');
   const digest = materialService.digest(p.id);
   if (digest.text) {
@@ -381,7 +386,7 @@ async function generateScriptCandidate(p, { angle = '', spec = null } = {}) {
   }
   const { outline } = await storyEngine.outline({
     userId: p.user_id, projectId: p.id, prompt, spec: s, reference: digest.text,
-    model: modelCatalog.resolve('chat', s.models?.chat ?? null),
+    model: st.model ?? modelCatalog.resolve('chat', s.models?.chat ?? null),
   });
   const plan = storyEngine.directorPlan({ outline, spec: s, projectId: p.id });
   const script = await storyEngine.script({ outline, plan, spec: s, userId: p.user_id, projectId: p.id });
@@ -948,7 +953,12 @@ export const routes = [
   // V4.2：生成前先把项目里的素材摘要注入大纲；素材是创作输入，不是装饰
   ['POST', '/api/projects/:id/plan', async ({ params, req }) => {
     const p = projectOf(req, params.id);
-    const spec = p.spec ?? {};
+    /**
+     * 剧本环节的分环节参数（V4.14）：模型与风格可以在「剧本」这一环节单独换，
+     * 换风格只影响这一版剧本的文风与人物设定，不会改动项目规格（成片仍按项目规格出）。
+     */
+    const scriptStage = stageOptions.effective(p.id, 'script');
+    const spec = { ...(p.spec ?? {}), style_code: scriptStage.style_code ?? p.spec?.style_code };
     const prompt = spec.prompt || p.title || '未命名漫剧';
     const digest = materialService.digest(p.id);
     assertAdaptReady(spec, digest);
@@ -961,7 +971,8 @@ export const routes = [
     }
     const { outline } = await storyEngine.outline({
       userId: p.user_id, projectId: p.id, prompt, spec, reference: digest.text,
-      model: modelCatalog.resolve('chat', spec.models?.chat ?? null),
+      // 剧本环节的模型由「分环节参数」决定（V4.14），不再只认项目级 picks
+      model: scriptStage.model ?? modelCatalog.resolve('chat', spec.models?.chat ?? null),
     });
     const plan = storyEngine.directorPlan({ outline, spec, projectId: p.id });
     const script = await storyEngine.script({ outline, plan, spec, userId: p.user_id, projectId: p.id });
@@ -1154,11 +1165,65 @@ export const routes = [
       projectId: p.id, userId: p.user_id, limit: body?.limit ?? 12,
     });
   }],
+  // —— 分环节参数（V4.14）：剧本/角色/场景/道具/分镜/视频各自可换模型、风格、画幅、画质 ——
+  ['GET', '/api/projects/:id/stage-options', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return stageOptions.get(params.id);
+  }],
+  ['POST', '/api/projects/:id/stage-options', async ({ params, body, req }) => {
+    projectOf(req, params.id);
+    const stage = body?.stage;
+    if (!stage) throw new AppError('BAD_REQUEST', '缺少 stage（script / character / scene / prop / storyboard / video / film）');
+    return stageOptions.set(params.id, stage, body?.patch ?? body ?? {});
+  }],
+  // —— 资产参考图（V4.14）：用户上传的本地照片，作为长相/结构依据 ——
+  ['POST', '/api/projects/:id/assets/:code/reference', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const mode = body?.mode === 'clear' ? 'clear' : body?.mode === 'set' ? 'set' : 'add';
+    const images = (body?.images ?? []).map((x) => ({
+      url: String(x.url ?? x.file_id ?? ''),
+      name: String(x.name ?? '').slice(0, 60),
+      source: x.source ?? 'local',
+    })).filter((x) => x.url);
+    if (mode !== 'clear' && !images.length) throw new AppError('BAD_REQUEST', '没有收到参考图');
+    const updated = assetLibrary.attachReferences({
+      projectId: p.id, code: params.code, images, mode,
+    });
+    return {
+      ok: true,
+      asset_code: updated.asset_code,
+      reference_images: updated.reference_images ?? [],
+      count: (updated.reference_images ?? []).length,
+      hint: '参考图已挂上。下次出图会以第 1 张为长相依据；要立刻生效请点「重绘」。',
+    };
+  }],
+  // —— 自动填提示词（V4.14）：从剧本里抽这个人的描写 + 风格色板，拼成一版可直接用的提示词 ——
+  ['POST', '/api/projects/:id/assets/:code/prompt-draft', async ({ params, req }) => {
+    const p = projectOf(req, params.id);
+    return assetPrompt.draft({ projectId: p.id, assetCode: params.code });
+  }],
+  ['POST', '/api/projects/:id/assets/:code/prompt', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const updated = assetLibrary.setPrompt({
+      projectId: p.id, code: params.code, prompt: body?.prompt ?? '',
+    });
+    return {
+      ok: true,
+      asset_code: updated.asset_code,
+      prompt: updated.lock_values?.prompt ?? '',
+      note: '提示词已保存。要让画面跟着变，请点「重绘」。',
+    };
+  }],
   // —— 资产出图：把卡变成图，分镜才有视觉依据 ——
   ['POST', '/api/projects/:id/assets/:code/image', async ({ params, body, req }) => {
     const p = projectOf(req, params.id);
     return assetImageService.generate({
-      projectId: p.id, assetCode: params.code, userId: p.user_id, force: body?.force === true,
+      projectId: p.id,
+      assetCode: params.code,
+      userId: p.user_id,
+      force: body?.force === true,
+      // 本次临时覆盖：模型 / 风格 / 画幅 / 画质（不改项目规格）
+      overrides: body?.options ?? null,
     });
   }],
   // —— 手动改资产设定（V4.11）：改名 / 改描述 / 改锁；改完要重绘才会落到画面上 ——
@@ -1361,6 +1426,8 @@ export const routes = [
       shotNo: params.shotNo,
       kind: body.kind === 'video' ? 'video' : 'image',
       userId: p.user_id,
+      // 本次临时覆盖：模型 / 风格 / 画幅 / 画质（不改项目规格，V4.14）
+      overrides: body?.options ?? null,
     });
   }],
   ['GET', '/api/projects/:id/shots/:shotNo/generations', async ({ params, req }) => {
@@ -1381,6 +1448,7 @@ export const routes = [
       kind: body?.kind === 'video' ? 'video' : 'image',
       mode: body?.mode ?? 'resample',
       patch: body?.patch ?? {},
+      overrides: body?.options ?? null,
     });
   }],
   // —— 多版本选定（V4.11）：选定后剪辑与分发就用这一版 ——
@@ -1930,8 +1998,16 @@ export const routes = [
       userId: user.id,
       packageId: body.packageId ?? null,
       amountCny: body.amountCny ?? null,
-      sessionKey: body.sessionKey ?? null,
+      // session_key 从登录态里取（V4.14），前端不必也不应该传
+      platform: body.platform ?? 'android',
     });
+  }],
+  // —— 虚拟支付接入体检：差哪几步一眼看到（V4.14）——
+  ['GET', '/api/pay/virtual/status', async () => virtualPay.status()],
+  // —— 客户端轮询支付结果：success ≠ 到账，到账以发货回调为准 ——
+  ['POST', '/api/pay/virtual/query', async ({ body, req }) => {
+    const user = authService.requireUser(req);
+    return virtualPay.query({ userId: user.id, orderId: body.orderId });
   }],
   ['GET', '/api/pay/virtual/orders', async ({ req }) => {
     const user = authService.requireUser(req);

@@ -366,6 +366,51 @@ async function main() {
         String((data(regen).version.superseded || []).length));
     }
 
+    // V4.14：分环节参数（模型/风格/画幅/画质）+ 资产参考图 + 自动填词
+    const stageAll = await call('GET', `/api/projects/${projectId}/stage-options`, undefined, true);
+    ok('分环节参数可读（七个环节）', stageAll.status === 200 && Object.keys(data(stageAll).stages || {}).length === 7,
+      `${stageAll.status} ${Object.keys((data(stageAll) && data(stageAll).stages) || {}).length}`);
+    const stChar = (data(stageAll) && data(stageAll).stages && data(stageAll).stages.character) || {};
+    ok('角色环节能选模型/风格/画幅/画质',
+      (stChar.options?.models || []).length > 0 && (stChar.options?.styles || []).length >= 32
+      && (stChar.options?.aspects || []).length >= 4 && (stChar.options?.qualities || []).length >= 3);
+
+    const setChar = await call('POST', `/api/projects/${projectId}/stage-options`, {
+      stage: 'character', patch: { aspect: '4:3', quality: '2k' },
+    }, true);
+    ok('能单独设置角色环节的画幅画质',
+      setChar.status === 200 && data(setChar).effective?.aspect === '4:3' && data(setChar).effective?.quality === '2k',
+      JSON.stringify(data(setChar) && data(setChar).effective));
+    const projAfter = await call('GET', `/api/projects/${projectId}`, undefined, true);
+    ok('环节设置不改项目规格', data(projAfter).spec?.aspect === '9:16',
+      `${data(projAfter).spec && data(projAfter).spec.aspect}`);
+
+    const badAspect = await call('POST', `/api/projects/${projectId}/stage-options`, {
+      stage: 'character', patch: { aspect: '21:9' },
+    }, true);
+    ok('非法画幅被拒绝', badAspect.status === 422 || badAspect.status === 400, String(badAspect.status));
+
+    // 资产参考图 + 自动填词
+    const charCode = ((data(roster) && data(roster).characters) || [])[0]?.asset_code || 'CH01';
+    const refRes = await call('POST', `/api/projects/${projectId}/assets/${charCode}/reference`, {
+      images: [{ url: 'cos://smoke/ref.png', name: 'ref.png' }],
+    }, true);
+    ok('能给角色挂本地参考图', refRes.status === 200 && data(refRes).count >= 1, `${refRes.status}`);
+    const draft = await call('POST', `/api/projects/${projectId}/assets/${charCode}/prompt-draft`, {}, true);
+    ok('能自动填提示词并给出处',
+      draft.status === 200 && typeof data(draft).prompt === 'string' && data(draft).prompt.length > 10
+      && Array.isArray(data(draft).basis?.quotes),
+      `${draft.status} ${(data(draft) && data(draft).prompt || '').slice(0, 20)}`);
+    const saveP = await call('POST', `/api/projects/${projectId}/assets/${charCode}/prompt`, { prompt: '测试提示词' }, true);
+    ok('能保存手写提示词', saveP.status === 200, String(saveP.status));
+
+    // 虚拟支付接入体检 + 到账轮询
+    const paySt = await call('GET', '/api/pay/virtual/status', undefined, true);
+    ok('虚拟支付体检可读', paySt.status === 200 && Array.isArray(data(paySt).items), String(paySt.status));
+    const payOrder = await call('POST', '/api/pay/virtual/order', { amountCny: 6 }, true);
+    const qOrder = await call('POST', '/api/pay/virtual/query', { orderId: data(payOrder).order_id }, true);
+    ok('未到账时轮询如实返回 pending', qOrder.status === 200 && data(qOrder).paid === false, String(qOrder.status));
+
     const nf = await call('POST', `/api/projects/${projectId}/shots/E99-S999/generate`, { kind: 'image' }, true);
     ok('未知镜号返回 404', nf.status === 404 && nf.json.code === 'SHOT_NOT_FOUND', `${nf.status} ${nf.json && nf.json.code}`);
 

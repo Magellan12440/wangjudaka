@@ -268,25 +268,45 @@ class WechatClient {
   }
 
   /**
-   * 生成 wx.requestVirtualPayment 前端签名（小程序虚拟支付 2.0）。
-   * signData 按微信规范序列化；signature 用 session_key（live）或占位（mock）。
-   * 文档：https://developers.weixin.qq.com/miniprogram/dev/platform-capabilities/business-capabilities/virtual-payment.html
+   * 生成 wx.requestVirtualPayment 所需的三段签名（小程序虚拟支付 2.0）。
+   *
+   * 官方算法（两处都必须是 hmac_sha256，密钥不同）：
+   *   paySig    = hmac_sha256(app_key,     "requestVirtualPayment&" + signData)  // 证明是商户发起的
+   *   signature = hmac_sha256(session_key, signData)                            // 证明是本人发起的
+   * signData 必须是**紧凑 JSON**（无空格、字段顺序固定），任何空格都会导致验签失败。
+   *
+   * 旧实现拼的是 `signData&org_key=...&out_trade_no=...`，与微信文档不一致：
+   * 沙箱看不出来（沙箱不校验），一上正式就会全量 "签名错误"。
+   * 如果再遇到签名问题，只需要改这一个函数 —— paySig 的拼接口径集中在下面两行。
    */
-  signVirtualPayOrder({ offerId, outTradeNo, zoneId = '1', fee, sessionKey = null }) {
-    const ts = Math.floor(Date.now() / 1000);
+  signVirtualPayOrder({ offerId, outTradeNo, zoneId = '1', fee, sessionKey = null, platform = 'android' }) {
+    const env = Number(config.wechat.virtualPay.env) === 0 ? 0 : 1;
     const signData = JSON.stringify({
-      offerId, buyQuantity: fee, env: config.wechat.virtualPay.env,
-      zoneId, outTradeNo: outTradeNo, currencyType: 'CNY',
+      offerId: String(offerId),
+      buyQuantity: Number(fee),
+      env,
+      currencyType: 'CNY',
+      platform: platform === 'ios' ? 'ios' : 'android',
+      zoneId: String(zoneId),
     });
-    const paySigRaw = `${signData}&org_key=${config.wechat.virtualPay.appKey}&out_trade_no=${outTradeNo}`;
-    const paySig = this.payHmac(paySigRaw);
-    // 用户签名：live 用 session_key，mock 用 appKey（仅联调，真实环境微信会校验 session_key）
-    const sigKey = sessionKey || config.wechat.virtualPay.appKey;
-    const signature = crypto
-      .createHmac('sha256', sigKey)
-      .update(`${signData}&ts=${ts}`)
+    const paySig = crypto
+      .createHmac('sha256', config.wechat.virtualPay.appKey)
+      .update(`requestVirtualPayment&${signData}`)
       .digest('hex');
-    return { mode: this.payConfigured ? 'live' : 'mock', signData, paySig, signature, ts, zoneId, env: config.wechat.virtualPay.env };
+    // 用户态签名：真实环境必须用 jscode2session 拿到的 session_key，
+    // 拿不到时（未配置 AppID / mock）用 appKey 顶上，此时微信侧一定验不过 —— 如实标注 mode。
+    const sigKey = sessionKey || config.wechat.virtualPay.appKey;
+    const signature = crypto.createHmac('sha256', sigKey).update(signData).digest('hex');
+    return {
+      mode: this.payConfigured && sessionKey ? 'live' : 'mock',
+      env,
+      signData,
+      paySig,
+      signature,
+      signed_with_session_key: Boolean(sessionKey),
+      out_trade_no: outTradeNo,
+      zoneId: String(zoneId),
+    };
   }
 
   /** 虚拟支付发货回调验签：Wechatpay-Signature 用平台证书链，沙箱/首期用 appKey HMAC 兜底 */

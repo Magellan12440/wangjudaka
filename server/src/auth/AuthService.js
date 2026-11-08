@@ -114,6 +114,16 @@ class AuthService {
       user = db.findOne(USERS, (u) => u.id === user.id);
     }
     const sid = this.recordSession(user, req, sess.mode || 'wechat');
+    /**
+     * 虚拟支付签名必须用 session_key（V4.14）。
+     *
+     * 以前这个值拿到就丢了，导致 wx.requestVirtualPayment 的 signature 只能用 appKey 顶替，
+     * 沙箱看不出、正式环境百分之百「签名错误」。它只存在服务端用户记录里，
+     * publicUser 是白名单字段，不会外泄。
+     */
+    if (sess.sessionKey) {
+      db.update(USERS, user.id, { wx_session_key: sess.sessionKey, wx_session_key_at: nowIso() });
+    }
     const token = this.#sign(user.id, user, sid);
     return {
       token,

@@ -38,8 +38,11 @@ class VirtualPay {
    *   packageId：档位 id；不传时用 amountCny 走「自定义金额」（1 点 = cnyPerPoint 元，无赠送）
    * @returns 返回 wx.requestVirtualPayment 参数；mock 模式返回联调说明。
    */
-  createOrder({ userId, packageId = null, amountCny = null, sessionKey = null }) {
+  createOrder({ userId, packageId = null, amountCny = null, sessionKey = null, platform = 'android' }) {
     if (!userId) fail(ERR.AUTH_REQUIRED, '请先登录');
+    // session_key 由登录时落库，调用方不必也不应该自己传（它是服务端机密）
+    const user = db.findOne('users', (u) => u.id === userId);
+    const sk = sessionKey || user?.wx_session_key || null;
     let pkg = null;
     let points;
     let priceCny;
@@ -80,15 +83,17 @@ class VirtualPay {
         order_id: order.id,
         points: order.points,
         amount_cny: order.amount_cny,
-        notice: '未配置虚拟支付商户号（WX_PAY_OFFER_ID/WX_PAY_APP_KEY）。联调时请调用 POST /api/pay/virtual/mock-success 模拟发货。',
+        notice: '未配置虚拟支付商户号（OfferID / 支付密钥）。联调时请调用 POST /api/pay/virtual/mock-success 模拟发货。',
       };
     }
 
     const sign = wechatClient.signVirtualPayOrder({
       offerId: config.wechat.virtualPay.offerId,
       outTradeNo: order.id,
-      fee: Math.round(order.amount_cny * 10), // 虚拟支付单位：0.1 元
-      sessionKey,
+      // 虚拟支付计价单位是 0.1 元，且必须是整数：¥6.00 → 60
+      fee: Math.round(order.amount_cny * 10),
+      sessionKey: sk,
+      platform,
     });
     return {
       mode: sign.mode,
@@ -99,9 +104,15 @@ class VirtualPay {
         signData: sign.signData,
         paySig: sign.paySig,
         signature: sign.signature,
-        mode: sign.env,
+        // mode 决定走哪种虚拟支付形态：微短剧用 short_series_goods（道具直购）
+        mode: config.wechat.virtualPay.mode,
+        // env 单独给：0=正式 1=沙箱，和 signData 里的 env 必须一致
+        env: sign.env,
         zoneId: sign.zoneId,
       },
+      hint: sign.mode === 'mock'
+        ? '未拿到会话密钥，签名是 mock 的（微信侧一定验不过）。请确认已配置 AppID / AppSecret，并且这次请求带了登录态。'
+        : '把 requestVirtualPayment 整段原样传给 wx.requestVirtualPayment 即可。',
     };
   }
 
@@ -163,6 +174,99 @@ class VirtualPay {
     const o = db.findOne(ORDERS, (x) => x.id === orderId);
     if (!o) fail(ERR.ORDER_NOT_FOUND, '订单不存在');
     return o;
+  }
+
+  /**
+   * 客户端轮询支付结果（V4.14）。
+   *
+   * 为什么要它：`wx.requestVirtualPayment` 的 success 只代表"用户在微信里付完了"，
+   * 点数到账必须等微信的**发货回调**。回调有延迟（通常 1-3 秒，网络差时更久），
+   * 前端如果只等 1.5 秒就刷新余额，就会出现"钱付了、点数没到"的假象。
+   * 这里给一个确定性查询：按订单号轮询本地状态，paid 就一定是真到账了。
+   */
+  query({ userId, orderId }) {
+    const o = db.findOne(ORDERS, (x) => x.id === orderId);
+    if (!o) fail(ERR.ORDER_NOT_FOUND, '订单不存在');
+    if (userId && o.user_id !== userId) fail(ERR.OBJECT_FORBIDDEN, '这不是你的订单');
+    return {
+      order_id: o.id,
+      status: o.status,
+      paid: o.status === 'paid',
+      points: o.points,
+      amount_cny: o.amount_cny,
+      paid_at: o.paid_at ?? null,
+      // 未配置商户号时前端只能走 mock 发货，不要提示"等待回调"
+      channel: o.channel,
+      pending_hint: o.status === 'pending'
+        ? '微信的到账通知还没到。通常几秒内到账；超过 1 分钟可点「我已支付，刷新」。'
+        : null,
+    };
+  }
+
+  /**
+   * 虚拟支付接入体检（V4.14）。
+   *
+   * 用户问「虚拟支付怎么接入」时，最难的不是写代码，而是不知道还差哪几步。
+   * 这里把「差什么」直接算出来：微信后台开通 / offerId / appKey / 回调地址 / session_key。
+   * 只回布尔与提示，绝不回密钥内容。
+   */
+  status() {
+    const vp = config.wechat.virtualPay;
+    const configured = wechatClient.payConfigured;
+    const items = [
+      {
+        key: 'appid',
+        label: '小程序 AppID / AppSecret',
+        done: Boolean(config.wechat.appid && config.wechat.secret),
+        todo: '在微信后台「开发管理 → 开发设置」里拿 AppID 与 AppSecret，配到服务端环境变量。',
+      },
+      {
+        key: 'capability',
+        label: '开通「虚拟支付」能力',
+        done: configured,
+        todo: '小程序后台「功能 → 虚拟支付」提交申请（需要企业主体 + 对应类目），审核通过才有 offerId。',
+      },
+      {
+        key: 'offer_id',
+        label: 'OfferID',
+        done: Boolean(vp.offerId),
+        todo: '虚拟支付后台「基础配置」里的 OfferID，形如 1450000000，配到服务端环境变量。',
+      },
+      {
+        key: 'app_key',
+        label: 'AppKey（支付密钥）',
+        done: Boolean(vp.appKey),
+        todo: '虚拟支付后台「基础配置 → 支付密钥」里的 AppKey，只放服务端环境变量。',
+      },
+      {
+        key: 'env',
+        label: '环境（沙箱 / 正式）',
+        done: true,
+        todo: `当前环境：${vp.env === 0 ? '正式' : '沙箱'}；联调用沙箱，上线改成正式。`,
+      },
+      {
+        key: 'notify',
+        label: '发货回调地址',
+        done: Boolean(vp.notifyUrl),
+        todo: '填 https://你的域名/api/pay/virtual/notify，并在虚拟支付后台「回调配置」里登记。',
+      },
+      {
+        key: 'pay_mode',
+        label: '支付形态',
+        done: true,
+        todo: `当前 ${vp.mode}；微短剧卖点数包用 short_series_goods。`,
+      },
+    ];
+    return {
+      configured,
+      mode: configured ? 'live' : 'mock',
+      env: vp.env === 0 ? 'production' : 'sandbox',
+      pay_mode: vp.mode,
+      ready: items.filter((x) => !x.done).length === 0,
+      missing: items.filter((x) => !x.done).map((x) => x.key),
+      items,
+      docs: 'docs/虚拟支付接入指南.md',
+    };
   }
 
   listByUser(userId) {

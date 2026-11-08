@@ -10,6 +10,8 @@ import { db } from '../store/db.js';
 import { generateService } from './GenerateService.js';
 import { assetLibrary } from '../assets/AssetLibrary.js';
 import { modelCatalog } from '../relay/ModelCatalog.js';
+import { stageOptions, stageOfAsset } from './StageOptions.js';
+import { aspectOf, qualityOf } from '../core/frame.js';
 import seeds from '../seeds/loader.js';
 import { fail, ERR } from '../core/errors.js';
 import { logger } from '../core/redact.js';
@@ -20,10 +22,39 @@ const ASSETS = 'assets';
 
 export class AssetImageService {
   /**
-   * 生成一张资产设定图。
-   * @param {object} p { projectId, assetCode, userId, force }
+   * 合并出"这一张图到底该用什么参数"。
+   * 三层优先级：本次临时覆盖 > 该环节已保存的设置 > 项目规格。
+   * 非法值直接报错，不静默退回 —— 用户点了 2K 就必须是 2K，否则等于没得选。
    */
-  async generate({ projectId, assetCode, userId = null, force = false }) {
+  #effective(projectId, stage, overrides, project) {
+    const base = stageOptions.effective(projectId, stage);
+    const o = overrides || {};
+    const model = o.model ? modelCatalog.resolve('image', o.model) : base.model;
+    const styleCode = o.style_code ?? o.styleCode ?? base.style_code;
+    const style = seeds.style(styleCode);
+    const aspect = o.aspect ?? base.aspect;
+    const quality = o.quality ?? base.quality;
+    if (!aspectOf(aspect)) fail(ERR.SPEC_VIOLATION, `不支持的画幅：${aspect}`);
+    if (!qualityOf(quality)) fail(ERR.SPEC_VIOLATION, `不支持的画质：${quality}`);
+    return {
+      stage,
+      model,
+      style_code: styleCode,
+      style_name: style?.name ?? styleCode,
+      palette: style?.palette ?? base.palette ?? [],
+      aspect,
+      quality,
+      project_spec: project?.spec ?? null,
+    };
+  }
+
+  /**
+   * 生成一张资产设定图。
+   * @param {object} p { projectId, assetCode, userId, force, overrides }
+   *   overrides：本次临时覆盖（模型/画幅/画质/风格），不改项目也不改环境变量，
+   *              前端「本环节设置」里点的那几个值就是从这里进来的。
+   */
+  async generate({ projectId, assetCode, userId = null, force = false, overrides = null }) {
     const project = db.findOne(PROJECT, (x) => x.id === projectId);
     if (!project) fail(ERR.NOT_FOUND, '项目不存在');
     const asset = assetLibrary.get(projectId, assetCode);
@@ -35,27 +66,46 @@ export class AssetImageService {
       };
     }
 
+    /**
+     * 分环节参数（V4.14）：角色/场景/道具各自可换模型、画幅、画质、风格。
+     * 优先级：本次临时覆盖 > 该环节已保存的设置 > 项目规格。
+     */
+    const stage = stageOfAsset(asset.asset_type);
+    const eff = this.#effective(projectId, stage, overrides, project);
+
+    // 用户上传的本地参考图（V4.14）：作为长相/结构依据进参考图列表
+    const referenceImages = (asset.reference_images ?? []).filter((r) => r && r.url);
+
     const r = await generateService.run({
       userId: userId ?? project.user_id,
       projectId,
       kind: 'image',
       purpose: 'preview',
       idemKey: `asset:${asset.asset_code}:${Date.now()}`,
-      meta: { shotNo: `${asset.asset_code}-SHEET`, primaryAssetCode: asset.asset_code },
+      meta: {
+        shotNo: `${asset.asset_code}-SHEET`,
+        primaryAssetCode: asset.asset_code,
+        stage,
+        stage_options: {
+          model: eff.model, style_code: eff.style_code, aspect: eff.aspect, quality: eff.quality,
+        },
+        references: referenceImages.map((x) => x.name ?? x.url).slice(0, 4),
+      },
       compileRequest: {
         project: {
-          style_code: project.spec?.style_code,
+          // 项目级字段先铺开，再让环节参数覆盖掉风格/画幅/画质那几项
+          ...(project.spec ?? {}),
+          style_code: eff.style_code,
           director_code: project.spec?.director_code ?? null,
-          // V4.13：资产图也按用户选的画幅与画质出（旧实现固定 1:1，用户选了竖屏却在资产环节被改掉）
-          aspect: project.spec?.aspect ?? '9:16',
-          quality: project.spec?.quality ?? '1080p',
+          aspect: eff.aspect,
+          quality: eff.quality,
           video_type: project.spec?.video_type ?? 'dynamic',
           episode_count: project.spec?.episode_count ?? null,
           episode_sec: project.spec?.episode_sec ?? 90,
           total_minutes: project.spec?.total_minutes ?? 10,
-          palette: project.spec?.palette ?? undefined,
+          palette: eff.palette?.length ? eff.palette : (project.spec?.palette ?? undefined),
         },
-        model: modelCatalog.resolve('image', project.spec?.models?.image ?? null),
+        model: modelCatalog.resolve('image', eff.model),
         shot_no: `${asset.asset_code}-SHEET`,
         asset: {
           asset_code: asset.asset_code,
@@ -65,7 +115,10 @@ export class AssetImageService {
           lock_values: asset.lock_values ?? {},
           meta: asset.meta ?? {},
         },
-        options: { mode: 'asset_sheet' },
+        options: {
+          mode: 'asset_sheet',
+          reference_images: referenceImages,
+        },
       },
     });
 
@@ -82,6 +135,15 @@ export class AssetImageService {
       asset_code: updated?.asset_code ?? asset.asset_code,
       asset_type: asset.asset_type,
       version: updated?.version ?? asset.version,
+      // 这一张实际用了什么参数（V4.14）：用户能核对选择是否真的生效
+      effective: {
+        stage,
+        model: eff.model,
+        style_code: eff.style_code,
+        aspect: eff.aspect,
+        quality: eff.quality,
+      },
+      reference_count: referenceImages.length,
       credits: r.credits,
       balance: r.balance,
       mock: !!r.mock,
@@ -302,6 +364,12 @@ export class AssetImageService {
         supporting: !!a.meta?.supporting,
         episodes: a.meta?.episodes ?? [],
         desc: a.lock_values?.traits || a.lock_values?.desc || a.meta?.desc || '',
+        // 提示词与参考图（V4.14）：这张卡"现在是用什么描述、几张图定住的"，页面要能直接改
+        prompt: a.lock_values?.prompt || '',
+        reference_count: (a.reference_images ?? []).length,
+        reference_images: (a.reference_images ?? []).slice(0, 4).map((r) => ({
+          url: r.url, name: r.name ?? '',
+        })),
       });
     }
     const all = Object.values(groups).flat();

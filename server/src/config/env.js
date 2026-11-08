@@ -188,6 +188,14 @@ export const config = {
       mchid: str('WX_PAY_MCHID', ''),
       notifyUrl: str('WX_PAY_NOTIFY_URL', ''),
       env: num('WX_PAY_ENV', 1), // 0=正式 1=沙箱
+      /**
+       * 虚拟支付形态（V4.14）：
+       *   short_series_goods —— 微短剧「道具直购」，卖的是点数包，本项目默认走这条；
+       *   short_series_coin  —— 微短剧「代币」，需先在后台充值代币再消费；
+       *   game               —— 小游戏道具。
+       * 三个值都是微信 wx.requestVirtualPayment 的合法 mode，填错会直接报参数错误。
+       */
+      mode: str('WX_PAY_MODE', 'short_series_goods'),
     },
   },
   /**

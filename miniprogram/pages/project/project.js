@@ -1,6 +1,7 @@
 const api = require('../../utils/api.js');
 const fmt = require('../../utils/format.js');
 const motion = require('../../utils/motion.js');
+const privacy = require('../../utils/privacy.js');
 const { pickFile } = require('../../utils/pickFile.js');
 
 // 用户只看「做剧的步骤」，流水线/画布/节点一律留在后端
@@ -287,6 +288,29 @@ Page({
     // 五维一致性摘要（V4.11）
     consistency: null,
     directorPinned: [],
+
+    // —— 分环节参数（V4.14）——
+    // 剧本 / 角色 / 场景 / 道具 / 分镜 / 视频 各自可换模型、风格、画幅、画质。
+    // 只影响该环节的生成，不改项目规格（成片规格仍由项目决定）。
+    stageOpts: null,
+    stageSheet: false,
+    stageKey: '',
+    stageTitle: '',
+    stageHint: '',
+    stageModels: [],
+    stageStyles: [],
+    stageAspects: [],
+    stageQualities: [],
+    stageForm: { model: '', style_code: '', aspect: '', quality: '' },
+    stageBusy: false,
+    stageStyleAll: false,
+    stageChanged: [],
+
+    // —— 资产参考图与提示词（V4.14）——
+    assetEdit: null,       // { code, name, prompt, refs:[{url,name}], quotes:[] }
+    assetDraftBusy: false,
+    assetRefBusy: false,
+    assetSaveBusy: false,
   },
 
   onLoad(q) {
@@ -688,6 +712,8 @@ Page({
         return this.loadRoster();
       })
       .then(() => this.loadAssembly())
+      // 分环节参数（V4.14）：没有它，「环节设置」按钮点了会没反应
+      .then(() => (this.data.stageOpts ? null : this.loadStageOpts()))
       .catch(() => {});
   },
 
@@ -927,36 +953,80 @@ Page({
       .then(() => this.setData({ savingText: false }));
   },
 
+  /**
+   * 选图 / 选视频（V4.14 补隐私闸门）。
+   *
+   * 旧实现直接调 wx.chooseMedia：用户没同意《用户隐私保护指引》时微信直接 fail，
+   * 而这里根本没写 fail 回调 —— 表现就是「点了没反应」。现在先过 privacy.ensure，
+   * 再统一处理取消 / 隐私 / 其它失败，每种都说清下一步。
+   */
   pickImages() {
-    if (this.data.uploading) return;
-    motion.haptic();
-    if (!wx.chooseMedia) {
-      wx.showToast({ title: '当前微信版本不支持选图，请升级', icon: 'none' });
-      return;
-    }
-    wx.chooseMedia({
-      count: 9,
-      mediaType: ['image'],
-      sourceType: ['album', 'camera'],
-      sizeType: ['compressed'],
-      success: (r) => this.uploadAll((r.tempFiles || []).map((f) => ({ path: f.tempFilePath, size: f.size })), 'image'),
-    });
+    this.chooseMedia({ count: 9, mediaType: ['image'], sizeType: ['compressed'] }, 'image');
   },
 
   pickVideos() {
-    if (this.data.uploading) return;
-    motion.haptic();
-    if (!wx.chooseMedia) {
-      wx.showToast({ title: '当前微信版本不支持选视频，请升级', icon: 'none' });
+    this.chooseMedia({ count: 1, mediaType: ['video'], maxDuration: 60 }, 'video');
+  },
+
+  chooseMedia(opts, kind) {
+    if (this.data.uploading) {
+      wx.showToast({ title: '正在上传，等一下', icon: 'none' });
       return;
     }
-    wx.chooseMedia({
-      count: 1,
-      mediaType: ['video'],
-      sourceType: ['album', 'camera'],
-      maxDuration: 60,
-      success: (r) => this.uploadAll((r.tempFiles || []).map((f) => ({ path: f.tempFilePath, size: f.size })), 'video'),
-    });
+    motion.haptic();
+    if (!wx.chooseMedia) {
+      wx.showToast({ title: `当前微信版本不支持选${kind === 'video' ? '视频' : '图'}，请升级`, icon: 'none' });
+      return;
+    }
+    privacy.ensure({ timeout: 20000 })
+      .then((p) => {
+        if (p && p.ok === false) {
+          const err = new Error(p.message || '需要先同意隐私保护指引');
+          err.code = 'PRIVACY_REQUIRED';
+          throw err;
+        }
+        return new Promise((resolve, reject) => {
+          wx.chooseMedia({
+            count: opts.count,
+            mediaType: opts.mediaType,
+            sourceType: ['album', 'camera'],
+            sizeType: opts.sizeType,
+            maxDuration: opts.maxDuration,
+            success: resolve,
+            fail: reject,
+          });
+        });
+      })
+      .then((r) => {
+        const files = (r.tempFiles || []).map((f) => ({ path: f.tempFilePath, size: f.size }));
+        this.uploadAll(files, kind);
+      })
+      .catch((e) => {
+        const raw = String((e && (e.errMsg || e.message)) || '');
+        if (/cancel|取消/i.test(raw)) return;
+        if (e && e.code === 'PRIVACY_REQUIRED') {
+          wx.showModal({
+            title: '需要先同意隐私保护指引',
+            content: '微信要求先同意《用户隐私保护指引》才能读取相册/相机。点「去同意」会重新拉起授权弹窗。',
+            confirmText: '去同意',
+            cancelText: '取消',
+            success: (r) => {
+              if (r.confirm) this.chooseMedia(opts, kind);
+            },
+          });
+          return;
+        }
+        if (privacy.isPrivacyError(raw)) {
+          const why = privacy.explain(raw) || {};
+          wx.showModal({
+            title: why.title || '隐私授权失败',
+            content: why.content || raw,
+            showCancel: false,
+          });
+          return;
+        }
+        wx.showToast({ title: raw ? `选择失败：${raw.slice(0, 30)}` : '选择失败，请重试', icon: 'none' });
+      });
   },
 
   /**
@@ -974,6 +1044,22 @@ Page({
       .then((files) => this.uploadAll(files.map((f) => ({ path: f.path, size: f.size, name: f.name })), 'file'))
       .catch((e) => {
         if (!e || e.code === 'CANCEL') return;
+        if (e.code === 'PRIVACY_REQUIRED') {
+          const why = (e && e.detail) || {};
+          wx.showModal({
+            title: why.title || '需要先同意隐私保护指引',
+            content: why.content || '微信要求先同意《用户隐私保护指引》才能选择文件。',
+            confirmText: why.needDeclaration ? '知道了' : '去同意',
+            showCancel: !!why.needDeclaration ? false : true,
+            cancelText: '手动粘贴',
+            success: (r) => {
+              if (!r.confirm) return;
+              if (why.needDeclaration) return;
+              this.pickFiles();
+            },
+          });
+          return;
+        }
         wx.showModal({
           title: '没能选到文件',
           content: (e && e.message) || '请重试，或直接在「粘贴小说」里贴正文',
@@ -1318,27 +1404,232 @@ Page({
     const { code, name } = e.currentTarget.dataset;
     if (!code) return;
     motion.haptic();
-    wx.showModal({
-      title: `改「${name || code}」的设定`,
-      editable: true,
-      placeholderText: '一句话：外形、气质、标志性细节',
-      confirmText: '保存',
-      success: (r) => {
-        if (!r.confirm) return;
-        const desc = String(r.content || '').trim();
-        if (!desc) {
-          wx.showToast({ title: '没写内容', icon: 'none' });
+    const all = [
+      ...(this.data.assetGroups.character || []),
+      ...(this.data.assetGroups.scene || []),
+      ...(this.data.assetGroups.prop || []),
+    ];
+    const hit = all.find((x) => x.code === code) || {};
+    this.setData({
+      assetEdit: {
+        code,
+        name: name || hit.name || code,
+        prompt: hit.prompt || hit.desc || '',
+        refs: hit.reference_images || [],
+        quotes: [],
+        note: '',
+      },
+    });
+  },
+
+  closeAssetEdit() {
+    if (this.data.assetSaveBusy) return;
+    this.setData({ assetEdit: null });
+  },
+
+  onAssetPrompt(e) {
+    if (!this.data.assetEdit) return;
+    this.setData({ 'assetEdit.prompt': e.detail.value });
+  },
+
+  /**
+   * 自动填提示词（V4.14）。
+   * 从剧本里这个人的原文描写 + 风格色板 + 已上传参考图，拼出一版可直接用的提示词，
+   * 并把出处（第几集第几场哪一句）一并显示 —— 用户能核对，不是黑箱。
+   */
+  draftAssetPrompt() {
+    const ed = this.data.assetEdit;
+    if (!ed || this.data.assetDraftBusy) return;
+    motion.haptic();
+    this.setData({ assetDraftBusy: true });
+    api.assetPromptDraft(this.data.projectId, ed.code)
+      .then((d) => {
+        this.setData({
+          'assetEdit.prompt': d.prompt || '',
+          'assetEdit.quotes': d.basis?.quotes || [],
+          'assetEdit.note': d.basis?.note || '',
+        });
+        wx.showToast({ title: d.basis?.quoted_count ? `从剧本抽到 ${d.basis.quoted_count} 句描写` : '剧本里没找到描写，可上传参考图', icon: 'none' });
+      })
+      .catch((err) => wx.showToast({ title: (err && err.message) || '生成失败', icon: 'none' }))
+      .then(() => this.setData({ assetDraftBusy: false }));
+  },
+
+  /** 上传参考照片（本地相册/相机）：先传云存储，再挂到这张资产卡上 */
+  addAssetRef() {
+    const ed = this.data.assetEdit;
+    if (!ed || this.data.assetRefBusy) return;
+    motion.haptic();
+    if (!wx.chooseMedia) {
+      wx.showToast({ title: '当前微信版本不支持选图，请升级', icon: 'none' });
+      return;
+    }
+    privacy.ensure({ timeout: 20000 })
+      .then((p) => {
+        if (p && p.ok === false) {
+          const err = new Error(p.message || '需要先同意隐私保护指引');
+          err.code = 'PRIVACY_REQUIRED';
+          throw err;
+        }
+        return new Promise((resolve, reject) => {
+          wx.chooseMedia({
+            count: 4 - (ed.refs || []).length || 1,
+            mediaType: ['image'],
+            sourceType: ['album', 'camera'],
+            sizeType: ['compressed'],
+            success: resolve,
+            fail: reject,
+          });
+        });
+      })
+      .then((r) => {
+        const files = (r.tempFiles || []).map((f) => ({ path: f.tempFilePath, size: f.size }));
+        if (!files.length) return null;
+        this.setData({ assetRefBusy: true });
+        return api
+          .uploadMaterial(this.data.projectId, files[0].path, `资产参考图 ${ed.code}`)
+          .then((d) => {
+            const item = (d.items && d.items[0]) || d.item || {};
+            const url = item.url || item.thumb || '';
+            if (!url) throw new Error('上传后没拿到图片地址');
+            return api.addAssetReference(this.data.projectId, ed.code, [{ url, name: ed.name }], 'add');
+          })
+          .then((res) => {
+            const refs = (res.reference_images || []).map((x) => ({ url: x.url, name: x.name || '' }));
+            this.setData({ 'assetEdit.refs': refs });
+            wx.showToast({ title: `已挂 ${refs.length} 张参考图`, icon: 'none' });
+          });
+      })
+      .catch((err) => {
+        if (!err || /cancel/i.test(String(err.errMsg || err.message || ''))) return;
+        if (err.code === 'PRIVACY_REQUIRED') {
+          wx.showModal({
+            title: '需要先同意隐私保护指引',
+            content: '微信要求先同意《用户隐私保护指引》才能读取相册。点「去同意」重新拉起授权。',
+            confirmText: '去同意',
+            cancelText: '取消',
+            success: (r) => { if (r.confirm) this.addAssetRef(); },
+          });
           return;
         }
-        api.updateAsset(this.data.projectId, code, { desc })
-          .then((res) => {
-            wx.showToast({ title: '已保存，点重绘生效', icon: 'none' });
-            return this.loadAssets();
-          })
-          .catch((err) => wx.showModal({ title: '没保存成功', content: (err && err.message) || '稍后再试', showCancel: false }));
+        wx.showToast({ title: (err && err.message) || '上传失败', icon: 'none' });
+      })
+      .then(() => this.setData({ assetRefBusy: false }));
+  },
+
+  removeAssetRef(e) {
+    const idx = Number(e.currentTarget.dataset.index);
+    const ed = this.data.assetEdit;
+    if (!ed) return;
+    const refs = (ed.refs || []).filter((_, i) => i !== idx);
+    motion.haptic();
+    api.addAssetReference(this.data.projectId, ed.code, refs, 'set')
+      .then((res) => this.setData({ 'assetEdit.refs': (res.reference_images || []).map((x) => ({ url: x.url, name: x.name || '' })) }))
+      .catch(() => {});
+  },
+
+  /**
+   * 保存提示词。
+   * 「只保存」不花钱；「保存并重绘」才会真的调模型出图 —— 两个动作分得清，
+   * 不会出现"我只想改个字，结果扣了钱"。
+   */
+  saveAssetPrompt(e) {
+    const ed = this.data.assetEdit;
+    if (!ed || this.data.assetSaveBusy) return;
+    const redraw = String((e && e.currentTarget && e.currentTarget.dataset.redraw) ?? '0') === '1';
+    const prompt = String(ed.prompt || '').trim();
+    motion.haptic();
+    this.setData({ assetSaveBusy: true });
+    api.setAssetPrompt(this.data.projectId, ed.code, prompt)
+      .then(() => (redraw ? api.generateAssetImage(this.data.projectId, ed.code, true, null) : null))
+      .then((r) => {
+        wx.showToast({ title: r ? '已重绘' : '提示词已保存', icon: 'none' });
+        this.setData({ assetEdit: null });
+        return this.loadAssets();
+      })
+      .catch((err) => wx.showModal({ title: '没保存成功', content: (err && err.message) || '稍后再试', showCancel: false }))
+      .then(() => this.setData({ assetSaveBusy: false }));
+  },
+
+  // —— 分环节设置（V4.14）——
+  loadStageOpts() {
+    return api.stageOptions(this.data.projectId)
+      .then((d) => this.setData({ stageOpts: d }))
+      .catch(() => {});
+  },
+
+  openStage(e) {
+    const key = e.currentTarget.dataset.stage;
+    const d = this.data.stageOpts;
+    if (!d || !d.stages || !d.stages[key]) {
+      // 目录还没拉到：一边重试一边给个明确说法，别让按钮像坏的
+      this.loadStageOpts().then(() => {
+        if (this.data.stageOpts) this.openStage(e);
+      });
+      return;
+    }
+    motion.haptic();
+    const st = d.stages[key];
+    const cur = st.current || {};
+    this.setData({
+      stageSheet: true,
+      stageKey: key,
+      stageTitle: st.label,
+      stageHint: st.hint || '',
+      stageModels: st.options.models || [],
+      stageStyles: st.options.styles || [],
+      stageAspects: st.options.aspects || [],
+      stageQualities: st.options.qualities || [],
+      stageForm: {
+        model: cur.model || '',
+        style_code: cur.style_code || '',
+        aspect: cur.aspect || '',
+        quality: cur.quality || '',
       },
-      fail: () => {},
+      stageChanged: [],
+      stageStyleAll: false,
     });
+  },
+
+  closeStage() {
+    if (this.data.stageBusy) return;
+    this.setData({ stageSheet: false });
+  },
+
+  pickStage(e) {
+    const { field, value } = e.currentTarget.dataset;
+    if (!field) return;
+    motion.haptic();
+    const form = { ...this.data.stageForm, [field]: value };
+    const changed = this.data.stageChanged.slice();
+    if (changed.indexOf(field) < 0) changed.push(field);
+    this.setData({ stageForm: form, stageChanged: changed });
+  },
+
+  toggleStageStyles() {
+    motion.haptic();
+    this.setData({ stageStyleAll: !this.data.stageStyleAll });
+  },
+
+  /** 保存到该环节（只影响这一环节的后续生成，不动项目规格） */
+  saveStage() {
+    if (this.data.stageBusy) return;
+    const { stageKey, stageForm } = this.data;
+    if (!stageKey) return;
+    motion.haptic();
+    this.setData({ stageBusy: true });
+    api.setStageOptions(this.data.projectId, stageKey, stageForm)
+      .then((r) => {
+        const eff = r.effective || {};
+        wx.showToast({
+          title: `${r.stage || stageKey} 已设为 ${eff.model || ''}`.trim() || '已保存',
+          icon: 'none',
+        });
+        this.setData({ stageSheet: false });
+        return this.loadStageOpts();
+      })
+      .catch((err) => wx.showModal({ title: '没保存成功', content: (err && err.message) || '稍后再试', showCancel: false }))
+      .then(() => this.setData({ stageBusy: false }));
   },
 
   // ——— 其他动作 ———

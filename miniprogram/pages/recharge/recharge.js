@@ -33,6 +33,7 @@ Page({
     customPoints: 0,
 
     payMode: 'mock',
+    payMissing: [],
     live: false,
     paying: false,
     payAmount: '0',
@@ -66,7 +67,9 @@ Page({
       api.rechargePackages().catch(() => null),
       api.me().catch(() => null),
       api.payOrders().catch(() => []),
-    ]).then(([pkgRes, me, orderRes]) => {
+      // 接入体检（V4.14）：没打通时告诉运营「还差哪几步」，而不是只在日志里报错
+      api.payStatus().catch(() => null),
+    ]).then(([pkgRes, me, orderRes, paySt]) => {
       const pk = (pkgRes && pkgRes.packages) || [];
       const packages = pk.map((p) => ({
         id: p.id,
@@ -81,6 +84,8 @@ Page({
       const balance = (me && me.user && Number(me.user.balance_points)) || 0;
       const cnyPerPoint = (pkgRes && Number(pkgRes.cny_per_point)) || 1;
       const payMode = (pkgRes && pkgRes.pay_mode) || 'mock';
+      const payMissing = (paySt && paySt.items ? paySt.items.filter((x) => !x.done) : [])
+        .map((x) => ({ key: x.key, label: x.label, todo: x.todo }));
       const orders = (Array.isArray(orderRes) ? orderRes : ((orderRes && orderRes.items) || [])).slice(0, 12).map((o) => {
         const st = ORDER_STATUS[o.status] || { text: o.status || '—', cls: 'off' };
         return {
@@ -106,6 +111,7 @@ Page({
         balance,
         cnyPerPoint,
         payMode,
+        payMissing,
         live: payMode === 'live',
         orders,
         campaign: (pkgRes && pkgRes.campaign) || null,
@@ -214,15 +220,36 @@ Page({
             signData: p.signData,
             paySig: p.paySig,
             signature: p.signature,
+            // mode：微短剧道具直购 = short_series_goods；env：0 正式 / 1 沙箱（必须与 signData 内一致）
             mode: p.mode,
+            env: p.env,
             zoneId: p.zoneId,
             success: () => {
-              // 发货以微信回调为准，这里等一会儿再查，避免回调还没到就刷新
-              setTimeout(() => {
-                this.load();
-                wx.showToast({ title: '支付成功，点数已到账', icon: 'none' });
-                resolve();
-              }, 1500);
+              /**
+               * success 只代表"用户在微信里付完了"，点数要等微信的**发货回调**才入账（V4.14）。
+               * 旧实现死等 1.5 秒就刷新，回调慢一点就会出现"钱付了、点数没到"的假象。
+               * 现在按订单号轮询，最多约 12 秒；仍未到账就如实告诉用户去哪看。
+               */
+              this.pollPaid(order.order_id, order.points)
+                .then((r) => {
+                  if (r && r.paid) {
+                    wx.showToast({ title: `支付成功，${order.points} 点到账`, icon: 'none' });
+                  } else {
+                    wx.showModal({
+                      title: '钱已付，点数还在路上',
+                      content: `微信的到账通知还没到（订单 ${order.order_id}）。\n\n`
+                        + '通常 1 分钟内到账；若一直没到，请把订单号发给客服核对，不会重复扣款。',
+                      showCancel: false,
+                      confirmText: '知道了',
+                    });
+                  }
+                  this.load();
+                  resolve();
+                })
+                .catch(() => {
+                  this.load();
+                  resolve();
+                });
             },
             fail: (err) => {
               const msg = String((err && err.errMsg) || '');
@@ -237,6 +264,22 @@ Page({
         wx.showToast({ title: (e && e.message) || '下单失败，请重试', icon: 'none' });
       })
       .then(() => this.setData({ paying: false }));
+  },
+
+  /**
+   * 轮询订单是否已到账（V4.14）。
+   * 发货由微信回调驱动，回调延迟不可控，所以只轮询本地订单状态，不猜时间。
+   * @param {string} orderId
+   * @param {number} points
+   * @param {number} tries 次数 × 1.5s
+   */
+  pollPaid(orderId, points, tries = 8) {
+    const once = (left) => api.payQuery(orderId).then((r) => {
+      if (r && r.paid) return r;
+      if (left <= 1) return r || { paid: false };
+      return new Promise((resolve) => setTimeout(resolve, 1500)).then(() => once(left - 1));
+    });
+    return once(Math.max(1, tries));
   },
 
   /** 待支付订单重新拉起支付（走后端同一订单，避免重复下单） */

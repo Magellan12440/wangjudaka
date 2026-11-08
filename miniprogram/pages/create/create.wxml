@@ -362,3 +362,6 @@
     <view class="sheet-cancel tap" hover-class="tap-on" bindtap="closeSwitcher">取消</view>
   </view>
 </view>
+
+<!-- 隐私授权弹窗（V4.14）：选文件/相册被拦时自动出现，同意后原操作继续 -->
+<privacy-gate />
