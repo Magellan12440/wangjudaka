@@ -171,13 +171,20 @@ export function toSrt(cues) {
  * ASS：竖屏/横屏自动换字号，AI 标识固定顶部居中。
  * 用 ASS 而不是 SRT 烧录，是为了控制描边与安全区（竖屏底部有 UI 遮挡）。
  */
-export function toAss(cues, { aspect = '9:16', title = '网剧大咖', font = 'Source Han Sans SC' } = {}) {
+export function toAss(cues, {
+  aspect = '9:16', width = null, height = null, title = '网剧大咖',
+  font = 'Source Han Sans SC', accent = null,
+} = {}) {
   const vertical = aspect === '9:16';
-  const w = vertical ? 1080 : 1920;
-  const h = vertical ? 1920 : 1080;
-  const fontSize = vertical ? 62 : 54;
-  const marginV = vertical ? Math.round(h * 0.18) : Math.round(h * 0.08);
-  const labelSize = vertical ? 44 : 38;
+  // V4.13：画布尺寸不再写死 1080/1920 —— 4:3 与 1:1 的成片按 1080x1920 排版会把字幕排出画外
+  const w = Number(width) || (vertical ? 1080 : aspect === '1:1' ? 1080 : 1920);
+  const h = Number(height) || (vertical ? 1920 : aspect === '1:1' ? 1080 : 1080);
+  const short = Math.min(w, h);
+  const fontSize = Math.round(short * 0.057);
+  const marginV = Math.round(h * (vertical ? 0.18 : 0.08));
+  const labelSize = Math.round(short * 0.041);
+  // 风格色板的第一强调色 → 字幕描边色，成片也带风格（ASS 是 &HAABBGGRR）
+  const accentColour = accent ? hexToAss(accent) : '&H00101010';
 
   const header = `[Script Info]
 Title: ${title}
@@ -189,8 +196,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${font},${fontSize},&H00FFFFFF,&H000000FF,&H00101010,&H64000000,0,0,0,0,100,100,1,0,1,3,1,2,60,60,${marginV},1
-Style: AILabel,${font},${labelSize},&H00E8E8E8,&H000000FF,&H00101010,&H64000000,0,0,0,0,100,100,2,0,1,2,0,8,40,40,60,1
+Style: Default,${font},${fontSize},&H00FFFFFF,&H000000FF,${accentColour},&H64000000,0,0,0,0,100,100,1,0,1,3,1,2,60,60,${marginV},1
+Style: AILabel,${font},${labelSize},&H00E8E8E8,&H000000FF,${accentColour},&H64000000,0,0,0,0,100,100,2,0,1,2,0,8,40,40,60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -209,6 +216,16 @@ function escapeAss(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}').replace(/\n/g, '\\N');
 }
 
+/** #RRGGBB → ASS 的 &H00BBGGRR（ASS 是 BGR 顺序，别写反） */
+export function hexToAss(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? '').trim());
+  if (!m) return '&H00101010';
+  const r = m[1].slice(0, 2);
+  const g = m[1].slice(2, 4);
+  const b = m[1].slice(4, 6);
+  return `&H00${b}${g}${r}`.toUpperCase();
+}
+
 /** 纯文本台词本（给「剪映导入」或人工校对用） */
 export function toPlainScript(cues) {
   return cues
@@ -217,5 +234,5 @@ export function toPlainScript(cues) {
     .join('\n');
 }
 
-export const subtitle = { buildSubtitles, toSrt, toAss, toPlainScript, splitCueText, SUBTITLE_RULES };
+export const subtitle = { buildSubtitles, toSrt, toAss, toPlainScript, splitCueText, hexToAss, SUBTITLE_RULES };
 export default subtitle;

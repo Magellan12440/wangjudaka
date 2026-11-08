@@ -400,6 +400,18 @@
               <text class="title">角色（{{assetProgress.character.ready}}/{{assetProgress.character.total}}）</text>
               <text class="asset-more tap" hover-class="tap-on" data-type="character" bindtap="genAssetType">出全部 ›</text>
             </view>
+            <!-- 角色名册（V4.13）：剧本里出现过的配角也在这里，缺图一键补齐 -->
+            <view wx:if="{{roster && roster.total}}" class="roster-line">
+              <text class="roster-k">名册</text>
+              <text class="roster-v">{{roster.total}} 人（主角 {{roster.main}} · 配角 {{roster.supporting}}）· 已出图 {{roster.ready}}</text>
+              <text
+                wx:if="{{roster.missing_images.length}}"
+                class="roster-fill tap {{rosterBusy ? 'off' : ''}}"
+                hover-class="tap-on"
+                bindtap="fillCharacters"
+              >{{rosterBusy ? '出图中…' : '补齐 ' + roster.missing_images.length + ' 张'}}</text>
+              <text wx:else class="roster-ok">已齐</text>
+            </view>
             <view class="asset-grid mt16">
               <view wx:for="{{assetGroups.character}}" wx:key="code" class="asset-cell">
                 <view class="asset-img-wrap">
@@ -413,7 +425,7 @@
                     bindtap="genAsset"
                   >{{assetBusy === item.code ? '…' : (item.image_url ? '重绘' : '出图')}}</view>
                 </view>
-                <view class="asset-name ellipsis">{{item.name}}</view>
+                <view class="asset-name ellipsis">{{item.name}}<text wx:if="{{item.supporting}}" class="asset-badge">配角</text></view>
                 <view class="asset-sub">{{item.code}} · {{item.locks}} 锁
                   <text class="asset-edit tap" data-code="{{item.code}}" data-name="{{item.name}}" catchtap="editAsset">改设定</text>
                 </view>
@@ -490,6 +502,21 @@
             <view wx:if="{{!specLock.ok}}" class="tiny mt8 spec-issue">· {{specLock.issuesText}}</view>
           </view>
           <view class="btn btn-sm btn-ghost mt16 tap" hover-class="tap-on" bindtap="openDirector">看导演与一致性明细</view>
+        </view>
+
+        <!-- 成片装配（V4.13）：第几镜、哪一版、缺哪镜，一屏看完 -->
+        <view wx:if="{{assembly && assembly.total}}" class="card asm-card {{assembly.ok ? '' : 'bad'}}">
+          <view class="between">
+            <text class="title">成片装配</text>
+            <text class="pill {{assembly.ok ? 'pill-green' : 'pill-red'}}">{{assembly.ready}}/{{assembly.total}} 段就位</text>
+          </view>
+          <view class="sub mt8">成片按镜号索引排序；重出某一镜只换版本、位置不动。漏镜或重号会直接拦着不让渲染。</view>
+          <view wx:if="{{assembly.missing.length}}" class="tiny mt12 asm-issue">
+            · 缺 {{assembly.missing.length}} 段：<text wx:for="{{assembly.missing}}" wx:key="shot_no">{{index ? '、' : ''}}{{item.shot_no}}</text>
+          </view>
+          <view wx:if="{{assembly.duplicates.length}}" class="tiny mt8 asm-issue">· 重复镜号 {{assembly.duplicates.length}} 处，先重建分镜</view>
+          <view wx:if="{{assembly.superseded_picks.length}}" class="tiny mt8 asm-issue">· {{assembly.superseded_picks.length}} 段还指着已被顶掉的旧版本，请重新选定</view>
+          <view class="tiny mt8">共 {{assembly.total}} 段 · {{assembly.total_sec}} 秒 · 覆盖率 {{assembly.coverage * 100}}%</view>
         </view>
 
         <view class="card">

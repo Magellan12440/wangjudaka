@@ -17,9 +17,14 @@ const SNAP = 'asset_snapshots';
 export class AssetLibrary {
   /**
    * 创建资产
-   * @param {object} p { projectId, assetType, name, locks[], lock_values{}, image_url, meta }
+   * @param {object} p { projectId, assetType, name, code?, locks[], lock_values{}, image_url, meta }
+   *
+   * V4.13：支持显式指定 asset_code。
+   * 以前只按"当前数量 +1"自动编号，于是剧本里的 CH07（配角）会被建成 CH02 ——
+   * 分镜引用 CH07 时照样找不到资产，系统只好再补一张空卡，配角脸和设定图永远对不上。
+   * 现在有 code 就用 code（必须唯一），没有才自动编号。
    */
-  create({ projectId, assetType, name, locks = [], lockValues = {}, imageUrl = null, meta = {} }) {
+  create({ projectId, assetType, name, code = null, locks = [], lockValues = {}, imageUrl = null, meta = {} }) {
     const tpl = seeds.lockTemplate(assetType);
     if (!tpl) fail(ERR.BAD_REQUEST, `未知资产类型: ${assetType}`);
     // 锁必须显式给出：自动补齐会让"一致性"形同虚设，这里不接受少于下限的锁
@@ -31,13 +36,28 @@ export class AssetLibrary {
       });
     }
     const prefix = tpl.code_prefix;
-    const seq = db.count(COL, (a) => a.project_id === projectId && a.asset_type === assetType) + 1;
-    const code = `${prefix}${String(seq).padStart(2, '0')}`;
+    let assetCode = null;
+    if (code) {
+      const wanted = String(code).trim().slice(0, 24).toUpperCase();
+      if (!wanted) fail(ERR.BAD_REQUEST, '资产编码不能为空');
+      if (db.findOne(COL, (a) => a.project_id === projectId && a.asset_code === wanted)) {
+        fail(ERR.BAD_REQUEST, `资产编码已存在：${wanted}`);
+      }
+      assetCode = wanted;
+    } else {
+      let seq = db.count(COL, (a) => a.project_id === projectId && a.asset_type === assetType) + 1;
+      assetCode = `${prefix}${String(seq).padStart(2, '0')}`;
+      // 自动编号不能撞上已有的手工编码（比如 CH07 已存在，next=7 时会撞）
+      while (db.findOne(COL, (a) => a.project_id === projectId && a.asset_code === assetCode)) {
+        seq += 1;
+        assetCode = `${prefix}${String(seq).padStart(2, '0')}`;
+      }
+    }
     const asset = db.insert(COL, {
       id: newId('asset'),
       project_id: projectId,
       asset_type: assetType,
-      asset_code: code,
+      asset_code: assetCode,
       name,
       version: 1,
       locks: filled,

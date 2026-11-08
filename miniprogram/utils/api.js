@@ -488,6 +488,16 @@ module.exports = {
       url: `/api/projects/${enc(projectId)}/assets/images`,
       method: 'POST', data: { type: type || null, limit: limit || 6 }, toast: true, timeout: 300000,
     }),
+  // —— 角色名册与配角补齐（V4.13）——
+  assetRoster: (projectId) => request({ url: `/api/projects/${enc(projectId)}/assets/roster` }),
+  fillCharacterAssets: (projectId, limit) =>
+    request({
+      url: `/api/projects/${enc(projectId)}/assets/fill-characters`,
+      method: 'POST', data: { limit: limit || 12 }, toast: true, timeout: 300000,
+    }),
+  // —— 成片装配索引（V4.13）：第几镜、哪一版、缺哪镜 ——
+  assembly: (projectId, episode) =>
+    request({ url: `/api/projects/${enc(projectId)}/assembly`, data: episode ? { episode } : {} }),
   generateShotImages: (projectId, episode, limit) =>
     request({
       url: `/api/projects/${enc(projectId)}/shots/images`,

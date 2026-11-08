@@ -157,7 +157,7 @@ export class DirectorPlan {
 
         // —— 转场：配额 + 最小间隔 + 集末定格 + 情绪亲和（配方只做"候选偏好"，配额仍由这里裁决）——
         const transition = this.#pickTransition({
-          director, ep, i, per, isOpen, isEnd, dur,
+          style, director, ep, i, per, isOpen, isEnd, dur,
           nonHardUsed, maxNonHard,
           secSinceLastNonHard: elapsed - lastNonHardAtSec,
           secToEpisodeEnd: (per - i) * dur,
@@ -241,6 +241,25 @@ export class DirectorPlan {
       global: {
         lighting_arc: this.#lightingArc(requiredLighting, planEpisodes),
         shot_mix: style.shot_mix ?? {},
+        // V4.13：把这一版风格的"契约"整份落进总谱。
+        // 以前风格只散落在各处（画风进提示词、色板只给前端、转场偏好没人读），
+        // 出问题无法回答"这条片子到底按哪个风格做的"。现在总谱里有一份完整副本，可核对、可追溯。
+        style_contract: {
+          code: style.code,
+          name: style.name,
+          art_prompt_zh: style.art_prompt_zh,
+          art_prompt_en: style.art_prompt_en,
+          palette: style.palette ?? [],
+          lighting_required: style.lighting_cards_required ?? [],
+          lighting_forbidden: style.lighting_cards_forbidden ?? [],
+          shot_mix: style.shot_mix ?? {},
+          avg_shot_len: style.avg_shot_len ?? null,
+          transition_bias: style.transition_bias ?? {},
+          bgm_bias: style.bgm_bias ?? {},
+          rhythm_params: style.rhythm_params ?? {},
+          negative_extra: style.negative_extra ?? [],
+          director_profile: style.director_profile_default ?? null,
+        },
         rhythm_curve: director.rhythm_curve,
         rhythm_report: rhythmReport,
         emotion_palettes: palettes,
@@ -374,6 +393,12 @@ export class DirectorPlan {
       problems.push({ item: 'quality', issue: `画质 ${plan.quality} 不在支持列表里` });
     }
 
+    // —— 风格偏差（V4.13）：风格不是"选完就完"，它写在总谱里的每一项都要能对上 ——
+    // 这里只报 warning 不拦：结构节拍（冲突数/反转数）是创作判断，偏差要让用户看见，
+    // 但硬拦会让"模型少写一个反转"变成整集不能出片。真正的硬闸在光影（上面）。
+    const styleWarnings = this.auditStyle(plan, style);
+    for (const w of styleWarnings) warnings.push(w);
+
     return {
       ok: problems.length === 0,
       problems,
@@ -389,8 +414,72 @@ export class DirectorPlan {
     };
   }
 
-  /** 供剧本环节使用的"约束摘要"（注入 LLM system prompt，防止编剧改视听标注） */
-  toScriptConstraints(plan, episodeNo = null) {
+  /**
+   * 风格偏差审计（V4.13）：总谱实际做出来的东西 vs 风格声明的偏好。
+   * 全部输出 warning，供前端「出片规格条 / 导演页」显示；不参与硬闸。
+   */
+  auditStyle(plan, style = null) {
+    const st = style ?? seeds.style(plan?.style_code);
+    if (!st) return [{ item: 'style', issue: `风格 ${plan?.style_code} 不存在` }];
+    const out = [];
+    const beats = (plan.episodes ?? []).flatMap((e) => e.beats ?? []);
+    if (!beats.length) return out;
+
+    // 1) 平均镜长
+    const avg = beats.reduce((a, b) => a + (Number(b.duration_sec) || 0), 0) / beats.length;
+    const want = Number(st.avg_shot_len) || null;
+    if (want && Math.abs(avg - want) > want * 0.25) {
+      out.push({ item: 'style.avg_shot_len', issue: `平均镜长 ${round2(avg)}s，风格「${st.name}」基准 ${want}s，偏差超过 25%` });
+    }
+
+    // 2) 镜别配比：风格声明的 shot_mix 里权重最高的那一档必须真的出现过
+    const mix = Object.entries(st.shot_mix ?? {}).sort((a, b) => b[1] - a[1]);
+    if (mix.length) {
+      const top = mix[0][0];
+      const hit = beats.some((b) => String(b.shot_card ?? '').includes(top));
+      if (!hit) out.push({ item: 'style.shot_mix', issue: `风格「${st.name}」以 ${top} 为主，但总谱里一个都没有` });
+    }
+
+    // 3) 转场偏好：风格偏好的非硬切转场至少用上一种（否则风格只停留在画风上）
+    const bias = Object.keys(st.transition_bias ?? {}).filter((c) => c !== 'TRN-HARDCUT' && c !== 'TRN-FREEZE');
+    if (bias.length) {
+      const hit = beats.some((b) => bias.includes(b.transition));
+      if (!hit) out.push({ item: 'style.transition_bias', issue: `风格「${st.name}」偏好的转场（${bias.join('/')}）一个都没用上` });
+    }
+
+    // 4) 结构节拍密度
+    const rp = st.rhythm_params ?? {};
+    if (rp.reversal_total) {
+      const total = (plan.episodes ?? []).reduce((a, e) => a + (e.reversals ?? []).length, 0);
+      if (total < Number(rp.reversal_total)) {
+        out.push({ item: 'style.reversal_total', issue: `全剧反转 ${total} 次，风格「${st.name}」要求至少 ${rp.reversal_total} 次` });
+      }
+    }
+    if (rp.conflict_per_episode) {
+      const weak = (plan.episodes ?? []).filter((e) => (e.conflicts ?? []).length < Number(rp.conflict_per_episode));
+      if (weak.length) {
+        out.push({
+          item: 'style.conflict_per_episode',
+          issue: `${weak.map((e) => `EP${e.no}`).join('/')} 冲突数不足风格「${st.name}」要求的 ${rp.conflict_per_episode} 个`,
+        });
+      }
+    }
+    if (rp.empathy_every_n_episodes) {
+      const n = Math.max(1, Number(rp.empathy_every_n_episodes));
+      const need = Math.ceil((plan.episodes ?? []).length / n);
+      const got = (plan.episodes ?? []).filter((e) => (e.empathy ?? []).length > 0).length;
+      if (got < need) {
+        out.push({ item: 'style.empathy', issue: `共情高点 ${got} 集，风格「${st.name}」要求每 ${n} 集至少 1 个（共 ${need} 集）` });
+      }
+    }
+
+    // 5) 色板必须存在（提示词要用它锁色）
+    if (!(st.palette ?? []).length) out.push({ item: 'style.palette', issue: `风格「${st.name}」没有色板，提示词无法锁色` });
+
+    return out;
+  }
+
+  /** 供剧本环节使用的"约束摘要"（注入 LLM system prompt，防止编剧改视听标注） */  toScriptConstraints(plan, episodeNo = null) {
     const eps = episodeNo ? plan.episodes.filter((e) => e.no === episodeNo) : plan.episodes;
     const lines = [
       `本剧已有导演视听总谱 ${plan.plan_id}（版本 ${plan.plan_version}），以下标注为硬约束，编剧不得改写：`,
@@ -531,7 +620,7 @@ export class DirectorPlan {
   }
 
   // ——— 内部：转场 ———
-  #pickTransition({ director, ep, i, per, isOpen, isEnd, dur, nonHardUsed, maxNonHard, secSinceLastNonHard, secToEpisodeEnd, emotionCards, rnd, preferred = null, preferredWhy = null }) {
+  #pickTransition({ style = null, director, ep, i, per, isOpen, isEnd, dur, nonHardUsed, maxNonHard, secSinceLastNonHard, secToEpisodeEnd, emotionCards, rnd, preferred = null, preferredWhy = null }) {
     if (isEnd) return { code: 'TRN-FREEZE', reason: '集末定格留住悬念' };
     if (isOpen && i === 1) return { code: 'TRN-HARDCUT', reason: null };
     if (secToEpisodeEnd < 8.5) return { code: 'TRN-HARDCUT', reason: null };
@@ -548,7 +637,7 @@ export class DirectorPlan {
       .filter((c) => c !== 'TRN-HARDCUT' && c !== 'TRN-FREEZE' && seeds.transition(c));
     let pick;
     if (aff.length && rnd() < 0.65) pick = aff[Math.floor(rnd() * aff.length)];
-    else pick = weightedPick(director?.transition_bias ?? { 'TRN-HARDCUT': 1 }) ?? 'TRN-HARDCUT';
+    else pick = weightedPick(mergeTransitionBias(style?.transition_bias, director?.transition_bias)) ?? 'TRN-HARDCUT';
     if (pick === 'TRN-HARDCUT') return { code: pick, reason: null };
     return { code: pick, reason: '情绪/时间衔接' };
   }
@@ -640,6 +729,28 @@ export class DirectorPlan {
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
+/**
+ * 风格转场偏好 × 导演转场偏好（V4.13）。
+ * 以前只读 director.transition_bias —— 32 个风格各自写的 transition_bias 等于白写：
+ * 选了「古风」和选了「赛博」的成片转场分布一模一样。现在两者合并，
+ * 风格是"这部戏的底色"（权重 1），导演是"这个导演的手癖"（权重 0.5），导演只做微调。
+ * 不存在或不合法的转场卡直接剔除，避免把请求打到不存在的卡上。
+ */
+function mergeTransitionBias(styleBias = null, directorBias = null) {
+  const out = {};
+  const add = (src, weight) => {
+    for (const [code, w] of Object.entries(src ?? {})) {
+      if (!seeds.transition(code)) continue;
+      const n = Number(w);
+      if (!Number.isFinite(n) || n <= 0) continue;
+      out[code] = (out[code] ?? 0) + n * weight;
+    }
+  };
+  add(styleBias, 1);
+  add(directorBias, 0.5);
+  return Object.keys(out).length ? out : { 'TRN-HARDCUT': 1 };
+}
+
 /** 取 why 的第一小句，塞进转场理由里（太长会把 UI 撑爆） */
 function firstClause(s) {
   return String(s).split(/[；;。]/)[0].slice(0, 28);

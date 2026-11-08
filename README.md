@@ -480,6 +480,73 @@ curl -s -o /dev/null -w "%{http_code}\n" https://<域名>/api/admin/overview  # 
 
 ---
 
+## V4.13.0 — 亮点：32 个风格全链路生效 / 成片按索引装配、改一镜只换那一镜 / 配角不再丢脸
+
+**问题**：风格选了 32 个之一，实际只有一句画风字符串进了提示词——色板之外，转场偏好、节奏密度全被丢掉；
+规格在资产设定图上还偷偷固定 1:1、剪辑段还写着「720p cinematic quality」；
+剪辑成片按数组顺序拼，某镜重出后不知道用哪个版本，漏镜/重复镜号无人拦；
+图片模型只有旧的两条，推荐值只是个前端标签；剧本里的配角因为资产自动编号错位（CH07 建成 CH02），
+分镜永远找不到那张卡，同一个人前后长得不一样。
+
+**A. 风格从"一句话"补成"一份契约"**
+- 总谱新增 `plan.global.style_contract`：code / name / art_prompt / palette / lighting / shot_mix /
+  avg_shot_len / transition_bias / bgm_bias / rhythm_params / negative_extra / director_profile 全量落库，可核对可追溯
+- `mergeTransitionBias(styleBias, directorBias)`：转场按风格权重 1、导演权重 0.5 加权合并
+  （此前 `#pickTransition` 只读导演，32 个风格的 `transition_bias` 等于白写）
+- `style.rhythm_params` 变硬性要求：`conflict_per_episode` / `reversal_total` / `empathy_every_n_episodes`
+  直接写进大纲提示词（"每集至少 N 个冲突、全剧 N 个反转、每 N 集一个共情点"）
+- 新增 `auditStyle(plan, style)`：平均镜长偏差 >25% / shot_mix 主档未出现 / 转场偏好未用 /
+  反转·冲突·共情密度不足 / 色板缺失 → 全部报 warning 进 `plan.warnings`
+  （只报不拦：模型少写一个反转不该让整集不能出片，但必须看得见）
+
+**B. 规格贯穿到最后一帧**
+- 资产设定图不再强制 1:1：`sheetSpec = { ...spec }`，沿用用户画幅与画质
+- `segmentGlobal` 删掉 `${quality} cinematic quality` 字面量，改为 `画风：${style.name}——${style.art_prompt_zh}`
+- 剪辑渲染前核分辨率：`plan.video.resolution !== userSpec.resolution` → `SPEC_VIOLATION` 拒绝出片
+
+**C. 装配索引 + 版本顶替：漏不了、重不了、改一镜只换那一镜**
+- 新增 `pipeline/Assembly.js`：`order = 集号 × 10000 + 集内镜序`（唯一且可比较），
+  剪辑只按 order 排序，不依赖分镜数组顺序
+- `resolveShotVersion({ shot, gens })` → `{ gen, source: 'picked'|'latest'|'none' }`；
+  `supersedeOlder()` 同镜同类出新版本 → 旧版本标 `superseded_by`（**不删除，可回退**），
+  剪辑只认 `picked` 指向的当前版本
+- `auditAssembly()` 输出 `{ ok, total, ready, coverage, total_sec, missing, duplicates, gaps,
+  order_conflicts, superseded_picks }`；`assertAssembly()` 在渲染前硬拦 `ASSEMBLY_INCOMPLETE`（422）
+- `EditPlan` 新增 `orderOfShot`、`DUPLICATE_CLIP` / `ORDER_CONFLICT` 两个 fatal；
+  剪辑单每段带 `order / film_index / beat_no / generation_id / generation_kind / script_ref / still_url`
+- `ShotService`：`generate` 末尾自动 `markCurrent`（写 `picked` + `version_history` 保留 60 条 + 导演日志）；
+  `pick` 走同一口径；`updateShot` 同步 order
+- ASS 字幕按真实画布排版：`toAss(cues, { width, height, accent })`，字号按短边比例，
+  风格色板第 2 色作描边（4:3 与 1:1 不再把字排出画外）
+
+**D. 图片模型：新增纳米香蕉 2.1 与 TT Image 2.6，推荐 2.6**
+- `model_registry` 新增 `IMG-TT-26`（tt-image-2.6，0.08 算力，`role_default: true`）与
+  `IMG-NANO-BANANA-21`（banana-2.1，0.26 算力）；删除重复的 `AUTO-BANANA-2_1`
+  （同 `upstream_id` 两条会让人工价格落到自动发现那条），`loader.validate()` 增加 upstream_id 唯一校验
+- `ModelRegistry.defaultFor(role)` 优先返回 `role_default === true` —— 推荐从"前端标签"变成"后端真默认"
+- 两个模型都可用于**角色/道具/场景资产图**与**分镜图**（编译环节与出图接口都已打通）
+
+**E. 配角不再丢脸**
+- `AssetLibrary.create({ code })` 支持**显式资产编码**（大写、唯一校验），自动编号时跳过已占用号码
+  —— 根因就是这里：剧本里的 CH07 被建成 CH02，分镜引用 CH07 永远找不到卡
+- `ScriptLibrary.syncAssets` 角色名册 = 大纲人物 ∪ 分镜角色码 ∪ 剧本说话人
+  （台词里的人名先 `resolveSpeaker` 映射到已有角色码，映射不到不建卡，避免"同人不同码两张脸"）
+- 新接口 `GET /api/projects/:id/assets/roster`（名册含 `supporting/has_card/has_image/shots/lines/locks` +
+  `missing_cards` / `missing_images`）、`POST /api/projects/:id/assets/fill-characters`（先建卡再逐张出图）
+- 托管生产 `ensureAssetCards` 从 `shots.slice(0,2)` 改为**每一镜**（此前第三镜才出场的配角永远没有卡），
+  资产图单步上限 4 → 12，超出的下一轮继续
+- 前端：角色卡顶部「名册 N 人（主角/配角）· 已出图 M」+「补齐 K 张」按钮，配角名后挂「配角」角标
+
+**F. 看得见**
+- 项目页新卡「成片装配」：`ready/total` 段、覆盖率、缺镜列表、重复镜号、废弃版本、总时长，
+  不合格整卡标红
+- 新接口 `GET /api/projects/:id/assembly`；`episode_films` 登记增加 `style_code` 与 `assembly` 快照
+
+**验收**：422 单测（新增 `assembly` 8 / `style_lock` 8 / `image_models` 5，`spec_lock` 扩到 18）/
+13 前端 / 15 组体检 / 152 运行时 / 71 部署 / 22+16+88 冒烟；版本 4.13.0
+
+---
+
 ## V4.12.0 — 亮点：用户点选的规格变成不可偏离的约束（第十个提示词库）
 
 **问题**：开机页的「风格 / 时长 / 剧集 / 画质 / 屏幕比例」只漂到参数层，提示词里几乎看不见；

@@ -28,7 +28,7 @@ import {
 import * as V from './validators.js';
 import * as prompts from '../prompts/PromptLibrary.js';
 import * as specLib from '../prompts/SpecLibrary.js';
-import { resolutionOf, qualityOf } from '../core/frame.js';
+import { qualityOf } from '../core/frame.js';
 import { guardCompile } from '../qc/ConsistencyGuard.js';
 
 export class PromptCompiler {
@@ -458,13 +458,14 @@ export class PromptCompiler {
     const director =
       seeds.director(req.project?.director_code) ?? seeds.director(style.director_profile_default);
 
-    // 设定图是方图（要能当参考面板用），但画质/片型/色板必须沿用用户设定，
-    // 之前这里把 2K 硬降成 720P 出图，等于用户选的画质在资产环节被悄悄打折。
+    // 设定图沿用用户选的**画幅**与画质（V4.13）。
+    // 旧实现把设定图固定成 1:1：用户点 9:16 竖屏，资产图却是方图，等于一进资产环节就偏离规格；
+    // 一致性锁在提示词里，不靠"方图更好用"来决定用户的选择。
     const spec = specLib.normalize(
       { ...(req.project ?? {}), palette: req.project?.palette?.length ? req.project.palette : (style.palette ?? []) },
       { strict: true },
     );
-    const sheetSpec = { ...spec, aspect: '1:1', resolution: resolutionOf('1:1', spec.quality) };
+    const sheetSpec = { ...spec };
     const s0 = specLib.segments(sheetSpec, { kind: 'image' });
     const aspect = sheetSpec.aspect;
     const quality = sheetSpec.quality;

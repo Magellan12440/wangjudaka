@@ -117,13 +117,16 @@ export class ProductionService {
       const usedChars = new Set(shots.flatMap((s) => s.characters ?? []));
       const usedScenes = new Set(shots.map((s) => s.scene).filter(Boolean));
       // 先补卡再查：分镜里出现但资产库没有的角色/场景，按模板补一张（带锁，仍需出图）
-      for (const s of shots.slice(0, 2)) consistencyGuard.ensureAssetCards(project.id, s);
+      // V4.13：**每一镜**都要补卡，不能只看前 2 镜 —— 配角往往出现在后面的镜头里，
+      // 只看前两镜就会漏建卡，然后在那一镜出图时被一致性闸门拦下，托管整个失败。
+      for (const s of shots) consistencyGuard.ensureAssetCards(project.id, s);
       const allAssets = db.find('assets', (a) => a.project_id === project.id);
       const needSheets = allAssets.filter((a) => !a.image_url && (
         (a.asset_type === 'character' && usedChars.has(a.asset_code))
         || (a.asset_type === 'scene' && usedScenes.has(a.asset_code))
       ));
-      for (const a of needSheets.slice(0, 4)) {
+      // 本步最多补 12 张，剩下的下一轮继续：一次全出会在余额不足时把整步拖垮
+      for (const a of needSheets.slice(0, 12)) {
         try {
           await assetImageService.generate({
             projectId: project.id, assetCode: a.asset_code, userId: project.user_id,
@@ -132,6 +135,12 @@ export class ProductionService {
           if (e.code === ERR.INSUFFICIENT_CREDITS || e.code === 'INSUFFICIENT_CREDITS') throw e;
           logger.warn('托管出资产图失败，继续尝试出片', { asset: a.asset_code, msg: e.message });
         }
+      }
+      if (needSheets.length > 12) {
+        return this.#patch(job, {
+          status: 'running',
+          note: `本集还有 ${needSheets.length - 12} 张资产图（含配角）待出，下一轮继续`,
+        });
       }
 
       const videoType = project.spec?.video_type ?? project.spec?.videoType ?? 'dynamic';

@@ -18,6 +18,7 @@ import { modelCatalog } from '../relay/ModelCatalog.js';
 import { assetLibrary } from '../assets/AssetLibrary.js';
 import { directorAgent } from '../director/DirectorAgent.js';
 import { consistencyGuard } from '../qc/ConsistencyGuard.js';
+import { assembly } from './Assembly.js';
 import seeds from '../seeds/loader.js';
 import { fail, ERR } from '../core/errors.js';
 import { newId, nowIso } from '../core/util.js';
@@ -209,6 +210,12 @@ export class ShotService {
       },
     });
 
+    // V4.13：新出的这一版直接成为该镜当前版本 —— 旧版本标废弃但保留（可回退），
+    // 剪辑按"当前版本"取片，所以新版本一定落在原来的位置上，不会多一段也不会少一段。
+    const version = result?.generationId
+      ? this.markCurrent({ projectId, shotNo: shot.no, kind, generationId: result.generationId })
+      : null;
+
     return {
       ...result,
       shot_no: shot.no,
@@ -226,7 +233,78 @@ export class ShotService {
         ok: guard.audit?.ok !== false,
         voices: guard.voices ?? {},
       },
+      version,
     };
+  }
+
+  /**
+   * 把某一版设为该镜的当前版本（V4.13）。
+   * 同时做三件事，这三件事必须一起做，否则"选中的"和"剪辑实际用的"就会分叉：
+   *  1. 同镜同类旧版本全部标 superseded_by（保留记录，可回退）；
+   *  2. 清掉当前版本身上的 superseded 标记（用户重新选回旧版是合法的）；
+   *  3. 分镜上记 picked + version_history，剪辑只认 picked。
+   */
+  markCurrent({ projectId, shotNo, kind, generationId }) {
+    if (!generationId) return null;
+    const planRec = db.findOne(PLANS, (x) => x.project_id === projectId);
+    if (!planRec?.storyboard?.shots?.length) return null;
+    const idx = planRec.storyboard.shots.findIndex((s) => s.no === shotNo);
+    if (idx < 0) return null;
+    const shot = planRec.storyboard.shots[idx];
+
+    const gen = db.findOne(GENS, (g) => g.id === generationId);
+    if (!gen || gen.project_id !== projectId) return null;
+
+    const older = assembly.supersedeOlder({ projectId, shotNo, kind, keepId: generationId });
+    if (gen.superseded_by) {
+      db.update(GENS, generationId, { superseded_by: null, superseded_at: null });
+    }
+
+    const prev = shot.picked?.[`${kind}_generation_id`] ?? null;
+    const picked = {
+      ...(shot.picked ?? {}),
+      [`${kind}_generation_id`]: generationId,
+      updated_at: nowIso(),
+    };
+    const versionHistory = [
+      ...(shot.version_history ?? []),
+      { kind, action: prev ? 'replace' : 'set', from: prev, to: generationId, order: assembly.shotOrder(shot), at: nowIso() },
+    ].slice(-60);
+    const next = {
+      ...shot,
+      order: assembly.shotOrder(shot),
+      picked,
+      version_history: versionHistory,
+    };
+    const shots = [...planRec.storyboard.shots];
+    shots[idx] = next;
+    db.update(PLANS, planRec.id, { storyboard: { ...planRec.storyboard, shots }, updated_at: nowIso() });
+
+    directorAgent.log({
+      projectId, stage: 'shots', action: prev ? 'version_replace' : 'version_set', actor: 'user',
+      decisions: [
+        `${shotNo} ${kind} 当前版本 → ${generationId}（索引 ${next.order}）`,
+        older.superseded.length ? `弃用旧版本 ${older.superseded.length} 条（保留可回退）` : '无旧版本需要弃用',
+      ],
+      gate: { ok: true, issues: [] },
+    });
+
+    return {
+      shot_no: shotNo,
+      kind,
+      generation_id: generationId,
+      replaced: prev,
+      superseded: older.superseded,
+      picked,
+      order: next.order,
+      at: picked.updated_at,
+    };
+  }
+
+  /** 装配审计：这一集能不能拼成完整成片（缺哪镜、重哪镜、谁用了废弃版本） */
+  assembly(projectId, episode = null) {
+    const ep = episode == null ? null : Number(String(episode).replace(/^E0*/i, '')) || null;
+    return assembly.auditAssembly({ projectId, episode: ep });
   }
 
   /**
@@ -250,7 +328,7 @@ export class ShotService {
     }
 
     const style = seeds.style(project.spec?.style_code);
-    const next = { ...shot };
+    const next = { ...shot, order: assembly.shotOrder(shot) };
     const touched = [];
 
     if (patch.shot_card !== undefined) {
@@ -393,13 +471,18 @@ export class ShotService {
       // 还没出过 → 直接按当前分镜出一次（这也是用户点「重出」时的预期）
       return this.generate({ projectId, shotNo, kind, userId: project.user_id });
     }
-    return generateService.regenerate({
+    const r = await generateService.regenerate({
       userId: project.user_id,
       projectId,
       generationId: last.id,
       mode,
       patch,
     });
+    // 新版本立刻成为当前版本：旧版本废弃但留档，剪辑因此只会看到"这一版"
+    const version = r?.generationId
+      ? this.markCurrent({ projectId, shotNo, kind, generationId: r.generationId })
+      : null;
+    return { ...r, version };
   }
 
   /**
@@ -418,11 +501,9 @@ export class ShotService {
     if (!planRec) fail(ERR.PROJECT_REQUIRED, '还没有分镜');
     const idx = planRec.storyboard.shots.findIndex((s) => s.no === shotNo);
     if (idx < 0) fail(ERR.SHOT_NOT_FOUND, `分镜 ${shotNo} 不存在`);
-    const shot = planRec.storyboard.shots[idx];
-    const picked = { ...(shot.picked ?? {}), [`${gen.kind}_generation_id`]: gen.id, updated_at: nowIso() };
-    const shots = [...planRec.storyboard.shots];
-    shots[idx] = { ...shot, picked };
-    db.update(PLANS, planRec.id, { storyboard: { ...planRec.storyboard, shots }, updated_at: nowIso() });
+    const version = this.markCurrent({ projectId, shotNo, kind: gen.kind, generationId: gen.id });
+    if (!version) fail(ERR.SHOT_NOT_FOUND, `分镜 ${shotNo} 不存在，无法选定版本`);
+    const picked = version.picked;
     db.insert(PICKS, {
       id: newId('pick'),
       project_id: projectId,
@@ -430,22 +511,30 @@ export class ShotService {
       kind: gen.kind,
       generation_id: gen.id,
       url: gen.result_url || gen.url,
+      order: version?.order ?? null,
       at: nowIso(),
     });
-    directorAgent.log({
-      projectId, stage: 'shots', action: 'pick_version', actor: 'user',
-      decisions: [`${shotNo} 采纳 ${gen.kind} 版本 ${gen.id}`],
-      gate: { ok: true, issues: [] },
-    });
-    return { ok: true, shot_no: shotNo, kind: gen.kind, picked, url: gen.result_url || gen.url };
+    return {
+      ok: true,
+      shot_no: shotNo,
+      kind: gen.kind,
+      picked,
+      url: gen.result_url || gen.url,
+      version,
+    };
   }
 
-  /** 某镜历史产物（供镜头 tab 展示，带"是否正式版"标记） */
+  /** 某镜历史产物（供镜头 tab 展示，带"是否正式版 / 是否已弃用"标记） */
   history(projectId, shotNo = null) {
     const planRec = db.findOne(PLANS, (x) => x.project_id === projectId);
     const pickedIds = new Set();
+    const orderByPick = new Map();
     for (const s of planRec?.storyboard?.shots ?? []) {
-      for (const v of Object.values(s.picked ?? {})) if (typeof v === 'string') pickedIds.add(v);
+      for (const v of Object.values(s.picked ?? {})) {
+        if (typeof v !== 'string') continue;
+        pickedIds.add(v);
+        orderByPick.set(v, assembly.shotOrder(s));
+      }
     }
     return db.find(GENS, (g) => g.project_id === projectId && (!shotNo || g.shot_no === shotNo))
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
@@ -453,11 +542,16 @@ export class ShotService {
         id: g.id,
         kind: g.kind,
         shot_no: g.shot_no,
+        order: orderByPick.get(g.id) ?? null,
         status: g.status,
         url: g.result_url ?? g.url ?? null,
         credits: g.actual_credits ?? g.estimated_credits ?? 0,
         created_at: g.created_at,
         picked: pickedIds.has(g.id),
+        // V4.13：被新版本顶掉的版本不删除，但明确标出来，免得用户以为剪辑用的是它
+        superseded: Boolean(g.superseded_by),
+        superseded_by: g.superseded_by ?? null,
+        superseded_at: g.superseded_at ?? null,
         consistency: g.consistency ?? null,
         regenerable: Boolean(g.compile_input),
       }));

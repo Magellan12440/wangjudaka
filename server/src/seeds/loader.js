@@ -288,6 +288,16 @@ class SeedStore {
       else if ((r.items ?? []).length > 5) problems.push({ item: `model_catalog.${role}`, issue: '每个环节最多 5 个模型' });
     }
     actual.model_catalog_roles = this.catalogRoles().length;
+    // 注册表里同一个 upstream_id 只能有一条：两条会导致 sync 之后"人工价"落到自动发现的那条上，
+    // 出问题时前端看到的价格与真实扣费口径不一致（V4.13 新增的两个图片模型踩过这个坑）。
+    const seenUpstream = new Map();
+    for (const m of this.modelRegistry) {
+      const id = String(m.upstream_id ?? '');
+      if (!id) continue;
+      if (seenUpstream.has(id)) {
+        problems.push({ item: `model_registry.${m.code}`, issue: `upstream_id 重复：${id}（已存在 ${seenUpstream.get(id)}）` });
+      } else seenUpstream.set(id, m.code);
+    }
     // 交叉引用校验：风格引用的光影卡必须存在
     for (const s of this.stylePresets) {
       for (const c of [...(s.lighting_cards_required ?? []), ...(s.lighting_cards_forbidden ?? [])]) {

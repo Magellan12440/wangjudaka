@@ -18,19 +18,21 @@ export function aspectRules(aspect) {
 /** P1 总设定 */
 export function segmentGlobal({ style, director, aspect, duration, quality, emotion }) {
   const a = aspectRules(aspect);
+  // V4.13：不再写 "1080p cinematic quality" 这种字面量 ——
+  // 写 "720p" 只会把模型往低清方向推，画质由 P0 规格段的细节目标负责（微纹理/锐度/禁止压缩块）。
   const en = [
-    `${style.art_prompt_en}.`,
+    `Style: ${style.name}. ${style.art_prompt_en}.`,
     `Overall tone: ${emotion ?? 'neutral'}.`,
-    `${a.en}, ${quality ?? '1080p'} cinematic quality.`,
+    a.en,
     duration ? `Shot length ${duration} seconds.` : null,
     director ? `Directing style: average shot length ${director.avg_shot_len}s, ${director.rhythm_curve} rhythm.` : null,
   ]
     .filter(Boolean)
     .join(' ');
   const zh = [
-    `${style.art_prompt_zh}。`,
+    `画风：${style.name}——${style.art_prompt_zh}。`,
     `整体情绪：${emotion ?? '中性'}。`,
-    `${a.zh}，${quality ?? '1080p'} 电影级画质。`,
+    a.zh,
     duration ? `镜头时长 ${duration} 秒。` : null,
     director ? `导演原型：${director.name}，平均镜长 ${director.avg_shot_len} 秒，${director.rhythm_curve} 节奏。` : null,
   ]

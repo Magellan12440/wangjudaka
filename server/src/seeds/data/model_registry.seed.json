@@ -95,7 +95,54 @@
         "3:4"
       ],
       "supports_reference": true,
-      "notes": "TT Image 2.5：0.0228 算力/次起，24h 成功率 99.7%。仅用于预览，禁止用于交付"
+      "notes": "TT Image 2.5：0.0228 算力/次起，24h 成功率 99.7%。预览档，定稿建议换 2.6"
+    },
+    {
+      "code": "IMG-TT-26",
+      "role": "image",
+      "display_name": "TT Image 2.6（推荐）",
+      "upstream_id": "tt-image-2.6",
+      "upstream_available": true,
+      "commercial_ok": true,
+      "role_default": true,
+      "price": {
+        "unit": "image",
+        "suanli": 0.08
+      },
+      "sizes": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4"
+      ],
+      "supports_reference": true,
+      "supports_first_frame": false,
+      "notes": "TT Image 2.6：0.08 算力/次，人物/道具/场景设定图与分镜关键帧都用它。参考图一致性比 2.5 明显稳，成本仍约为即梦 4.5 的 1/4 —— 所以设为默认推荐"
+    },
+    {
+      "code": "IMG-NANO-BANANA-21",
+      "role": "image",
+      "display_name": "纳米香蕉 2.1",
+      "upstream_id": "banana-2.1",
+      "upstream_available": true,
+      "commercial_ok": true,
+      "price": {
+        "unit": "image",
+        "suanli": 0.26
+      },
+      "sizes": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3"
+      ],
+      "supports_reference": true,
+      "supports_first_frame": false,
+      "notes": "纳米香蕉 2.1（Nano Banana 2.1）：强在指令跟随与局部编辑，适合角色定妆与道具设定图；比 2.6 贵约 3 倍，按需选"
     },
     {
       "code": "VID-DEFAULT",
@@ -609,17 +656,6 @@
       "role": "chat",
       "display_name": "上游新模型（待核验）：tt-5.6-sol",
       "upstream_id": "tt-5.6-sol",
-      "upstream_available": true,
-      "commercial_ok": false,
-      "needs_review": true,
-      "price": {},
-      "notes": "由 sync_models.js 自动发现；许可证未核验，禁止用于交付产物。请补齐 price 并逐条确认 commercial_ok。"
-    },
-    {
-      "code": "AUTO-BANANA-2_1",
-      "role": "chat",
-      "display_name": "上游新模型（待核验）：banana-2.1",
-      "upstream_id": "banana-2.1",
       "upstream_available": true,
       "commercial_ok": false,
       "needs_review": true,

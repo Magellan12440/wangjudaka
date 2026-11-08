@@ -69,11 +69,14 @@ export class ModelRegistry {
     return Math.max(1, Math.ceil((cny / config.credit.cnyPerPoint) * config.credit.markup));
   }
 
-  /** 按角色挑默认模型（可商用优先） */
+  /** 按角色挑默认模型（可商用优先；带 role_default 的排第一） */
   defaultFor(role) {
     const list = seeds.modelsByRole(role, { commercialOnly: true });
     if (!list.length) fail(ERR.RELAY_MODEL_NOT_FOUND, `没有可商用的 ${role} 模型`);
-    return list[0].code;
+    // V4.13：目录里标了"推荐"的模型必须真的是默认值。
+    // 以前默认取注册表第一条，于是"推荐 TT Image 2.6"只在前端是个标签，后端仍走第一条。
+    const preferred = list.find((m) => m.role_default === true);
+    return (preferred ?? list[0]).code;
   }
 }
 

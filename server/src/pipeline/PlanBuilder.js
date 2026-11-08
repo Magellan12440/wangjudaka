@@ -78,12 +78,14 @@ export async function ensureProjectPlan(project, { force = false, model = null }
 
   let assetCount = db.find('assets', (a) => a.project_id === project.id).length;
   if (!assetCount) {
-    for (const d of storyEngine.toAssetDrafts(outline).slice(0, 8)) {
+    for (const d of storyEngine.toAssetDrafts(outline)) {
       try {
         assetLibrary.create({
           projectId: project.id,
           assetType: d.asset_type,
           name: d.name,
+          // 用剧本的角色码，别让自动编号把它改成另一个号（否则分镜引用 CH07 会找不到）
+          code: d.asset_code ?? undefined,
           locks: d.locks,
           lockValues: d.lock_values,
           meta: d.meta,

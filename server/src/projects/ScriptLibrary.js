@@ -158,7 +158,7 @@ export class ScriptLibrary {
     }
 
     // 2) 资产卡：角色 / 场景 / 道具按这一版重建
-    const assets = this.syncAssets({ projectId, outline, storyboard: cand.storyboard });
+    const assets = this.syncAssets({ projectId, outline, storyboard: cand.storyboard, script: cand.script });
 
     // 3) 个人资产库：选定即入库（同一份候选重复点「选定」不会重复入库）
     const vaultId = this.upsertFromCandidate({ userId: userId ?? null, projectId, cand, outline, assets });
@@ -180,13 +180,18 @@ export class ScriptLibrary {
   /**
    * 按选定剧本生成角色 / 场景 / 道具资产卡。
    * 只补不删：用户已经在库里改过的资产（有图 / 改过锁）保留，避免二次选定把人工调整冲掉。
+   *
+   * V4.13：角色的来源从「大纲里列过的人」扩到「剧本里真的出现过的人」。
+   * 以前只有大纲 characters 会被建卡，于是配角（甚至是台词不少的反派手下）在大纲里没被列出来，
+   * 到了分镜出图才被兜底补一张 code 当名字的空卡 —— 定妆图自然对不上剧本，前后也不一致。
+   * 现在三处取并集：大纲人物 ∪ 分镜角色码 ∪ 剧本说话人，一个都不漏。
    */
-  syncAssets({ projectId, outline, storyboard }) {
+  syncAssets({ projectId, outline, storyboard, script = null }) {
     const existing = db.find(ASSETS, (a) => a.project_id === projectId);
     const has = new Set(existing.map((a) => `${a.asset_type}:${a.asset_code}`));
     let created = 0;
 
-    const createSafely = (assetType, name, lockValues = {}, meta = {}) => {
+    const createSafely = (assetType, name, lockValues = {}, meta = {}, code = null) => {
       const tpl = seeds.lockTemplate(assetType);
       if (!tpl) return;
       try {
@@ -194,23 +199,94 @@ export class ScriptLibrary {
           projectId,
           assetType,
           name: name || assetType,
+          // V4.13：必须用剧本里的角色码（CH07），否则分镜引用 CH07 时找不到资产
+          code: code || undefined,
           locks: tpl.suggested_locks ?? [],
           lockValues,
           meta,
         });
         created += 1;
       } catch (e) {
-        logger.warn('资产卡落库失败', { projectId, assetType, name, msg: e.message });
+        logger.warn('资产卡落库失败', { projectId, assetType, name, code, msg: e.message });
       }
     };
 
-    // 角色：大纲里的人物（有 traits 就写进 lock_values，出图时是真实依据）
+    // —— 角色名册（并集）——
+    const roster = new Map();
     for (const c of outline?.characters ?? []) {
-      const code = c.code || 'CH00';
+      if (!c?.code) continue;
+      roster.set(c.code, {
+        code: c.code,
+        name: c.name || c.code,
+        role: c.role ?? '',
+        traits: c.traits ?? '',
+        locks: c.locks ?? [],
+        source: 'outline',
+      });
+    }
+    // 分镜里出现但大纲没写的人：至少要知道他出现在哪几集、有没有台词
+    const appearance = new Map();
+    for (const s of storyboard?.shots ?? []) {
+      for (const code of s.characters ?? []) {
+        if (!code) continue;
+        const cur = appearance.get(code) ?? { episodes: new Set(), shots: 0, lines: 0 };
+        const ep = Number(String(s.no ?? '').replace(/^E0*/i, '').split('-')[0]) || null;
+        if (ep) cur.episodes.add(ep);
+        cur.shots += 1;
+        appearance.set(code, cur);
+      }
+    }
+    const speakCount = new Map();
+    // 台词里的 speaker 可能是角色码（CH01），也可能是人名（模型偶尔会写人名）。
+    // 只有能落到角色码上的才算"角色"：否则会凭空建出一张叫「沈砚」的重复卡，
+    // 跟已有的 CH01 变成两张脸 —— 这正是一致性最怕的事。
+    const codeByName = new Map([...roster.values()].map((r) => [String(r.name ?? '').trim(), r.code]));
+    const resolveSpeaker = (speaker) => {
+      const raw = String(speaker ?? '').trim();
+      if (!raw) return null;
+      if (roster.has(raw) || /^CH\d+$/i.test(raw)) return raw;
+      return codeByName.get(raw) ?? null;
+    };
+    for (const ep of script?.episodes ?? []) {
+      for (const sc of ep.scenes ?? []) {
+        for (const d of sc.dialogue ?? []) {
+          const code = resolveSpeaker(d?.speaker);
+          if (!code) continue;
+          speakCount.set(code, (speakCount.get(code) ?? 0) + 1);
+        }
+      }
+    }
+    const rosterIndex = new Map([...roster.keys()].map((c, i) => [c, i]));
+    const allCodes = [...new Set([...roster.keys(), ...appearance.keys(), ...speakCount.keys()])]
+      // 主角优先（大纲顺序），配角按出场次数从多到少：出图批次有限时先保出场多的
+      .sort((a, b) => {
+        const ra = rosterIndex.has(a) ? 0 : 1;
+        const rb = rosterIndex.has(b) ? 0 : 1;
+        if (ra !== rb) return ra - rb;
+        if (ra === 0) return rosterIndex.get(a) - rosterIndex.get(b);
+        return (appearance.get(b)?.shots ?? 0) - (appearance.get(a)?.shots ?? 0);
+      });
+
+    for (const code of allCodes) {
       if (has.has(`character:${code}`)) continue;
-      createSafely('character', c.name || code, {
-        name: c.name ?? '', role: c.role ?? '', traits: c.traits ?? '',
-      }, { role: c.role ?? '', traits: c.traits ?? '' });
+      const r = roster.get(code);
+      const app = appearance.get(code);
+      const lines = speakCount.get(code) ?? 0;
+      const isSupporting = !r;
+      createSafely('character', r?.name || `配角 ${code}`, {
+        name: r?.name ?? `配角 ${code}`,
+        role: r?.role || (isSupporting ? '配角' : ''),
+        traits: r?.traits ?? '',
+        first_appearance: app?.episodes?.size ? `EP${[...app.episodes].sort((x, y) => x - y)[0]}` : '',
+      }, {
+        role: r?.role || (isSupporting ? '配角' : ''),
+        traits: r?.traits ?? '',
+        supporting: isSupporting,
+        episodes: app ? [...app.episodes].sort((x, y) => x - y) : [],
+        shots: app?.shots ?? 0,
+        lines,
+        from_script: isSupporting,
+      }, code);
       has.add(`character:${code}`);
     }
 
@@ -222,7 +298,7 @@ export class ScriptLibrary {
       const loc = named.get(i);
       createSafely('scene', loc?.name || `场景 ${code.replace(/^SC0*/i, '')}`, {
         name: loc?.name ?? code, desc: loc?.desc ?? '', episode: Number(code.replace(/^SC/i, '')) || i + 1,
-      }, { desc: loc?.desc ?? '' });
+      }, { desc: loc?.desc ?? '' }, code);
       has.add(`scene:${code}`);
     });
 
@@ -230,7 +306,7 @@ export class ScriptLibrary {
     for (const p of outline?.props ?? []) {
       const code = p.code || 'PR00';
       if (has.has(`prop:${code}`)) continue;
-      createSafely('prop', p.name || code, { name: p.name ?? '', desc: p.desc ?? '' }, { desc: p.desc ?? '' });
+      createSafely('prop', p.name || code, { name: p.name ?? '', desc: p.desc ?? '' }, { desc: p.desc ?? '' }, code);
       has.add(`prop:${code}`);
     }
 

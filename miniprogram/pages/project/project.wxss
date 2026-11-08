@@ -513,3 +513,25 @@
 .spec-lock.ok .spec-tag { background: #EAF8F2; color: #1E8F6A; }
 .spec-lock.bad .spec-tag { background: #FDECEA; color: #C0392B; }
 .spec-issue { color: #C0392B; line-height: 1.5; }
+
+/* —— 角色名册（V4.13）：配角也要有定妆图，缺图在这里一眼看见 —— */
+.roster-line {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10rpx;
+  margin-top: 12rpx; padding: 12rpx 14rpx; border-radius: 12rpx; background: #F7F8FA;
+}
+.roster-k { font-size: 19rpx; color: #8A8F99; }
+.roster-v { font-size: 21rpx; color: #2B2F36; flex: 1; min-width: 260rpx; }
+.roster-fill {
+  font-size: 20rpx; color: #FFFFFF; background: #C4691A;
+  border-radius: 999rpx; padding: 6rpx 18rpx;
+}
+.roster-fill.off { opacity: .55; }
+.roster-ok { font-size: 20rpx; color: #1E8F6A; }
+.asset-badge {
+  font-size: 17rpx; color: #7A5C1E; background: #FBF3DF;
+  border-radius: 6rpx; padding: 2rpx 8rpx; margin-left: 6rpx;
+}
+
+/* —— 成片装配（V4.13）：漏镜/重号/废弃版本 —— */
+.asm-card.bad { background: #FDF3F1; }
+.asm-issue { color: #C0392B; line-height: 1.5; }

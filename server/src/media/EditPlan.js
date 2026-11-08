@@ -46,7 +46,13 @@ function normalizeDialogue(list = []) {
 /**
  * 只有「拿不到片子」才算阻断；节奏/转场比例这类是质量建议，不能拦着用户出片。
  */
-export const FATAL_CODES = new Set(['MISSING_CLIP', 'NO_CLIPS', 'TRANSITION_NOT_FOUND']);
+export const FATAL_CODES = new Set(['MISSING_CLIP', 'NO_CLIPS', 'TRANSITION_NOT_FOUND', 'DUPLICATE_CLIP', 'ORDER_CONFLICT']);
+
+/** 镜号 → 数值顺序（E01-S007 → 10007）；剧壳等没有镜号的返回 null */
+function orderOfShot(shotNo) {
+  const m = /^E(\d{1,3})[-_]S(\d{1,4})$/i.exec(String(shotNo ?? '').trim());
+  return m ? Number(m[1]) * 10000 + Number(m[2]) : null;
+}
 
 /**
  * @param {object} p
@@ -81,6 +87,13 @@ export function buildEditPlan({
     const dialogue = normalizeDialogue(s.dialogue);
     usable.push({
       shot_no: s.shot_no,
+      // V4.13：索引随片段一起进时间线，成片每一段都能追回"第几镜、哪一版"
+      order: Number.isFinite(Number(s.order)) ? Number(s.order) : orderOfShot(s.shot_no),
+      beat_no: s.beat_no ?? null,
+      generation_id: s.generation_id ?? null,
+      generation_kind: s.generation_kind ?? null,
+      still_url: s.still_url ?? null,
+      script_ref: s.script_ref ?? null,
       clip_url: s.clip_url,
       duration: Number(s.duration ?? style?.avg_shot_len ?? 4),
       transition: s.transition ?? 'TRN-HARDCUT',
@@ -92,6 +105,30 @@ export function buildEditPlan({
       is_flashback: !!s.is_flashback,
       _meta: { dialogue, emotions: s.emotions ?? [], atmosphere: s.atmosphere ?? null, still: !!s.still },
     });
+  }
+
+  // —— 索引自检（V4.13）：重复镜号 = 同一段被剪两次；顺序倒挂 = 成片顺序会错 ——
+  // 只检查有镜号的片段：片头/片尾没有镜号，允许插在首尾。
+  const numbered = usable.filter((u) => Number.isFinite(u.order));
+  const seenOrder = new Map();
+  for (const u of numbered) {
+    if (seenOrder.has(u.order)) {
+      errors.push({
+        shot: u.shot_no, code: 'DUPLICATE_CLIP', severity: 'fatal',
+        issue: `${u.shot_no} 与 ${seenOrder.get(u.order)} 索引相同（${u.order}），成片会把同一段剪两次`,
+      });
+    } else {
+      seenOrder.set(u.order, u.shot_no);
+    }
+  }
+  for (let i = 1; i < numbered.length; i += 1) {
+    if (numbered[i].order < numbered[i - 1].order) {
+      errors.push({
+        shot: numbered[i].shot_no, code: 'ORDER_CONFLICT', severity: 'fatal',
+        issue: `片段顺序错乱：${numbered[i].shot_no}（${numbered[i].order}）排在 ${numbered[i - 1].shot_no}（${numbered[i - 1].order}）之后`,
+      });
+      break;
+    }
   }
 
   if (!usable.length) {
@@ -187,6 +224,22 @@ export function buildEditPlan({
   const resolution = resolutionOf(aspect, quality);
   const aspectTag = aspect.replace(':', 'x');
   const blocking = errors.filter((e) => e.severity !== 'advisory').length;
+  const [width, height] = resolution.split('x').map(Number);
+  // 风格色板的强调色（第 2 个）→ 字幕描边：成片也带着这部戏的风格，而不是通用白字
+  const accent = Array.isArray(style?.palette) && style.palette.length > 1 ? style.palette[1] : (style?.palette?.[0] ?? null);
+
+  // —— 装配索引（V4.13）：成片第几段 = 第几镜 + 哪一版，逐段可查 ——
+  const assemblyClips = usable.map((u, i) => ({
+    film_index: i + 1,
+    order: u.order,
+    shot_no: u.shot_no,
+    beat_no: u.beat_no,
+    generation_id: u.generation_id,
+    generation_kind: u.generation_kind,
+    still_url: u.still_url,
+    script_ref: u.script_ref,
+    duration: u.duration,
+  }));
 
   return {
     ok: blocking === 0,
@@ -195,6 +248,14 @@ export function buildEditPlan({
     project_id: projectId ?? null,
     episode: episodeNo,
     video: { aspect, quality, resolution, fps, width: +resolution.split('x')[0], height: +resolution.split('x')[1] },
+    // V4.13：剪辑单自带装配索引，前端/交付包都能逐段核对"第几镜、哪一版、对应剧本哪一场"
+    assembly: {
+      episode: episodeNo,
+      clips: assemblyClips,
+      total: assemblyClips.length,
+      total_sec: +assemblyClips.reduce((a, c) => a + (Number(c.duration) || 0), 0).toFixed(2),
+      style: style ? { code: style.code, name: style.name, palette: style.palette ?? [] } : null,
+    },
     timeline: { ...tl, segments: segments.map((s) => ({ ...s, resolution })) },
     subtitles: {
       total: subs.total_cues,
@@ -203,7 +264,7 @@ export function buildEditPlan({
       srt: subs.srt,
       edit_recipe: editRecipe ? { code: editRecipe.code, name: editRecipe.name } : null,
       subtitle_sync: subtitleRule ? { code: subtitleRule.code, name: subtitleRule.name } : null,
-      ass: toAss(subs.cues, { aspect, title: `网剧大咖 ${episodeNo}` }),
+      ass: toAss(subs.cues, { aspect, width, height, title: `网剧大咖 ${episodeNo}`, accent }),
       plain: toPlainScript(subs.cues),
     },
     sound: { mood: sound.mood, bpm: sound.bpm, cues: sound.cues, ambience: sound.ambience, mix: sound.mix },

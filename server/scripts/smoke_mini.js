@@ -338,6 +338,34 @@ async function main() {
     ok('镜头历史可回溯', history.status === 200 && (data(history).items || []).length >= 2,
       String((data(history).items || []).length));
 
+    // V4.13：角色名册（含配角）+ 成片装配索引
+    const roster = await call('GET', `/api/projects/${projectId}/assets/roster`, undefined, true);
+    ok('角色名册可读（含配角）', roster.status === 200 && data(roster).total >= 1,
+      `${roster.status} total=${data(roster) && data(roster).total}`);
+    ok('名册能指出缺图角色', roster.status === 200 && Array.isArray(data(roster).missing_images));
+
+    const asm = await call('GET', `/api/projects/${projectId}/assembly`, undefined, true);
+    ok('成片装配索引可读', asm.status === 200 && Array.isArray(data(asm).clips),
+      `${asm.status} clips=${data(asm) && (data(asm).clips || []).length}`);
+    ok('装配按镜号排序', asm.status === 200 && (data(asm).clips || []).every((c, i, arr) => i === 0 || arr[i - 1].order <= c.order));
+
+    // 重出关键帧 → 旧版本被弃用、新版本成为当前版本（剪辑只会看到新版本）
+    const regen = await call('POST', `/api/projects/${projectId}/shots/${shotA}/regenerate`, { kind: 'image', mode: 'resample' }, true);
+    ok('重出某一镜成功并返回当前版本', regen.status === 200 && Boolean(data(regen).version && data(regen).version.generation_id),
+      `${regen.status} ${(data(regen) && data(regen).version && data(regen).version.generation_id) || ''}`);
+    if (regen.status === 200) {
+      const v = data(regen).version;
+      ok('新版本同步了镜号索引', Number(v.order) > 0 && v.order === data(asm).clips.find((c) => c.shot_no === shotA)?.order,
+        `${v.order}`);
+      const asm2 = await call('GET', `/api/projects/${projectId}/assembly`, undefined, true);
+      const clip = (data(asm2).clips || []).find((c) => c.shot_no === shotA);
+      // 这一镜已经有视频版本，成片仍取视频（这是对的）；重出的关键帧要体现在 still_url 上
+      ok('成片引用的分镜图是新版本', clip && clip.still_url && clip.still_url === data(regen).url,
+        `${clip && clip.still_url}`);
+      ok('旧版本被标废弃但记录仍在', (data(regen).version.superseded || []).length >= 1,
+        String((data(regen).version.superseded || []).length));
+    }
+
     const nf = await call('POST', `/api/projects/${projectId}/shots/E99-S999/generate`, { kind: 'image' }, true);
     ok('未知镜号返回 404', nf.status === 404 && nf.json.code === 'SHOT_NOT_FOUND', `${nf.status} ${nf.json && nf.json.code}`);
 

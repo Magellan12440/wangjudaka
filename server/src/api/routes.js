@@ -1142,6 +1142,18 @@ export const routes = [
     projectOf(req, params.id);
     return assetImageService.overview(params.id);
   }],
+  // —— 角色名册（V4.13）：剧本里出现过的每个人 vs 有没有卡 / 有没有图 ——
+  ['GET', '/api/projects/:id/assets/roster', async ({ params, req }) => {
+    projectOf(req, params.id);
+    return assetImageService.roster(params.id);
+  }],
+  // —— 一键补齐配角：缺卡先建卡，缺图逐张出（只补角色，场景/道具走各自入口）——
+  ['POST', '/api/projects/:id/assets/fill-characters', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    return assetImageService.fillMissingCharacters({
+      projectId: p.id, userId: p.user_id, limit: body?.limit ?? 12,
+    });
+  }],
   // —— 资产出图：把卡变成图，分镜才有视觉依据 ——
   ['POST', '/api/projects/:id/assets/:code/image', async ({ params, body, req }) => {
     const p = projectOf(req, params.id);
@@ -1431,6 +1443,11 @@ export const routes = [
   ['GET', '/api/projects/:id/consistency/locks', async ({ params, req }) => {
     projectOf(req, params.id);
     return consistencyGuard.locksOf(params.id);
+  }],
+  // —— 装配索引（V4.13）：这一集每段用的是第几镜、哪一版、对应剧本哪一场 ——
+  ['GET', '/api/projects/:id/assembly', async ({ params, query, req }) => {
+    projectOf(req, params.id);
+    return shotService.assembly(params.id, query.episode || null);
   }],
 
   // —— 剪辑成片（V4.2）：剪辑单 → 字幕/配乐/音效 → mp4 ——

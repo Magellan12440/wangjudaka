@@ -48,6 +48,12 @@ export class StoryEngine {
     // V4.12：用户规格（集数/单集时长/画幅/画质/片型）先归一，再同时喂给提示词与结构
     const userSpec = specLib.normalize({ ...spec, palette: style.palette ?? [] });
     const rules = specLib.textRules(userSpec, { stage: 'outline' });
+    // 每个风格的 rhythm_params 不同（慢热型每集 1 个冲突，强压型 3 个），这里把它变成硬性要求
+    const rhythmRules = {
+      conflictPerEpisode: Math.max(1, Number(style.rhythm_params?.conflict_per_episode) || 2),
+      reversalTotal: Math.max(1, Number(style.rhythm_params?.reversal_total) || 3),
+      empathyEveryNEpisodes: Math.max(1, Number(style.rhythm_params?.empathy_every_n_episodes) || 3),
+    };
 
     const system = [
       '你是国产漫剧的总编剧。输出必须是严格 JSON，不要任何解释、不要 markdown 代码块。',
@@ -56,8 +62,11 @@ export class StoryEngine {
       // 画幅由用户选的，不再写死"竖屏"——16:9 的剧按竖屏短剧的写法写会全程别扭
       `画幅：${userSpec.aspect_name}（${userSpec.resolution}），台词长度与场面调度按该画幅设计。`,
       `片型：${userSpec.video_type_name}，${userSpec.video_type_zh}`,
-      '硬性要求：第1集开场必须命中黄金三秒模板 HOOK-01..12 之一；每集至少 2 个不同编码的冲突且强度递增；',
-      '全剧至少 3 次结构级反转，第 2 集必须有 REV-01 或 REV-09；每 3 集至少 1 个共情高点；每集结尾必须有集末钩子。',
+      // V4.13：冲突/反转/共情的密度不再写死 —— 32 个风格各自的 rhythm_params 必须真的生效，
+      // 否则"古风慢热"和"复仇强压"拿到的结构节拍完全一样，风格只停留在画风上。
+      `硬性要求：第1集开场必须命中黄金三秒模板 HOOK-01..12 之一；每集至少 ${rhythmRules.conflictPerEpisode} 个不同编码的冲突且强度递增；`,
+      `全剧至少 ${rhythmRules.reversalTotal} 次结构级反转${rhythmRules.reversalTotal >= 3 ? '，第 2 集必须有 REV-01 或 REV-09' : ''}；`
+      + `每 ${rhythmRules.empathyEveryNEpisodes} 集至少 1 个共情高点；每集结尾必须有集末钩子。`,
       rules.zh,
     ].join('\n');
 
@@ -359,6 +368,9 @@ export class StoryEngine {
           plan_id: activePlan.plan_id,
           episode: epPlan.no,
           index: b.beat_no.split('-B')[1] ? Number(b.beat_no.split('-B')[1]) : 0,
+          // V4.13：镜头在成片里的唯一排序键（集号×10000 + 集内镜序）。
+          // 剪辑按它排序，用户重出某一镜只换版本、不动索引，所以新版本一定落在原来的位置。
+          order: epPlan.no * 10000 + (b.beat_no.split('-B')[1] ? Number(b.beat_no.split('-B')[1]) : 0),
           duration: b.duration_sec,
           // ↓ 来自 N02.5 总谱，下游不得改写 ↓
           shot_card: b.shot_card,
@@ -455,7 +467,7 @@ export class StoryEngine {
         const isOpen = i === 1;
         const lighting = [...requiredLighting, ...(isEnd ? [] : [pickMotionLighting(style, i)])].slice(0, 3);
         const transition = this.#pickTransition({
-          director, isOpen, isEnd, index: i, globalIndex,
+          style, director, isOpen, isEnd, index: i, globalIndex,
           nonHardUsed, maxNonHard,
           secSinceLastNonHard: elapsed - lastNonHardAtSec,
           // 距集末不足 8.5 秒的镜一律硬切，给集末定格留出间隔（按秒算，短镜头风格才不会踩线）
@@ -661,15 +673,24 @@ export class StoryEngine {
     return pick;
   }
 
-  #pickTransition({ director, isOpen, isEnd, index, nonHardUsed = 0, maxNonHard = 0, secSinceLastNonHard = Infinity, secToEpisodeEnd = Infinity }) {
+  #pickTransition({ style = null, director, isOpen, isEnd, index, nonHardUsed = 0, maxNonHard = 0, secSinceLastNonHard = Infinity, secToEpisodeEnd = Infinity }) {
     // 集末强制定格/入黑（§7.3 规则 5），不受配额限制
     if (isEnd) return { code: 'TRN-FREEZE', reason: '集末定格留住悬念' };
     if (isOpen && index === 1) return { code: 'TRN-HARDCUT', reason: null };
     // 距集末太近：让位给集末定格，保证两个非硬切间隔 ≥ 8.5 秒（§7.3 规则 6）
     if (secToEpisodeEnd < 8.5) return { code: 'TRN-HARDCUT', reason: null };
 
-    const bias = director?.transition_bias ?? { 'TRN-HARDCUT': 1 };
-    const pick = weightedPick(bias) ?? 'TRN-HARDCUT';
+    // V4.13：风格的转场偏好也要参与（以前只读导演，32 个风格的 transition_bias 等于白写）
+    const bias = {};
+    for (const [src, w] of [[style?.transition_bias, 1], [director?.transition_bias, 0.5]]) {
+      for (const [code, weight] of Object.entries(src ?? {})) {
+        if (!seeds.transition(code)) continue;
+        const n = Number(weight);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        bias[code] = (bias[code] ?? 0) + n * w;
+      }
+    }
+    const pick = weightedPick(Object.keys(bias).length ? bias : { 'TRN-HARDCUT': 1 }) ?? 'TRN-HARDCUT';
     if (pick === 'TRN-HARDCUT') return { code: pick, reason: null };
 
     // 配额用尽 → 硬切

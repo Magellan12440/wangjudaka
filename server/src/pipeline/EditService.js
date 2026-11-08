@@ -17,6 +17,8 @@ import shellService from '../shell/ShellService.js';
 import { modelCatalog } from '../relay/ModelCatalog.js';
 import { fail, ERR } from '../core/errors.js';
 import directorAgent from '../director/DirectorAgent.js';
+import { assembly } from './Assembly.js';
+import * as specLib from '../prompts/SpecLibrary.js';
 
 /** 光影 → 氛围：音效排点靠它决定铺雨声还是风声 */
 const ATMOSPHERE_BY_LIGHT = {
@@ -70,43 +72,47 @@ function pickEditRecipe(project, pinned = null) {
 
 class EditService {
   /** 取某集可剪辑的镜头（已生成优先取视频，其次取图片当静帧） */
+  /**
+   * 取一集的镜头（V4.13 重写）。
+   *
+   * 旧实现有两个隐患，正好对应"成片会漏/会重"：
+   *  1. 直接按分镜数组顺序拼，数组一旦重排，成片顺序就乱；
+   *  2. 同一镜重出多次时取"最新那条"，把用户已选定的版本无视掉。
+   * 现在全部交给 Assembly：按索引排序、只认当前版本、缺镜/重号如实报。
+   */
   collectShots(projectId, episodeNo = null) {
     const planRec = db.findOne('director_plans', (x) => x.project_id === projectId);
     if (!planRec?.storyboard?.shots?.length) {
       fail(ERR.PROJECT_REQUIRED, '还没有分镜，无法剪辑；请先生成剧本与总谱');
     }
-    const ep = normalizeEpisodeNo(episodeNo);
-    const all = planRec.storyboard.shots;
-    const shots = ep ? all.filter((s) => normalizeEpisodeNo(s.episode) === ep) : all;
-    if (!shots.length) fail(ERR.NOT_FOUND, `第 ${episodeNo} 集没有分镜`);
+    const epNo = episodeNo ? Number(String(episodeNo).replace(/^E0*/i, '')) || null : null;
+    const audit = assembly.auditAssembly({ projectId, episode: epNo, planRec });
+    const ep = epNo;
+    if (!audit.clips.length) fail(ERR.NOT_FOUND, `第 ${episodeNo} 集没有分镜`);
 
-    const gens = db.find('generations', (g) => g.project_id === projectId && g.status === 'done');
-    const byShot = new Map();
-    for (const g of gens) {
-      const url = g.result_url || g.url;
-      if (!url) continue;
-      const key = g.shot_no;
-      const cur = byShot.get(key);
-      // 视频优先；同类取最新
-      const better = !cur || (g.kind === 'video' && cur.kind !== 'video') ||
-        (g.kind === cur.kind && String(g.created_at) > String(cur.created_at));
-      if (better) byShot.set(key, g);
-    }
+    // 按审计里的顺序取原始分镜对象（保留情绪/光影等笔需要但剪辑不需要的字段做追溯）
+    const orderedShots = assembly.sortShots(
+      (planRec.storyboard.shots ?? []).filter((s) => !ep || assembly.episodeOf(s) === ep),
+    );
+    const shootByNo = new Map(orderedShots.map((s) => [s.no, s]));
 
-    const missing = [];
-    const rows = shots.map((s) => {
-      // V4.11：用户挑过的版本优先（同一镜可能重出过多次，剪辑不能自作主张拿最新那版）
-      const pickId = s.picked?.video_generation_id || s.picked?.image_generation_id || null;
-      const pinned = pickId ? gens.find((x) => x.id === pickId) : null;
-      const g = pinned ?? byShot.get(s.no);
-      if (!g) missing.push(s.no);
+    const rows = audit.clips.map((c) => {
+      const s = shootByNo.get(c.shot_no) ?? {};
       const emotionCodes = Object.values(s.emotions ?? {}).filter(Boolean);
       return {
-        shot_no: s.no,
-        clip_url: g ? (g.result_url || g.url) : null,
-        still: g ? g.kind !== 'video' : false,
-        duration: Number(s.duration ?? 4),
-        transition: s.transition ?? 'TRN-HARDCUT',
+        shot_no: c.shot_no,
+        // ↓ V4.13：索引与版本一起进剪辑单，成片每一段都能追回"第几镜、哪一版"
+        order: c.order,
+        film_index: c.index + 1,
+        beat_no: c.beat_no,
+        generation_id: c.clip?.generation_id ?? null,
+        generation_kind: c.clip?.kind ?? null,
+        script_ref: c.script_ref,
+        clip_url: c.clip?.url ?? null,
+        still_url: c.still_url,
+        still: c.clip ? c.clip.kind !== 'video' : false,
+        duration: Number(s.duration ?? c.duration ?? 4),
+        transition: s.transition ?? c.transition ?? 'TRN-HARDCUT',
         transition_reason: s.transition_reason ?? null,
         dialogue: s.dialogue ? [{ speaker: s.speaker ?? null, line: s.dialogue }] : [],
         emotions: emotionCodes,
@@ -116,7 +122,13 @@ class EditService {
       };
     });
 
-    return { shots: rows, missing, plan: planRec, episode: ep };
+    return {
+      shots: rows,
+      missing: audit.missing.map((m) => m.shot_no),
+      plan: planRec,
+      episode: ep ?? audit.episode,
+      assembly: audit,
+    };
   }
 
   /** 剪辑单（只算不落盘，秒回，给前端预览） */
@@ -150,7 +162,7 @@ class EditService {
         deliverables: [],
       };
     }
-    const { shots, missing, episode } = this.collectShots(projectId, episodeNo);
+    const { shots, missing, episode, assembly: asm } = this.collectShots(projectId, episodeNo);
     const style = seeds.style(project.spec?.style_code) ?? null;
     const director = seeds.director(project.spec?.director_code ?? style?.director_profile_default) ?? null;
 
@@ -171,7 +183,7 @@ class EditService {
 
     const built = editPlan.buildEditPlan({
       projectId,
-      episodeNo: episode ?? normalizeEpisodeNo(shots[0]?.shot_no) ?? 'E01',
+      episodeNo: episode ? `E${String(episode).padStart(2, '0')}` : (normalizeEpisodeNo(shots[0]?.shot_no) ?? 'E01'),
       shots: withShell,
       style,
       director,
@@ -187,6 +199,8 @@ class EditService {
       ...built,
       missing_shots: missing,
       coverage: shots.length ? +((shots.length - missing.length) / shots.length).toFixed(3) : 0,
+      // V4.13：装配体检（漏镜/重号/用了废弃版本）随剪辑单一起返回，前端能直接指到哪一镜
+      assembly_audit: asm,
       recipe: recipe ? { code: recipe.code, name: recipe.name, rhythm: recipe.cut_rhythm, avg_cut_sec: recipe.avg_cut_sec } : null,
       sync: syncRule ? { code: syncRule.code, name: syncRule.name, max_chars: syncRule.max_chars_per_line } : null,
       shell: {
@@ -224,6 +238,13 @@ class EditService {
     const project = db.findOne('projects', (x) => x.id === projectId);
     // 未显式指定时，按项目里选的剪辑档位（ED-STD/ED-FAST/ED-HQ/ED-EDL）
     const profile = preset ?? modelCatalog.editPreset(project?.spec?.edit_profile ?? 'ED-STD');
+
+    // —— 两道硬闸（V4.13）——
+    // 1) 装配：漏镜 / 重复镜号 / 选中已弃用版本 → 不许渲染（少一段是事故，不是建议）
+    // 2) 规格：成片分辨率必须等于用户点的画幅×画质（剪辑层最容易把 2K 悄悄降成 1080P）
+    const epForGate = episodeNo ? Number(String(episodeNo).replace(/^E0*/i, '')) || null : null;
+    if (epForGate) assembly.assertAssembly({ projectId, episode: epForGate });
+
     const plan = this.plan(projectId, episodeNo);
     if (!plan.ok) {
       return {
@@ -233,6 +254,16 @@ class EditService {
         errors: plan.errors.filter((e) => e.severity !== 'advisory'),
         hint: plan.missing_shots?.length ? `还有 ${plan.missing_shots.length} 个镜头没出片` : '剪辑单存在阻断问题',
       };
+    }
+    if (project?.spec) {
+      const userSpec = specLib.normalize({ ...project.spec }, { strict: true });
+      if (plan.video?.resolution && plan.video.resolution !== userSpec.resolution) {
+        fail(
+          ERR.SPEC_VIOLATION,
+          `成片分辨率 ${plan.video.resolution} 与用户选择 ${userSpec.resolution}（${userSpec.aspect} / ${userSpec.quality}）不一致，已拒绝渲染`,
+          { want: userSpec.resolution, got: plan.video.resolution, aspect: userSpec.aspect, quality: userSpec.quality },
+        );
+      }
     }
     const assets = editPlan.materialize(plan);
     if (profile === null) {
@@ -272,6 +303,9 @@ class EditService {
       resolution: plan.video?.resolution ?? null,
       preset: profile,
       shell: plan.shell ?? null,
+      // V4.13：成片登记里留一份装配索引，日后回查"这一版用的是哪几镜、哪一版"
+      style_code: project?.spec?.style_code ?? null,
+      assembly: plan.assembly ?? null,
       duration_ms: result.duration_ms ?? null,
       created_at: nowIso(),
     });

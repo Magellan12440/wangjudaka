@@ -269,6 +269,11 @@ Page({
     assetProgress: { total: 0, ready: 0, character: { total: 0, ready: 0 }, scene: { total: 0, ready: 0 }, prop: { total: 0, ready: 0 } },
     assetBusy: '',
     shotBusy: '',
+    // 角色名册（V4.13）：剧本里出现的每个人 vs 有没有卡/图；配角缺图在此一眼看见
+    roster: null,
+    rosterBusy: false,
+    // 成片装配（V4.13）：漏镜 / 重号 / 用了废弃版本
+    assembly: null,
 
     // 手动改镜头（V4.11）：改设定不花钱，想变画面再点重出
     editSheet: false,
@@ -679,7 +684,52 @@ Page({
           assetGroups: (d && d.groups) || { character: [], scene: [], prop: [] },
           assetProgress: d || this.data.assetProgress,
         });
+        // 名册与分组一起拉：配角缺图不拉名册是看不见的（分组里只是一张空卡）
+        return this.loadRoster();
       })
+      .then(() => this.loadAssembly())
+      .catch(() => {});
+  },
+
+  /** 角色名册（V4.13）：谁有卡、谁有图、谁是配角；缺图直接在这里补齐 */
+  loadRoster() {
+    return api.assetRoster(this.data.projectId)
+      .then((r) => this.setData({ roster: r }))
+      .catch(() => {});
+  },
+
+  /** 一键补齐配角定妆图：缺卡先建卡，缺图逐张出 */
+  fillCharacters() {
+    if (this.data.rosterBusy) return;
+    const missing = (this.data.roster && this.data.roster.missing_images) || [];
+    if (!missing.length) {
+      wx.showToast({ title: '角色图都齐了', icon: 'none' });
+      return;
+    }
+    motion.haptic();
+    wx.showModal({
+      title: `补齐 ${missing.length} 个角色`,
+      content: `会按顺序出 ${missing.length} 张定妆图（含配角），每张都会扣点。为的是一部戏里同一张脸前后一致。`,
+      confirmText: '开始出图',
+      success: (res) => {
+        if (!res.confirm) return;
+        this.setData({ rosterBusy: true });
+        api.fillCharacterAssets(this.data.projectId, 12)
+          .then((r) => {
+            this.setData({ rosterBusy: false, roster: r.roster || this.data.roster });
+            wx.showToast({ title: `出了 ${r.done} 张，失败 ${r.failed}`, icon: 'none' });
+            return this.loadAssets();
+          })
+          .catch(() => this.setData({ rosterBusy: false }));
+      },
+    });
+  },
+
+  /** 成片装配体检：漏镜/重号/用了废弃版本 */
+  loadAssembly() {
+    const ep = this.data.produceEp || null;
+    return api.assembly(this.data.projectId, ep)
+      .then((a) => this.setData({ assembly: a }))
       .catch(() => {});
   },
 

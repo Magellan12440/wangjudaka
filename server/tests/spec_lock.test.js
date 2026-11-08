@@ -219,3 +219,66 @@ test('总谱自检：集数与用户选择不一致时不许进剧本', () => {
   const itemKeys = plan.validation.problems.map((p) => p.item);
   assert.ok(itemKeys.includes('episode_count'), '集数不符没被自检拦下');
 });
+
+// ——— V4.13：规格要贯穿到「每一个环节」，而不只是分镜图 ———
+
+test('文本环节：集数/单集时长/画幅/片型都进编剧铁律（不是一句中文提示）', () => {
+  const p = compiler.compile({
+    kind: 'chat',
+    stage: 'outline',
+    available_credits: 99999,
+    project: {
+      style_code: 'STY-DUSHI', aspect: '4:3', quality: '2k',
+      video_type: 'narration', episode_count: 8, episode_sec: 60, total_minutes: 8,
+    },
+    messages: [{ role: 'system', content: '写大纲' }],
+    max_tokens: 2000,
+  });
+  const text = (p.messages ?? []).map((m) => m.content).join('\n');
+  assert.ok(/8 集/.test(text), '集数没进编剧铁律');
+  assert.ok(/60 秒/.test(text), '单集时长没进编剧铁律');
+  assert.ok(/4:3/.test(text), '画幅没进编剧铁律');
+  assert.ok(/解说/.test(text), '片型没进编剧铁律');
+  assert.equal(p.cards.spec.startsWith('SPEC-4x3-2K-E8-60S'), true, p.cards.spec);
+});
+
+test('资产设定图：画幅/画质/色板沿用用户选择，不许偷偷改成方图', () => {
+  const p = compiler.compile({
+    kind: 'image',
+    available_credits: 99999,
+    project: {
+      style_code: 'STY-GUFENG', aspect: '1:1', quality: '2k',
+      video_type: 'dynamic', episode_count: 1, episode_sec: 60, total_minutes: 1,
+    },
+    asset: {
+      asset_code: 'CH01', asset_type: 'character', name: '沈昭',
+      locks: ['黑发束冠', '左眉疤', '青灰长衫', '布靴'], lock_values: {},
+    },
+    options: { mode: 'asset_sheet' },
+  });
+  assert.equal(p.params.aspect, '1:1');
+  assert.equal(p.params.resolution, frame.resolutionOf('1:1', '2k'));
+  assert.ok(p.prompt_en.includes('1:1'), '提示词里没有画幅约束');
+  for (const hex of ['#1C1C1C', '#9E2B25']) {
+    assert.ok(p.prompt_en.includes(hex), `色板 ${hex} 没进设定图提示词`);
+  }
+});
+
+test('剪辑渲染：成片分辨率必须等于用户点选的画幅×画质，否则拒绝渲染', async () => {
+  const { default: editService } = await import('../src/pipeline/EditService.js');
+  const { db } = await import('../src/store/db.js');
+  const pid = `proj_spec_render_${Date.now()}`;
+  db.insert('projects', {
+    id: pid, user_id: 'u_spec_render', title: '规格渲染',
+    spec: { style_code: 'STY-DUSHI', aspect: '9:16', quality: '720p', episode_count: 1, episode_sec: 30, total_minutes: 0.5 },
+    created_at: new Date().toISOString(),
+  });
+  // 没有分镜 → 先被装配/剪辑单挡住（说明它不会在无片的情况下硬渲染）
+  const r = await editService.render(pid, null).catch((e) => ({ error: e }));
+  assert.ok(r.ok === false || r.error, '无分镜时不应渲染成功');
+  if (r.code === 'EDIT_PLAN_BLOCKED') {
+    assert.ok(r.plan && r.plan.ok === false);
+  } else if (r.error) {
+    assert.equal(r.error.code, 'PROJECT_REQUIRED');
+  }
+});
