@@ -25,6 +25,30 @@
   </block>
 
   <block wx:else>
+    <!--
+      异步任务进度条（V4.19）。
+      固定顶部而不是塞进页面流：出图要几十秒到几分钟，用户会往下滑着看别的，
+      进度条跟着滑走就等于没有。文案保持中性（不承诺秒数），失败时点数已自动退回。
+    -->
+    <view class="task-bar {{task.active ? 'on' : ''}}" wx:if="{{task.visible}}">
+      <view class="task-bar-top">
+        <view class="task-bar-title">{{task.title || '生成中'}}</view>
+        <view class="task-bar-pct num">{{task.pct}}<text class="task-bar-pct-u">%</text></view>
+      </view>
+      <view class="task-track">
+        <view class="task-fill {{task.error ? 'bad' : (task.done ? 'ok' : '')}}" style="width:{{task.pct}}%"></view>
+      </view>
+      <view class="task-bar-bottom">
+        <text class="task-stage">{{task.error || task.stage}}</text>
+        <text class="task-elapsed" wx:if="{{task.elapsed}}">已用 {{task.elapsed}} 秒</text>
+      </view>
+      <view class="task-tip" wx:if="{{!task.done && !task.error}}">{{task.tip}}</view>
+      <view class="task-acts" wx:if="{{task.done || task.error || task.active}}">
+        <view class="task-act tap" hover-class="tap-on" wx:if="{{task.done || task.error}}" bindtap="dismissTask">知道了</view>
+        <view class="task-act task-act-ghost tap" hover-class="tap-on" wx:else bindtap="leaveTaskRunning">先去别处</view>
+      </view>
+    </view>
+
     <!-- 项目头 -->
     <view class="p-hero">
       <view class="p-hero-bg cover-{{project.cover}}"></view>

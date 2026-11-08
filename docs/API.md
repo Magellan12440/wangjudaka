@@ -165,6 +165,64 @@
 | POST | `/api/compile/preview` | 只编译不花钱（看提示词与卡片） |
 | POST | `/api/compile/validate` | 只校验（分镜表批量体检） |
 
+## 异步任务（V4.19，小程序端慢操作唯一正确姿势）
+
+**为什么有这一层**：`wx.cloud.callContainer` 的 timeout 官方硬上限是 **15s**（传更大的值会被静默忽略）。
+一张图 20~40s、一段视频 1~3 分钟、一批分镜图好几分钟 —— 同步接口在真机上必然
+`request:fail timeout`，而服务端其实还在扣点出图。所以慢操作一律：
+
+```
+POST /api/task/...   → 立刻返回 { task_id, poll_url, poll_after_ms }
+GET  /api/task/:id   → 轮询状态 / 进度 / 结果
+```
+
+提交接口（全部返回同一个信封）：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/task/generate` | 通用生成（body 与 `/api/generate` 相同，多支持 `idemKey`） |
+| POST | `/api/task/projects/:id/plan` | 剧本与总谱（大纲→节奏→正文→分镜，40~90s） |
+| POST | `/api/task/projects/:id/assets/:code/image` | 单张资产设定图（`force:true` 重绘） |
+| POST | `/api/task/projects/:id/assets/images` | 资产批量出图（`type` / `limit`） |
+| POST | `/api/task/projects/:id/assets/fill-characters` | 配角补齐（最多 12 张） |
+| POST | `/api/task/projects/:id/shots/:shotNo/generate` | 按镜出关键帧 / 视频 |
+| POST | `/api/task/projects/:id/shots/:shotNo/regenerate` | 单镜重出（`mode` / `patch`） |
+| POST | `/api/task/projects/:id/shots/images` | 批量出分镜图（按集，逐张上报进度） |
+
+查询与控制：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/task/:id` | 轮询视图（见下）。不是自己的任务返回 **404**，不泄露存在性 |
+| GET | `/api/tasks?projectId=&activeOnly=&limit=` | 任务列表 + `stats`（running / queued / max_running） |
+| POST | `/api/task/:id/cancel` | 取消：排队中可撤；**已在跑的撤不回**，如实返回 `canceled:false` |
+
+轮询视图字段：
+
+| 字段 | 含义 |
+|---|---|
+| `status` | `pending` / `running` / `succeeded` / `failed` / `canceled` |
+| `done` | 是否终态（前端据此停止轮询） |
+| `progress` | 0~100。**运行中封顶 92%**，只有真正成功才给 100；失败保留「停在哪一步」 |
+| `stage_text` | 中性中文阶段：排队中 / 正在校验提示词与一致性 / AI 正在生成，请稍候 / 正在归档产物 / 已完成 |
+| `elapsed_sec` / `eta_sec` | 已用秒数、预估剩余（仅参考，不写进文案承诺） |
+| `result` | 成功时的执行体返回值（如 `{url, credits}`） |
+| `error_code` / `error_message` | 失败时的错误码与中文说明 |
+
+行为约定（都有单测锁死）：
+
+1. **进度单调不降**，且运行中不超过 92% —— 不让用户看到 100% 却没有结果。
+2. **`idemKey` 幂等**：同键且未失败的任务直接复用 `task_id`，双击/网络重试不会扣两次点。
+3. **失败不留僵尸**：进程重启或缩容导致的中断，首次访问时统一标 `PROCESS_RESTARTED`，
+   前端提示「重新发起」，不会永远停在「生成中」。
+4. **并发上限**：同时最多 2 个任务在跑，其余排队；同一个人未完成任务超过 6 个返回
+   **429 `TASK_TOO_MANY`**。
+5. 任务记录保留 3 天，之后自动清理。
+
+> 同步接口（`/api/generate`、`/api/projects/:id/shots/:no/generate` 等）**保留**，
+> 供 PC 工作台这类没有 15s 限制的场景使用；小程序端一律走任务接口
+> （`mini:check` 第 18 组会拦住任何改回同步的写法）。
+
 ## 时间线 / 渲染 / 交付
 
 | 方法 | 路径 | 说明 |

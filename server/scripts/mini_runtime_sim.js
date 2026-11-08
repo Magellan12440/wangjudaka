@@ -35,6 +35,25 @@ function ok(name, cond, detail = '') {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 等到条件成立（默认最多 20s）。
+ * 剧本与出图在 V4.19 之后是异步任务：页面提交后靠轮询拿结果，
+ * 固定 sleep 一个魔法数字必然在不同机器上抖，等真实产物出现才稳。
+ */
+async function waitUntil(fn, { timeout = 20000, step = 200, label = '条件' } = {}) {
+  const startedAt = Date.now();
+  for (;;) {
+    let okNow = false;
+    try { okNow = Boolean(await fn()); } catch (e) { okNow = false; }
+    if (okNow) return true;
+    if (Date.now() - startedAt > timeout) {
+      console.warn(`  ! 等待${label}超时（${timeout}ms）`);
+      return false;
+    }
+    await sleep(step);
+  }
+}
+
 // —— 伪造 wx 运行时 ——
 const storage = new Map();
 
@@ -305,7 +324,8 @@ async function main() {
 
     // 用素材生成剧本与分镜
     project.generateScript();
-    await sleep(2600);
+    // 剧本生成已改成异步任务（提交 → 轮询），等真实产物出现，别用固定 sleep 赌时长
+    await waitUntil(() => (project.data.epOptions || []).length >= 1, { label: '剧本分集' });
     ok('生成后自动切到剧本 tab', project.data.tab === 'script', project.data.tab);
     ok('剧本分集已就绪', (project.data.epOptions || []).length >= 1, String((project.data.epOptions || []).length));
     ok('场次已渲染', (project.data.currentScenes || []).length >= 1, String((project.data.currentScenes || []).length));
@@ -321,20 +341,21 @@ async function main() {
     const shotNo = ((project.data.shots || [])[1] || {}).no;
     modals.length = 0;
     project.genShot({ currentTarget: { dataset: { no: shotNo, kind: 'video' } } });
-    await sleep(1200);
+    // 异步任务：失败要等轮询拿到终态后才会弹窗，不能只 sleep 一个固定值
+    await waitUntil(() => modals.length > 0, { timeout: 12000, label: '视频被拦下的提示' });
     ok('无关键帧时视频被拦下', modals.some((m) => /关键帧|一致性/.test(m.content)), JSON.stringify(modals.slice(-1)));
 
     // V4.11：五维一致性要求先有资产设定图（角色/场景），分镜才有视觉依据
     project.genAssetType({ currentTarget: { dataset: { type: 'character' } } });
-    await sleep(3200);
+    await waitUntil(() => !project.data.task.active, { label: '角色资产任务结束' });
     project.genAssetType({ currentTarget: { dataset: { type: 'scene' } } });
-    await sleep(3200);
+    await waitUntil(() => !project.data.task.active, { label: '场景资产任务结束' });
     ok('资产设定图已就绪', ((project.data.assetProgress || {}).ready || 0) >= 2,
       JSON.stringify(project.data.assetProgress && project.data.assetProgress.ready));
 
     // 按镜出关键帧
     project.genShot({ currentTarget: { dataset: { no: shotNo, kind: 'image' } } });
-    await sleep(2600);
+    await waitUntil(() => !project.data.task.active, { timeout: 25000, label: '关键帧任务结束' });
     ok('逐镜出图成功', ((project.data.gens || {}).total || 0) >= 1, JSON.stringify(project.data.gens && project.data.gens.total));
 
     project.switchTab({ currentTarget: { dataset: { tab: 'script' } } });

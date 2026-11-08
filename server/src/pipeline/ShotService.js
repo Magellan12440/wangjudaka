@@ -69,7 +69,7 @@ export class ShotService {
    * @param {string} p.shotNo 分镜号，如 E01-S001
    * @param {'image'|'video'} p.kind
    */
-  async generate({ projectId, shotNo, kind = 'image', userId = null, overrides = null }) {
+  async generate({ projectId, shotNo, kind = 'image', userId = null, overrides = null, onProgress = null }) {
     const project = db.findOne(PROJECT, (x) => x.id === projectId);
     if (!project) fail(ERR.NOT_FOUND, '项目不存在');
     const planRec = db.findOne(PLANS, (x) => x.project_id === projectId);
@@ -230,6 +230,7 @@ export class ShotService {
       kind,
       purpose: 'preview',
       compileRequest,
+      onProgress,
       meta: {
         shotNo: shot.no,
         primaryAssetCode: (shot.characters ?? [])[0] ?? null,
@@ -509,7 +510,7 @@ export class ShotService {
    * 单镜重生成（保留历史版本，可回退）。
    * 没有同类生成记录时退化为首次生成；有则以原编译输入为底重新跑。
    */
-  async regenerateShot({ projectId, shotNo, kind = 'image', mode = 'resample', patch = {}, overrides = null }) {
+  async regenerateShot({ projectId, shotNo, kind = 'image', mode = 'resample', patch = {}, overrides = null, onProgress = null }) {
     const project = db.findOne(PROJECT, (x) => x.id === projectId);
     if (!project) fail(ERR.NOT_FOUND, '项目不存在');
     const gens = db.find(GENS, (g) => g.project_id === projectId && g.shot_no === shotNo && g.kind === kind)
@@ -522,7 +523,7 @@ export class ShotService {
      * 用户改了设置看到的却还是老样子 —— 典型的假生效。
      */
     if (!last || (overrides && Object.keys(overrides).length)) {
-      return this.generate({ projectId, shotNo, kind, userId: project.user_id, overrides });
+      return this.generate({ projectId, shotNo, kind, userId: project.user_id, overrides, onProgress });
     }
     const r = await generateService.regenerate({
       userId: project.user_id,
@@ -530,6 +531,7 @@ export class ShotService {
       generationId: last.id,
       mode,
       patch,
+      onProgress,
     });
     // 新版本立刻成为当前版本：旧版本废弃但留档，剪辑因此只会看到"这一版"
     const version = r?.generationId

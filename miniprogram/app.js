@@ -52,14 +52,9 @@ App({
    * 初始化失败不影响公网通道，所以整体吞掉异常。
    */
   initCloud() {
-    try {
-      if (typeof wx !== 'undefined' && wx.cloud && typeof wx.cloud.init === 'function') {
-        wx.cloud.init({ env: config.cloudEnv, traceUser: false });
-        this.globalData.cloudReady = true;
-      }
-    } catch (e) {
-      this.globalData.cloudReady = false;
-    }
+    // 统一走 utils/cloud.js：那里管 env、超时上限与错误分类，App 里再 init 一遍只会漂
+    const cloud = require('./utils/cloud.js');
+    this.globalData.cloudReady = Boolean(cloud.init());
   },
 
   /**

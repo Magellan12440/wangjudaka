@@ -111,6 +111,12 @@ export const ERR = {
   SHOT_NOT_FOUND: 'SHOT_NOT_FOUND',
   SHOT_SOURCE_REQUIRED: 'SHOT_SOURCE_REQUIRED',
 
+  // —— 异步任务（V4.19）——
+  /** 任务号查不到，或不是当前用户的任务（两者合并，不泄露任务是否存在） */
+  TASK_NOT_FOUND: 'TASK_NOT_FOUND',
+  /** 同时在跑的任务太多：算力有限，先让前面的跑完 */
+  TASK_TOO_MANY: 'TASK_TOO_MANY',
+
   // —— 通用 ——
   BAD_REQUEST: 'BAD_REQUEST',
   NOT_FOUND: 'NOT_FOUND',
@@ -129,6 +135,9 @@ export const HTTP_STATUS = {
   [ERR.INSUFFICIENT_BALANCE]: 402,
   [ERR.NOT_FOUND]: 404,
   [ERR.SHOT_NOT_FOUND]: 404,
+  [ERR.TASK_NOT_FOUND]: 404,
+  /** 429：任务队列已满，让客户端退避后重试（而不是让上游直接限流） */
+  [ERR.TASK_TOO_MANY]: 429,
   /** 428：请求本身合法，但缺少前置条件（先有项目）——比 400 更准确，前端可据此引导 */
   [ERR.PROJECT_REQUIRED]: 428,
   [ERR.MATERIAL_TOO_LARGE]: 413,

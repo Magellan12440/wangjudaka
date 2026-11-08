@@ -2,6 +2,7 @@ const api = require('../../utils/api.js');
 const fmt = require('../../utils/format.js');
 const motion = require('../../utils/motion.js');
 const privacy = require('../../utils/privacy.js');
+const taskUi = require('../../utils/task.js');
 const { pickFile } = require('../../utils/pickFile.js');
 
 // 用户只看「做剧的步骤」，流水线/画布/节点一律留在后端
@@ -183,6 +184,10 @@ function packView(pack) {
 Page({
   data: {
     projectId: '',
+    // —— 异步任务进度（V4.19）——
+    // AI 出图/出片要几十秒到几分钟，同步请求在内网通道 15s 上限下必然超时，
+    // 所以改成「提交 → 轮询」，这块数据驱动页面顶部的进度条。
+    task: Object.assign({}, taskUi.IDLE),
     pageAnim: false,
     // 多项目（V4.7）：项目页要能直接换剧/再开一部，而不是只能退回首页
     switcherOpen: false,
@@ -333,6 +338,8 @@ Page({
     this.setData({ balance: getApp().globalData.balance || 0 });
     // 回到前台继续轮询托管任务（后台仍在逐集推进）
     if (this.data.job && this.data.job.status === 'running') this.pollJob();
+    // 上次离开时还有任务在跑：接着看它的真实进度（任务在服务端不会停）
+    if (this.data.projectId) this.resumeTask();
     if (!this.data.recipes.length) this.loadEditLibraries();
   },
 
@@ -340,11 +347,13 @@ Page({
     motion.clear(this);
     this.stopOneshot();
     this.stopJobPolling();
+    taskUi.detach(this); // 只停轮询，不取消任务：回来还能接上
   },
 
   onUnload() {
     this.__gone = true;
     motion.clear(this);
+    taskUi.detach(this);
     this.stopOneshot();
     this.stopJobPolling();
     this.stopUploading();
@@ -355,6 +364,38 @@ Page({
   },
 
   noop() {},
+
+  // —— 异步任务：进度条（V4.19）——
+
+  /** 页面级任务键：一部剧同一时刻只跟一个生成任务，进度条不会互相覆盖 */
+  taskKey() {
+    return `project:${this.data.projectId}`;
+  },
+
+  /** 回到页面时接上未完成的任务 */
+  resumeTask() {
+    const key = this.taskKey();
+    if (!taskUi.loadActive(key)) return;
+    taskUi.resume({
+      page: this,
+      key,
+      onDone: () => this.reload(false),
+    });
+  },
+
+  /** 进度条上的「知道了」：收起并清掉本地任务号 */
+  dismissTask() {
+    motion.haptic();
+    taskUi.dismiss(this);
+  },
+
+  /** 用户点「先去别处」：停轮询，任务继续在后台跑 */
+  leaveTaskRunning() {
+    motion.haptic();
+    taskUi.detach(this);
+    this.setData({ task: Object.assign({}, taskUi.IDLE) });
+    wx.showToast({ title: '任务在后台继续，回来看进度', icon: 'none' });
+  },
 
   // —— 多项目（V4.7）：在一部剧里也能直接换到另一部，或再开一部 ——
   openSwitcher() {
@@ -740,13 +781,19 @@ Page({
       success: (res) => {
         if (!res.confirm) return;
         this.setData({ rosterBusy: true });
-        api.fillCharacterAssets(this.data.projectId, 12)
-          .then((r) => {
-            this.setData({ rosterBusy: false, roster: r.roster || this.data.roster });
-            wx.showToast({ title: `出了 ${r.done} 张，失败 ${r.failed}`, icon: 'none' });
+        // 一次最多 12 张，同步等待必然超时 → 走异步任务
+        taskUi.start({
+          page: this,
+          key: this.taskKey(),
+          title: '补齐配角资产',
+          submit: () => api.startFillCharactersTask(this.data.projectId, 12),
+          onDone: (r) => {
+            this.setData({ rosterBusy: false, roster: r?.roster || this.data.roster });
+            wx.showToast({ title: `出了 ${r?.done ?? 0} 张，失败 ${r?.failed ?? 0}`, icon: 'none' });
             return this.loadAssets();
-          })
-          .catch(() => this.setData({ rosterBusy: false }));
+          },
+          onFail: () => this.setData({ rosterBusy: false }),
+        });
       },
     });
   },
@@ -759,68 +806,102 @@ Page({
       .catch(() => {});
   },
 
+  /** 按已有设定重绘一张资产图（异步任务，进度条同一处显示） */
+  redrawAsset(code) {
+    if (this.data.task.active) {
+      wx.showToast({ title: '先等当前任务完成', icon: 'none' });
+      return Promise.resolve(null);
+    }
+    this.setData({ assetBusy: code });
+    return taskUi.start({
+      page: this,
+      key: this.taskKey(),
+      title: `重绘 ${code}`,
+      submit: () => api.startAssetImageTask(this.data.projectId, code, { force: true }),
+      onDone: () => {
+        this.setData({ assetBusy: '' });
+        wx.showToast({ title: '已重绘', icon: 'none' });
+        return this.loadAssets();
+      },
+      onFail: (err) => {
+        this.setData({ assetBusy: '' });
+        wx.showModal({ title: '重绘失败', content: (err && err.message) || '稍后再试', showCancel: false });
+      },
+    });
+  },
+
   genAsset(e) {
     const code = e.currentTarget.dataset.code;
     const force = e.currentTarget.dataset.force === '1';
-    if (!code || this.data.assetBusy) return;
+    if (!code || this.data.assetBusy || this.data.task.active) return;
     motion.haptic();
     this.setData({ assetBusy: code });
-    api.generateAssetImage(this.data.projectId, code, force)
-      .then((r) => {
+    taskUi.start({
+      page: this,
+      key: this.taskKey(),
+      title: `资产 ${code}`,
+      submit: () => api.startAssetImageTask(this.data.projectId, code, { force }),
+      onDone: (r) => {
         this.setData({ assetBusy: '' });
         wx.showToast({ title: r && r.skipped ? '已经有图了' : '出图完成', icon: 'none' });
         return this.loadAssets();
-      })
-      .catch((err) => {
+      },
+      onFail: (err) => {
         this.setData({ assetBusy: '' });
         wx.showModal({ title: '出图失败', content: (err && err.message) || '稍后再试', showCancel: false });
-      });
+      },
+    });
   },
 
   genAssetType(e) {
     const type = e.currentTarget.dataset.type || '';
-    if (this.data.assetBusy) return;
+    if (this.data.assetBusy || this.data.task.active) return;
     motion.haptic();
     this.setData({ assetBusy: type || 'all' });
-    wx.showLoading({ title: '逐个出图中…', mask: true });
-    api.generateAssetImages(this.data.projectId, type || null, 6)
-      .then((r) => {
-        wx.hideLoading();
+    taskUi.start({
+      page: this,
+      key: this.taskKey(),
+      title: type ? `批量出${type === 'scene' ? '场景' : type === 'prop' ? '道具' : '角色'}图` : '批量出资产图',
+      submit: () => api.startAssetImagesTask(this.data.projectId, type || null, 6),
+      onDone: (r) => {
         this.setData({ assetBusy: '' });
         wx.showToast({
-          title: `出图 ${r.done || 0}/${r.total || 0}${r.failed ? `，${r.failed} 个失败` : ''}`,
+          title: `出图 ${r?.done || 0}/${r?.total || 0}${r?.failed ? `，${r.failed} 个失败` : ''}`,
           icon: 'none', duration: 2200,
         });
         return this.loadAssets();
-      })
-      .catch((err) => {
-        wx.hideLoading();
+      },
+      onFail: (err) => {
         this.setData({ assetBusy: '' });
         wx.showModal({ title: '出图失败', content: (err && err.message) || '稍后再试', showCancel: false });
-      });
+      },
+    });
   },
 
   /** 分镜图：按当前集把还没出的一批出掉（有角色资产图之后才会有稳定脸） */
   genShotImages() {
-    if (this.data.shotBusy) return;
+    if (this.data.shotBusy || this.data.task.active) return;
     motion.haptic();
     const ep = (this.data.epOptions[this.data.epIndex] || {}).no || null;
     this.setData({ shotBusy: 'images' });
-    wx.showLoading({ title: '正在出分镜图…', mask: true });
-    api.generateShotImages(this.data.projectId, ep, 4)
-      .then((r) => {
-        wx.hideLoading();
+    taskUi.start({
+      page: this,
+      key: this.taskKey(),
+      title: '分镜图批量出图',
+      submit: () => api.startShotImagesTask(this.data.projectId, ep, 4),
+      onDone: (r) => {
         this.setData({ shotBusy: '' });
-        wx.showToast({
-          title: `出了 ${r.done || 0} 张${r.failed ? `，${r.failed} 张失败` : ''}`, icon: 'none', duration: 2200,
+        if (r && r.note) wx.showToast({ title: r.note, icon: 'none' });
+        else wx.showToast({
+          title: `出了 ${r?.done || 0} 张${r?.failed ? `，${r.failed} 张失败` : ''}`, icon: 'none', duration: 2200,
         });
         return this.reload();
-      })
-      .catch((err) => {
-        wx.hideLoading();
+      },
+      onFail: (err) => {
         this.setData({ shotBusy: '' });
         wx.showModal({ title: '分镜图失败', content: (err && err.message) || '稍后再试', showCancel: false });
-      });
+      },
+    });
   },
 
   /** 打开我的剧本库（带着项目号，方便直接套用） */
@@ -1154,17 +1235,28 @@ Page({
     motion.haptic();
     const has = this.data.materialStats.total > 0;
     const go = () => {
+      if (this.data.task.active) return;
       this.setData({ busy: 'plan' });
-      api.buildProjectPlan(this.data.projectId)
-        .then((r) => {
-          wx.showToast({ title: `${r.script_episodes} 集 · ${r.shots} 镜`, icon: 'none' });
+      taskUi.start({
+        page: this,
+        key: this.taskKey(),
+        title: '剧本与总谱',
+        submit: () => api.startPlanTask(this.data.projectId),
+        onDone: (r) => {
+          this.setData({ busy: '' });
+          wx.showToast({
+            title: r ? `${r.script_episodes} 集 · ${r.shots} 镜` : '已生成', icon: 'none',
+          });
           return this.reload(false).then(() => {
             this.setData({ tab: 'script', tabIndex: 1, segTabsStyle: motion.segStyle(1, TABS.length) });
             return this.loadScript();
           });
-        })
-        .catch((e) => wx.showModal({ title: '生成失败', content: e.message || '请稍后重试', showCancel: false }))
-        .then(() => this.setData({ busy: '' }));
+        },
+        onFail: (e) => {
+          this.setData({ busy: '' });
+          wx.showModal({ title: '生成失败', content: e.message || '请稍后重试', showCancel: false });
+        },
+      });
     };
     if (has) return go();
     wx.showModal({
@@ -1225,24 +1317,36 @@ Page({
   },
 
   // ——— 镜头生产 ———
+  /**
+   * 出关键帧 / 视频（V4.19 改异步）。
+   * 原来同步等结果：内网通道 15s 上限一到就报「请求超时」，可服务端还在扣点出图。
+   * 现在提交即返回，进度条按真实阶段推进，失败时点数自动退回。
+   */
   genShot(e) {
     const { no, kind } = e.currentTarget.dataset;
-    if (!no || this.data.busy) return;
+    const k = kind === 'video' ? 'video' : 'image';
+    if (!no || this.data.busy || this.data.task.active) return;
     motion.haptic();
-    this.setData({ busy: `${no}:${kind}` });
-    api.generateShot(this.data.projectId, no, kind || 'image')
-      .then((r) => {
-        wx.showToast({ title: `${kind === 'video' ? '视频' : '关键帧'}完成 · ${r.credits} 点`, icon: 'none' });
+    this.setData({ busy: `${no}:${k}` });
+    taskUi.start({
+      page: this,
+      key: this.taskKey(),
+      title: `${no} · ${k === 'video' ? '视频' : '关键帧'}`,
+      submit: () => api.startShotTask(this.data.projectId, no, k),
+      onDone: (result) => {
+        this.setData({ busy: '' });
+        wx.showToast({ title: `${k === 'video' ? '视频' : '关键帧'}完成${result?.credits ? ` · ${result.credits} 点` : ''}`, icon: 'none' });
         return this.reload(false);
-      })
-      .catch((err) => {
+      },
+      onFail: (err) => {
+        this.setData({ busy: '' });
         const map = {
           INSUFFICIENT_CREDITS: '点数不足，请先充值',
           SHOT_SOURCE_REQUIRED: '请先生成这一镜的关键帧',
         };
         wx.showModal({ title: '生成未完成', content: map[err.code] || err.message || '请稍后重试', showCancel: false });
-      })
-      .then(() => this.setData({ busy: '' }));
+      },
+    });
   },
 
   // ——— 虚拟导演 / 手动改镜头 / 多版本选定（V4.11）———
@@ -1255,15 +1359,22 @@ Page({
   /** 重出：保留历史版本，沿用这一镜上一次的编译输入（而不是重新猜一遍） */
   regenShot(e) {
     const { no, kind } = e.currentTarget.dataset;
-    if (!no || this.data.busy) return;
+    const k = kind === 'video' ? 'video' : 'image';
+    if (!no || this.data.busy || this.data.task.active) return;
     motion.haptic();
-    this.setData({ busy: `${no}:${kind}` });
-    api.regenerateShot(this.data.projectId, no, kind || 'image', 'resample')
-      .then((r) => {
-        wx.showToast({ title: `${kind === 'video' ? '视频' : '关键帧'}重出完成 · ${r.credits} 点`, icon: 'none' });
+    this.setData({ busy: `${no}:${k}` });
+    taskUi.start({
+      page: this,
+      key: this.taskKey(),
+      title: `${no} · 重出${k === 'video' ? '视频' : '关键帧'}`,
+      submit: () => api.startShotRegenTask(this.data.projectId, no, k, 'resample'),
+      onDone: (result) => {
+        this.setData({ busy: '' });
+        wx.showToast({ title: `重出完成${result?.credits ? ` · ${result.credits} 点` : ''}`, icon: 'none' });
         return this.reload(false);
-      })
-      .catch((err) => {
+      },
+      onFail: (err) => {
+        this.setData({ busy: '' });
         const map = {
           INSUFFICIENT_CREDITS: '点数不足，请先充值',
           SHOT_SOURCE_REQUIRED: '请先生成这一镜的关键帧',
@@ -1274,8 +1385,8 @@ Page({
           content: map[err.code] || err.message || '请稍后重试',
           showCancel: false,
         });
-      })
-      .then(() => this.setData({ busy: '' }));
+      },
+    });
   },
 
   /** 打开「改一改」：只改镜别/运镜/时长/对白/动作，改完不自动花钱 */
@@ -1579,14 +1690,19 @@ Page({
     motion.haptic();
     this.setData({ assetSaveBusy: true });
     api.setAssetPrompt(this.data.projectId, ed.code, prompt)
-      .then(() => (redraw ? api.generateAssetImage(this.data.projectId, ed.code, true, null) : null))
-      .then((r) => {
-        wx.showToast({ title: r ? '已重绘' : '提示词已保存', icon: 'none' });
-        this.setData({ assetEdit: null });
-        return this.loadAssets();
+      .then(() => {
+        this.setData({ assetEdit: null, assetSaveBusy: false });
+        if (!redraw) {
+          wx.showToast({ title: '提示词已保存', icon: 'none' });
+          return this.loadAssets();
+        }
+        // 重绘要几十秒，走异步任务（同步等待会被内网通道 15s 上限掐断）
+        return this.redrawAsset(ed.code);
       })
-      .catch((err) => wx.showModal({ title: '没保存成功', content: (err && err.message) || '稍后再试', showCancel: false }))
-      .then(() => this.setData({ assetSaveBusy: false }));
+      .catch((err) => {
+        this.setData({ assetSaveBusy: false });
+        wx.showModal({ title: '没保存成功', content: (err && err.message) || '稍后再试', showCancel: false });
+      });
   },
 
   // —— 分环节设置（V4.14）——
@@ -1690,7 +1806,8 @@ Page({
   doCreateSeason(no) {
     this.setData({ busy: 'season' });
     api.createSeason(this.data.projectId, {})
-      .then((r) => api.buildProjectPlan(r.project.id)
+      // 新一季的总谱也要生成：改成异步任务发起后就走，不在这一步等它跑完
+      .then((r) => api.startPlanTask(r.project.id)
         .catch(() => null)
         .then(() => api.createRun(r.project.id, 'BP_ONESHOT').catch(() => null))
         .then(() => r.project))
@@ -1702,16 +1819,29 @@ Page({
       .then(() => this.setData({ busy: '' }));
   },
 
+  /**
+   * 生成剧本与总谱（V4.19 改异步）。
+   * 大纲 → 节奏 → 剧本正文 → 分镜表要连着跑四步，40~90 秒很正常；
+   * 同步接口在 15s 内网通道上限下必然报超时，用户会以为白点了一次。
+   */
   buildPlan() {
-    if (this.data.busy) return;
+    if (this.data.busy || this.data.task.active) return;
     this.setData({ busy: 'plan' });
-    api.buildProjectPlan(this.data.projectId)
-      .then(() => {
+    taskUi.start({
+      page: this,
+      key: this.taskKey(),
+      title: '剧本与总谱',
+      submit: () => api.startPlanTask(this.data.projectId),
+      onDone: () => {
+        this.setData({ busy: '' });
         wx.showToast({ title: '剧本与总谱已生成', icon: 'none' });
         return this.reload(false);
-      })
-      .catch((e) => wx.showModal({ title: '生成失败', content: e.message || '请稍后重试', showCancel: false }))
-      .then(() => this.setData({ busy: '' }));
+      },
+      onFail: (e) => {
+        this.setData({ busy: '' });
+        wx.showModal({ title: '生成失败', content: e.message || '请稍后重试', showCancel: false });
+      },
+    });
   },
 
   buildRun() {

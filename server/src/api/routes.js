@@ -18,6 +18,7 @@ import { creationDocs } from '../docs/CreationDocs.js';
 import { rhythmMaster } from '../rhythm/RhythmMaster.js';
 import { blueprintEngine } from '../pipeline/Blueprint.js';
 import { generateService } from '../pipeline/GenerateService.js';
+import taskCenter from '../pipeline/TaskCenter.js';
 import { storyEngine } from '../pipeline/StoryEngine.js';
 import { directorPlanEngine } from '../pipeline/DirectorPlan.js';
 import { syncRun, syncProjectRuns, runProgress } from '../pipeline/RunSync.js';
@@ -433,6 +434,108 @@ async function generateScriptCandidate(p, { angle = '', spec = null } = {}) {
 
 /** 路由表：[method, pathPattern, handler] */
 export { revenueDashboard, batchFillRevenue, revenueExport };
+
+
+/**
+ * 批量出分镜图时的「待出列表」（V4.19 抽出）。
+ * 同步路由与异步任务共用同一份选片逻辑——两处各写一遍，早晚会一处算集一处不算。
+ */
+function pendingShotList(p, episode, limit) {
+  const planRec = db.findOne('director_plans', (x) => x.project_id === p.id);
+  if (!planRec?.storyboard?.shots?.length) {
+    throw new AppError('PROJECT_REQUIRED', '还没有分镜，先在「剧本」里生成并选定一版剧本');
+  }
+  const done = new Set(
+    db.find('generations', (g) => g.project_id === p.id && g.kind === 'image' && g.status === 'done')
+      .map((g) => g.shot_no),
+  );
+  const todo = (planRec.storyboard.shots ?? [])
+    .filter((s) => (!episode || s.episode === episode) && !done.has(s.no))
+    .slice(0, limit);
+  return { planRec, done, todo };
+}
+
+
+/**
+ * 「生成剧本与总谱」的完整链路（V4.19 抽出）。
+ * 同步路由与异步任务共用：一次要点 40~90 秒，走同步在真机上必超时。
+ *
+ * @param {object} p 项目
+ * @param {(pct:number, stage:string)=>void} [report] 阶段上报（异步任务用）
+ */
+async function buildProjectPlanFor(p, report = null) {
+  const beat = (pct, stage) => {
+    try { if (typeof report === 'function') report(pct, stage); } catch (e) { /* 上报失败不影响生成 */ }
+  };
+
+  /**
+   * 剧本环节的分环节参数（V4.14）：模型与风格可以在「剧本」这一环节单独换，
+   * 换风格只影响这一版剧本的文风与人物设定，不会改动项目规格（成片仍按项目规格出）。
+   */
+  beat(6, 'compiling');
+  const scriptStage = stageOptions.effective(p.id, 'script');
+  const spec = { ...(p.spec ?? {}), style_code: scriptStage.style_code ?? p.spec?.style_code };
+  const prompt = spec.prompt || p.title || '未命名漫剧';
+  const digest = materialService.digest(p.id);
+  assertAdaptReady(spec, digest);
+  if (digest.text) {
+    await contentSecurity.assertText({
+      content: digest.text.slice(0, 2400),
+      openid: contentSecurity.openidOf(p.user_id),
+      bizType: 'material_digest', bizId: p.id, scene: 1,
+    });
+  }
+  beat(18, 'calling');
+  const { outline } = await storyEngine.outline({
+    userId: p.user_id, projectId: p.id, prompt, spec, reference: digest.text,
+    // 剧本环节的模型由「分环节参数」决定（V4.14），不再只认项目级 picks
+    model: scriptStage.model ?? modelCatalog.resolve('chat', spec.models?.chat ?? null),
+  });
+  beat(38, 'calling');
+  const plan = storyEngine.directorPlan({ outline, spec, projectId: p.id });
+  beat(46, 'calling');
+  const script = await storyEngine.script({ outline, plan, spec, userId: p.user_id, projectId: p.id });
+  beat(70, 'calling');
+  const sb = await storyEngine.storyboard({ outline, spec, plan, script });
+  // 统一走剧本库：先落一份候选，再由它写入总谱 / 资产卡 / 个人剧本库，
+  // 这样「生成」和「一键生成」两条路径不会出现两套资产逻辑。
+  beat(88, 'settling');
+  const cand = scriptLibrary.addCandidate({
+    projectId: p.id,
+    userId: p.user_id,
+    outline, plan, script, storyboard: sb,
+    materialsUsed: digest.used,
+    referenceChars: digest.chars,
+    totalChars: digest.total_chars ?? 0,
+    condensed: !!digest.condensed,
+    label: `${sb.stats?.shots ?? 0} 镜 · ${script.episodes?.length ?? 0} 集`,
+    source: 'generate',
+  });
+  const picked = scriptLibrary.select({
+    projectId: p.id, userId: p.user_id, candidateId: cand.id,
+  });
+  const assetCount = picked.assets.total;
+
+  // 产物变了 → 同步节点进度（真实产物驱动，不做假进度）
+  const run = blueprintEngine.list(p.id)[0];
+  if (run) syncRun(run.id);
+
+  return {
+    plan_id: plan.plan_id,
+    validation: plan.validation,
+    stats: plan.stats,
+    script_episodes: script.episodes.length,
+    shots: sb.stats.shots,
+    total_sec: sb.stats.total_sec,
+    assets: assetCount,
+    materials_used: digest.used.length,
+    reference_chars: digest.chars,
+    total_chars: digest.total_chars ?? 0,
+    condensed: !!digest.condensed,
+    candidate_id: cand.id,
+    vault_id: picked.vault_id,
+  };
+}
 
 export const routes = [
   // —— 基础 ——
@@ -990,67 +1093,7 @@ export const routes = [
   // V4.2：生成前先把项目里的素材摘要注入大纲；素材是创作输入，不是装饰
   ['POST', '/api/projects/:id/plan', async ({ params, req }) => {
     const p = projectOf(req, params.id);
-    /**
-     * 剧本环节的分环节参数（V4.14）：模型与风格可以在「剧本」这一环节单独换，
-     * 换风格只影响这一版剧本的文风与人物设定，不会改动项目规格（成片仍按项目规格出）。
-     */
-    const scriptStage = stageOptions.effective(p.id, 'script');
-    const spec = { ...(p.spec ?? {}), style_code: scriptStage.style_code ?? p.spec?.style_code };
-    const prompt = spec.prompt || p.title || '未命名漫剧';
-    const digest = materialService.digest(p.id);
-    assertAdaptReady(spec, digest);
-    if (digest.text) {
-      await contentSecurity.assertText({
-        content: digest.text.slice(0, 2400),
-        openid: contentSecurity.openidOf(p.user_id),
-        bizType: 'material_digest', bizId: p.id, scene: 1,
-      });
-    }
-    const { outline } = await storyEngine.outline({
-      userId: p.user_id, projectId: p.id, prompt, spec, reference: digest.text,
-      // 剧本环节的模型由「分环节参数」决定（V4.14），不再只认项目级 picks
-      model: scriptStage.model ?? modelCatalog.resolve('chat', spec.models?.chat ?? null),
-    });
-    const plan = storyEngine.directorPlan({ outline, spec, projectId: p.id });
-    const script = await storyEngine.script({ outline, plan, spec, userId: p.user_id, projectId: p.id });
-    const sb = await storyEngine.storyboard({ outline, spec, plan, script });
-    // 统一走剧本库：先落一份候选，再由它写入总谱 / 资产卡 / 个人剧本库，
-    // 这样「生成」和「一键生成」两条路径不会出现两套资产逻辑。
-    const cand = scriptLibrary.addCandidate({
-      projectId: p.id,
-      userId: p.user_id,
-      outline, plan, script, storyboard: sb,
-      materialsUsed: digest.used,
-      referenceChars: digest.chars,
-      totalChars: digest.total_chars ?? 0,
-      condensed: !!digest.condensed,
-      label: `${sb.stats?.shots ?? 0} 镜 · ${script.episodes?.length ?? 0} 集`,
-      source: 'generate',
-    });
-    const picked = scriptLibrary.select({
-      projectId: p.id, userId: p.user_id, candidateId: cand.id,
-    });
-    const assetCount = picked.assets.total;
-
-    // 产物变了 → 同步节点进度（真实产物驱动，不做假进度）
-    const run = blueprintEngine.list(p.id)[0];
-    if (run) syncRun(run.id);
-
-    return {
-      plan_id: plan.plan_id,
-      validation: plan.validation,
-      stats: plan.stats,
-      script_episodes: script.episodes.length,
-      shots: sb.stats.shots,
-      total_sec: sb.stats.total_sec,
-      assets: assetCount,
-      materials_used: digest.used.length,
-      reference_chars: digest.chars,
-      total_chars: digest.total_chars ?? 0,
-      condensed: !!digest.condensed,
-      candidate_id: cand.id,
-      vault_id: picked.vault_id,
-    };
+    return buildProjectPlanFor(p);
   }],
 
   // —— 多份候选（V4.10）：一次出 1~3 版，用户挑一版再定 ——
@@ -1309,17 +1352,7 @@ export const routes = [
     const p = projectOf(req, params.id);
     const ep = body?.episode ? Number(body.episode) : null;
     const limit = Math.max(1, Math.min(12, Number(body?.limit) || 6));
-    const planRec = db.findOne('director_plans', (x) => x.project_id === p.id);
-    if (!planRec?.storyboard?.shots?.length) {
-      throw new AppError('PROJECT_REQUIRED', '还没有分镜，先在「剧本」里生成并选定一版剧本');
-    }
-    const done = new Set(
-      db.find('generations', (g) => g.project_id === p.id && g.kind === 'image' && g.status === 'done')
-        .map((g) => g.shot_no),
-    );
-    const todo = (planRec.storyboard.shots ?? [])
-      .filter((s) => (!ep || s.episode === ep) && !done.has(s.no))
-      .slice(0, limit);
+    const { planRec, done, todo } = pendingShotList(p, ep, limit);
     const results = [];
     for (const s of todo) {
       try {
@@ -1804,6 +1837,173 @@ export const routes = [
     mode: body.mode ?? 'resample', patch: body.patch ?? {},
   })],
   ['GET', '/api/generations', async ({ query }) => generateService.list(query.projectId, query.shotNo || null)],
+
+  // —— 异步任务（V4.19）——
+  //
+  // 为什么必须有这一层：wx.cloud.callContainer 的 timeout 官方硬上限 15s，
+  // 而一张图 20~40s、一段视频 1~3 分钟、一批分镜图好几分钟。同步接口在真机上
+  // 必然「请求超时」，可服务端其实还在扣点、还在出图 —— 用户看到失败，钱已经花了。
+  // 所以慢操作一律「提交拿 task_id → 轮询 /api/task/:id」，HTTP 请求本身永远只有几十毫秒。
+  ['POST', '/api/task/generate', async ({ body, req }) => {
+    const p = projectOf(req, body.projectId);
+    const t = taskCenter.submit({
+      userId: p.user_id,
+      projectId: p.id,
+      type: body.kind === 'video' ? 'video' : 'image',
+      label: body.label ?? null,
+      idemKey: body.idemKey ?? null,
+      run: ({ report }) => generateService.run({
+        userId: p.user_id, projectId: p.id, kind: body.kind ?? 'image',
+        compileRequest: body.compileRequest, purpose: body.purpose ?? 'preview',
+        idemKey: body.idemKey ?? null,
+        onProgress: report,
+        meta: {
+          shotNo: body.shotNo ?? null,
+          assetsSnapshot: body.assetsSnapshot,
+          similarityScore: body.similarityScore ?? null,
+          primaryAssetCode: body.primaryAssetCode ?? null,
+          reference: body.reference ?? null,
+          candidate: body.candidate ?? null,
+        },
+      }),
+    });
+    return { ...t, poll_url: `/api/task/${t.task_id}`, poll_after_ms: 1200 };
+  }],
+  // 剧本与总谱：一次跑大纲→节奏→剧本→分镜，几十秒起步，必须异步
+  ['POST', '/api/task/projects/:id/plan', async ({ params, req }) => {
+    const p = projectOf(req, params.id);
+    const t = taskCenter.submit({
+      userId: p.user_id, projectId: p.id, type: 'text',
+      label: '剧本与总谱', etaSec: 90,
+      idemKey: `plan:${p.id}`,
+      run: ({ report }) => buildProjectPlanFor(p, report),
+    });
+    return { ...t, poll_url: `/api/task/${t.task_id}`, poll_after_ms: 2000 };
+  }],
+  ['POST', '/api/task/projects/:id/assets/:code/image', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const t = taskCenter.submit({
+      userId: p.user_id, projectId: p.id, type: 'asset_image',
+      label: `资产 ${params.code}`,
+      idemKey: body?.idemKey ?? null,
+      run: ({ report }) => assetImageService.generate({
+        projectId: p.id, assetCode: params.code, userId: p.user_id,
+        force: body?.force === true, overrides: body?.options ?? null, onProgress: report,
+      }),
+    });
+    return { ...t, poll_url: `/api/task/${t.task_id}`, poll_after_ms: 1000 };
+  }],
+  ['POST', '/api/task/projects/:id/shots/:shotNo/generate', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const kind = body.kind === 'video' ? 'video' : 'image';
+    const t = taskCenter.submit({
+      userId: p.user_id, projectId: p.id, type: kind,
+      label: `${params.shotNo} · ${kind === 'video' ? '视频' : '关键帧'}`,
+      idemKey: body?.idemKey ?? null,
+      run: ({ report }) => shotService.generate({
+        projectId: p.id, shotNo: params.shotNo, kind, userId: p.user_id,
+        overrides: body?.options ?? null, onProgress: report,
+      }),
+    });
+    return { ...t, poll_url: `/api/task/${t.task_id}`, poll_after_ms: 1200 };
+  }],
+  ['POST', '/api/task/projects/:id/shots/:shotNo/regenerate', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const kind = body?.kind === 'video' ? 'video' : 'image';
+    const t = taskCenter.submit({
+      userId: p.user_id, projectId: p.id, type: kind,
+      label: `${params.shotNo} · 重出${kind === 'video' ? '视频' : '关键帧'}`,
+      idemKey: body?.idemKey ?? null,
+      run: ({ report }) => shotService.regenerateShot({
+        projectId: p.id, shotNo: params.shotNo, kind,
+        mode: body?.mode ?? 'resample', patch: body?.patch ?? {},
+        overrides: body?.options ?? null, onProgress: report,
+      }),
+    });
+    return { ...t, poll_url: `/api/task/${t.task_id}`, poll_after_ms: 1200 };
+  }],
+  // 批量出分镜图：进度按「出了几张 / 共几张」真实上报，比时间估算准得多
+  // 配角补齐：一次最多 12 张，同步必然超时
+  ['POST', '/api/task/projects/:id/assets/fill-characters', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const limit = Math.max(1, Math.min(12, Number(body?.limit) || 12));
+    const t = taskCenter.submit({
+      userId: p.user_id, projectId: p.id, type: 'batch',
+      label: `补齐配角（最多 ${limit} 张）`,
+      etaSec: Math.max(40, limit * 40),
+      run: async ({ report }) => {
+        report(6, '正在盘点缺图的角色');
+        return assetImageService.fillMissingCharacters({ projectId: p.id, userId: p.user_id, limit });
+      },
+    });
+    return { ...t, poll_url: `/api/task/${t.task_id}`, poll_after_ms: 1500 };
+  }],
+  // 资产批量出图：一次 6 张，同步必然超时
+  ['POST', '/api/task/projects/:id/assets/images', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const limit = Math.max(1, Math.min(12, Number(body?.limit) || 6));
+    const t = taskCenter.submit({
+      userId: p.user_id, projectId: p.id, type: 'batch',
+      label: `资产批量出图（最多 ${limit} 张）`,
+      etaSec: Math.max(30, limit * 35),
+      run: async ({ report }) => {
+        report(6, '正在盘点需要出图的资产');
+        return assetImageService.generateBatch({
+          projectId: p.id, userId: p.user_id, assetType: body?.type ?? null, limit,
+        });
+      },
+    });
+    return { ...t, poll_url: `/api/task/${t.task_id}`, poll_after_ms: 1500 };
+  }],
+  ['POST', '/api/task/projects/:id/shots/images', async ({ params, body, req }) => {
+    const p = projectOf(req, params.id);
+    const ep = body?.episode ? Number(body.episode) : null;
+    const limit = Math.max(1, Math.min(12, Number(body?.limit) || 6));
+    const { planRec, done, todo } = pendingShotList(p, ep, limit);
+    if (!todo.length) {
+      return { task_id: null, status: 'succeeded', progress: 100, note: '这一集的分镜图都已经出了', reused: false };
+    }
+    const t = taskCenter.submit({
+      userId: p.user_id, projectId: p.id, type: 'batch',
+      label: `分镜图批量 ${todo.length} 张`,
+      etaSec: Math.max(30, todo.length * 35),
+      run: async ({ report }) => {
+        const results = [];
+        for (let i = 0; i < todo.length; i += 1) {
+          const s = todo[i];
+          report(Math.round((i / todo.length) * 88) + 4, `正在出第 ${i + 1}/${todo.length} 张`);
+          try {
+            const r = await shotService.generate({
+              projectId: p.id, shotNo: s.no, kind: 'image', userId: p.user_id,
+            });
+            results.push({ shot_no: s.no, ok: true, url: r.url, mock: !!r.mock });
+          } catch (e) {
+            results.push({ shot_no: s.no, ok: false, code: e.code, message: e.message });
+            if (e.code === 'INSUFFICIENT_BALANCE' || e.code === 'INSUFFICIENT_CREDITS') break;
+          }
+        }
+        return {
+          total: todo.length,
+          done: results.filter((x) => x.ok).length,
+          failed: results.filter((x) => !x.ok).length,
+          remaining: Math.max(0, (planRec.storyboard.shots ?? []).length - done.size - results.filter((x) => x.ok).length),
+          results,
+        };
+      },
+    });
+    return { ...t, poll_url: `/api/task/${t.task_id}`, poll_after_ms: 1500 };
+  }],
+  ['GET', '/api/task/:id', async ({ params, req }) => taskCenter.view(params.id, { userId: authService.optionalUser(req)?.id ?? null })],
+  ['GET', '/api/tasks', async ({ query, req }) => ({
+    items: taskCenter.list({
+      userId: query.userId || authService.optionalUser(req)?.id || null,
+      projectId: query.projectId || null,
+      activeOnly: query.activeOnly === 'true' || query.activeOnly === '1',
+      limit: query.limit,
+    }),
+    stats: taskCenter.stats(),
+  })],
+  ['POST', '/api/task/:id/cancel', async ({ params, req }) => taskCenter.cancel(params.id, { userId: authService.optionalUser(req)?.id ?? null })],
 
   // —— 编译预览（不花钱，只看提示词与校验） ——
   ['POST', '/api/compile/preview', async ({ body }) => {

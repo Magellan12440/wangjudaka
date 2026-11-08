@@ -1,6 +1,7 @@
 // 统一请求封装：只与自有后端通信，绝不接触上游算力凭据。
 // token 自动注入 Authorization；401 自动重登并重试一次；所有错误带 code 供页面分支处理。
 const config = require('../config.js');
+const cloud = require('./cloud.js');
 
 function base() {
   // 优先用 App 上算好的地址；拿不到时（页面先于 App 实例化、或 Node 自测）
@@ -74,48 +75,22 @@ function failWith(raw, opts, reject) {
   reject(err);
 }
 
-/** GET 参数统一拼到 query 上：两条通道对 data 的处理略有差异，手动拼最可控 */
-function withQuery(url, method, data) {
-  if (method !== 'GET' || !data) return url;
-  const keys = Object.keys(data).filter((k) => data[k] !== undefined && data[k] !== null);
-  if (!keys.length) return url;
-  const qs = keys
-    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(String(data[k]))}`)
-    .join('&');
-  if (!qs) return url;
-  return `${url}${url.indexOf('?') >= 0 ? '&' : '?'}${qs}`;
-}
-
 /**
- * 通道 A：小程序内网调用（wx.cloud.callContainer）。
- * 走微信内部链路到云托管，**不受 request 合法域名约束**——云托管默认域名
- * 根本不允许配进小程序后台的服务器域名，所以这条才是正式环境的主通道。
- *
- * 硬限制（官方）：timeout 最大 15s（传更大的会被忽略），请求体 ≤100KiB，返回 ≤1000KiB。
+ * 通道 A：小程序内网调用（wx.cloud.callContainer）——**生产环境主通道**。
+ * 实现拆到 utils/cloud.js（env / 服务名 / 15s 硬上限的完整说明都在那边），
+ * 这里只负责「把业务响应交给统一的 handleResponse」和「失败时让上层决定要不要退公网」。
  */
 function viaContainer(opts) {
-  return new Promise((resolve, reject) => {
-    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callContainer) {
-      const err = new Error(CODE_TITLE.NO_CLOUD);
-      err.code = 'NO_CLOUD';
-      return reject(err);
-    }
-    const { url, method = 'GET', data = {}, timeout = 15000 } = opts;
-    wx.cloud.callContainer({
-      config: { env: config.cloudEnv },
-      path: withQuery(url, method, data),
+  const { url, method = 'GET', data = {}, timeout = cloud.TIMEOUT_DEFAULT } = opts;
+  return cloud
+    .callContainer({
+      path: url,
       method,
-      timeout: Math.min(Number(timeout) || 15000, 14000),
-      header: {
-        'X-WX-SERVICE': config.cloudService,
-        'Content-Type': 'application/json',
-        ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
-      },
-      data: method === 'GET' ? undefined : data,
-      success: (res) => handleResponse(res, opts, resolve, reject),
-      fail: (e) => failWith(e && e.errMsg, opts, reject),
-    });
-  });
+      data,
+      timeout,
+      header: token() ? { Authorization: `Bearer ${token()}` } : {},
+    })
+    .then((res) => new Promise((resolve, reject) => handleResponse(res, opts, resolve, reject)));
 }
 
 /** 通道 B：公网 HTTPS（wx.request）。域名没进白名单必失败，只作本地联调与兜底。 */
@@ -156,7 +131,8 @@ function request(opts) {
     return tryOrder[i](o).catch((err) => {
       // 业务错误（服务端有返回 4xx/5xx）不换通道，换了也一样
       if (err && err.status && err.code !== 'DOMAIN_NOT_ALLOWED') throw err;
-      const retriable = ['DOMAIN_NOT_ALLOWED', 'NETWORK_ERROR', 'TIMEOUT', 'NO_CLOUD'].indexOf(err && err.code) >= 0;
+      const retriable = ['DOMAIN_NOT_ALLOWED', 'NETWORK_ERROR', 'TIMEOUT', 'NO_CLOUD', 'CLOUD_INIT_FAILED']
+        .indexOf(err && err.code) >= 0;
       if (!retriable) throw err;
       return attempt(i + 1);
     });
@@ -384,7 +360,7 @@ function extractTextFile(filePath, opts) {
 }
 
 // 说明：小程序页面统一用 require，因此这里必须是 CommonJS 导出（不能写 export default）
-module.exports = {
+const api = {
   request,
   mediaUrl,
   resolveMedia,
@@ -661,6 +637,102 @@ module.exports = {
   generate: (payload) => request({ url: '/api/generate', method: 'POST', data: payload, toast: true, timeout: 180000 }),
   generations: (projectId) => request({ url: '/api/generations', data: { projectId } }),
 
+  // —— 异步任务（V4.19）——
+  // 慢操作一律「提交拿 task_id → 轮询」，因为内网通道 timeout 只有 15s（官方硬上限）。
+  // 同步版 generate/generateShot 保留：PC 工作台这类没有 15s 限制的场景仍可直接用。
+  startGenerateTask: (payload) => request({ url: '/api/task/generate', method: 'POST', data: payload, toast: true }),
+  startAssetImageTask: (projectId, code, payload) =>
+    request({
+      url: `/api/task/projects/${enc(projectId)}/assets/${enc(code)}/image`,
+      method: 'POST', data: payload || {}, toast: true,
+    }),
+  startShotTask: (projectId, shotNo, kind, options) =>
+    request({
+      url: `/api/task/projects/${enc(projectId)}/shots/${enc(shotNo)}/generate`,
+      method: 'POST', data: { kind: kind || 'image', options: options || null }, toast: true,
+    }),
+  startShotRegenTask: (projectId, shotNo, kind, mode, options) =>
+    request({
+      url: `/api/task/projects/${enc(projectId)}/shots/${enc(shotNo)}/regenerate`,
+      method: 'POST',
+      data: { kind: kind || 'image', mode: mode || 'resample', options: options || null },
+      toast: true,
+    }),
+  startAssetImagesTask: (projectId, type, limit) =>
+    request({
+      url: `/api/task/projects/${enc(projectId)}/assets/images`,
+      method: 'POST', data: { type: type || null, limit: limit || 6 }, toast: true,
+    }),
+  startPlanTask: (projectId) =>
+    request({ url: `/api/task/projects/${enc(projectId)}/plan`, method: 'POST', data: {}, toast: true }),
+  startFillCharactersTask: (projectId, limit) =>
+    request({
+      url: `/api/task/projects/${enc(projectId)}/assets/fill-characters`,
+      method: 'POST', data: { limit: limit || 12 }, toast: true,
+    }),
+  startShotImagesTask: (projectId, episode, limit) =>
+    request({
+      url: `/api/task/projects/${enc(projectId)}/shots/images`,
+      method: 'POST', data: { episode: episode || null, limit: limit || 6 }, toast: true,
+    }),
+  /** 单次查询任务状态（轮询用，也可手动刷新） */
+  task: (taskId) => request({ url: `/api/task/${enc(taskId)}` }),
+  tasks: (params) => request({ url: '/api/tasks', data: params || {} }),
+  cancelTask: (taskId) => request({ url: `/api/task/${enc(taskId)}/cancel`, method: 'POST', data: {}, toast: true }),
+  /**
+   * 轮询直到结束。
+   *
+   * @param {string} taskId
+   * @param {object} [opts]
+   * @param {(v:object)=>void} [opts.onProgress] 每次拿到新状态都回调（含首帧）
+   * @param {number} [opts.interval] 轮询间隔，默认 1500ms
+   * @param {number} [opts.maxWait] 最长等待，默认 10 分钟；超时按失败处理，不让页面永远转圈
+   * @param {()=>boolean} [opts.isCanceled] 页面 onUnload 时置真，立刻停止轮询
+   * @returns {Promise<object>} 终态任务视图（status=succeeded 时 result 有值）
+   */
+  pollTask: (taskId, opts) => {
+    const o = opts || {};
+    const interval = Math.max(600, Number(o.interval) || 1500);
+    const maxWait = Math.max(10000, Number(o.maxWait) || 600000);
+    const startedAt = Date.now();
+    let misses = 0;
+    return new Promise((resolve, reject) => {
+      const tick = () => {
+        if (typeof o.isCanceled === 'function' && o.isCanceled()) {
+          const e = new Error('已离开页面，停止等待');
+          e.code = 'POLL_CANCELED';
+          return reject(e);
+        }
+        if (Date.now() - startedAt > maxWait) {
+          const e = new Error('等了很久还没结果。任务可能仍在后台执行，稍后可在「任务」里查看');
+          e.code = 'POLL_TIMEOUT';
+          e.taskId = taskId;
+          return reject(e);
+        }
+        return api.task(taskId)
+          .then((v) => {
+            if (typeof o.onProgress === 'function') {
+              try { o.onProgress(v); } catch (e) { /* 页面渲染异常不影响轮询 */ }
+            }
+            if (v && v.done) { resolve(v); return; }
+            // 退避：1 分钟后逐步放慢，长任务不至于把手机打热、把后端打满
+            const elapsed = Date.now() - startedAt;
+            const gap = elapsed > 60000
+              ? Math.min(4000, interval + Math.floor(elapsed / 30000) * 500)
+              : interval;
+            setTimeout(tick, gap);
+          })
+          .catch((err) => {
+            // 单次网络抖动不该让整个等待失败：连续 3 次才认输
+            misses += 1;
+            if (misses >= 3) { reject(err); return; }
+            setTimeout(tick, interval * 2);
+          });
+      };
+      tick();
+    });
+  },
+
   // —— 分发 ——
   distributions: (projectId) => request({ url: '/api/distribution', data: { projectId } }),
   createDistribution: (payload) =>
@@ -882,3 +954,5 @@ module.exports = {
       });
     }),
 };
+
+module.exports = api;

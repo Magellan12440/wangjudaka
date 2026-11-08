@@ -55,7 +55,7 @@ export class AssetImageService {
    *   overrides：本次临时覆盖（模型/画幅/画质/风格），不改项目也不改环境变量，
    *              前端「本环节设置」里点的那几个值就是从这里进来的。
    */
-  async generate({ projectId, assetCode, userId = null, force = false, overrides = null }) {
+  async generate({ projectId, assetCode, userId = null, force = false, overrides = null, onProgress = null }) {
     const project = db.findOne(PROJECT, (x) => x.id === projectId);
     if (!project) fail(ERR.NOT_FOUND, '项目不存在');
     const asset = assetLibrary.get(projectId, assetCode);
@@ -82,6 +82,7 @@ export class AssetImageService {
       projectId,
       kind: 'image',
       purpose: 'preview',
+      onProgress,
       idemKey: `asset:${asset.asset_code}:${Date.now()}`,
       meta: {
         shotNo: `${asset.asset_code}-SHEET`,

@@ -65,7 +65,14 @@ export class GenerateService {
     purpose = 'preview',
     idemKey = null,
     meta = {},
+    // V4.19：阶段上报（异步任务用）。签名 (pct, stage)，不传就完全不做事，
+    // 同步调用路径（/api/generate）保持原样。
+    onProgress = null,
   }) {
+    const beat = (pct, stage) => {
+      try { if (typeof onProgress === 'function') onProgress(pct, stage); } catch (e) { /* 上报失败不影响生成 */ }
+    };
+    beat(8, 'compiling');
     const available = ledger.balance(userId);
 
     // 1) 编译（12 校验 + 五维一致性在此完成）
@@ -81,6 +88,7 @@ export class GenerateService {
     };
     const payload = compiler.compile({ ...compileRequest, kind, available_credits: available, options: compileOptions });
 
+    beat(16, 'holding');
     // 2) 预扣
     const hold = ledger.hold({
       userId,
@@ -114,8 +122,10 @@ export class GenerateService {
     });
 
     try {
-      // 3) 调用（唯一出口）
+      // 3) 调用（唯一出口）—— 这一段最久，前端进度条靠软推进撑着
+      beat(22, 'calling');
       const res = await relay.call(payload, { purpose });
+      beat(58, 'returned');
 
       // 4) 落资产快照
       if (meta.assetsSnapshot) {
@@ -125,6 +135,7 @@ export class GenerateService {
       // 4.5) 产物归档：上游外链 → 自己的云存储（cloud:// 才能在小程序里长期可看）
       let finalUrl = res.url;
       if (kind === 'image' || kind === 'video') {
+        beat(66, 'archiving');
         const archived = await archiveRemote(res.url, kind);
         if (archived) finalUrl = archived;
       }
@@ -132,6 +143,7 @@ export class GenerateService {
       // 5) 一致性自检（图片/视频）：V3.3 起走独立质检服务，绝不假装通过
       let qc = null;
       if (kind === 'image' || kind === 'video') {
+        beat(82, 'checking');
         qc = consistencyChecker.postGenerate({
           projectId,
           shotNo: meta.shotNo ?? payload.shot_no,
@@ -147,6 +159,7 @@ export class GenerateService {
       }
 
       // 6) 结算
+      beat(92, 'settling');
       const settle = ledger.settle(hold.hold.id, res.actual_credits);
       db.update(COL, rec.id, {
         status: 'done',
@@ -193,7 +206,7 @@ export class GenerateService {
    * 编译器第一行就报「风格不存在」。现在以当初落盘的 compile_input 为底，再叠加补丁，
    * 这样「重出一次」是真的同一套参数换种子，而不是重新猜一遍。
    */
-  async regenerate({ userId, projectId, generationId, mode = 'resample', patch = {} }) {
+  async regenerate({ userId, projectId, generationId, mode = 'resample', patch = {}, onProgress = null }) {
     const old = db.findOne(COL, (g) => g.id === generationId);
     if (!old) fail(ERR.NOT_FOUND, '生成记录不存在');
     const base = old.compile_input ? JSON.parse(JSON.stringify(old.compile_input)) : null;
@@ -213,6 +226,7 @@ export class GenerateService {
         userId, projectId, kind: old.kind, purpose: old.purpose, idemKey,
         meta: { shotNo: old.shot_no, take, primaryAssetCode: old.compile_input?.shot?.characters?.[0] ?? null },
         compileRequest: merged,
+        onProgress,
       });
     }
     if (mode === 'change_model') {
@@ -221,6 +235,7 @@ export class GenerateService {
         userId, projectId, kind: old.kind, purpose: old.purpose, idemKey,
         meta: { shotNo: old.shot_no, take },
         compileRequest: { ...merged, model: patch.model },
+        onProgress,
       });
     }
     fail(ERR.BAD_REQUEST, `未知重生成模式: ${mode}`);

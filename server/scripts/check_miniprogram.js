@@ -347,6 +347,61 @@ ok('隐私合规检查完成');
 }
 ok('输入框可读性检查完成');
 
+// —— 18. 异步任务与云托管通道（V4.19）——
+// 内网通道 wx.cloud.callContainer 的 timeout 官方硬上限是 15s。只要 AI 出图还挂在
+// 一次请求上等待，真机就必然超时（而服务端仍在扣点出图）。这一组把「必须异步」钉死：
+// 谁把页面改回同步等结果，这里就红。
+{
+  const cloudSrc = path.join(ROOT, 'utils/cloud.js');
+  if (!exists(cloudSrc)) {
+    bad('云托管通道封装存在: utils/cloud.js', '生产环境主通道，不能只靠 wx.request');
+  } else {
+    const src = read(cloudSrc);
+    if (!/wx\.cloud\.callContainer/.test(src)) bad('用 wx.cloud.callContainer 走内网通道');
+    if (!/X-WX-SERVICE/.test(src)) bad('请求头带 X-WX-SERVICE（否则不知道打到哪个服务）');
+    if (!/TIMEOUT_MAX\s*=\s*14000/.test(src)) {
+      bad('timeout 压到 15s 以内', '官方上限 15s，传更大的值会被静默忽略；必须自己留余量');
+    }
+    if (!/wx\.cloud\.init/.test(src)) bad('调用前先 wx.cloud.init（否则报 cloud init error）');
+  }
+
+  const taskSrc = path.join(ROOT, 'utils/task.js');
+  if (!exists(taskSrc)) bad('任务进度条工具存在: utils/task.js');
+  else {
+    const src = read(taskSrc);
+    for (const fn of ['start', 'resume', 'detach', 'dismiss']) {
+      if (!new RegExp(`function ${fn}\\b`).test(src)) bad(`进度条工具缺少 ${fn}()`);
+    }
+    if (!/pollTask/.test(src)) bad('进度靠轮询 /api/task/:id（不能同步等）');
+  }
+
+  const apiSrc = read(path.join(ROOT, 'utils/api.js'));
+  for (const m of ['pollTask', 'startShotTask', 'startShotImagesTask', 'startAssetImageTask', 'task:']) {
+    if (!new RegExp(m.replace(':', '\\s*:')).test(apiSrc)) bad(`api 缺少异步任务方法: ${m}`);
+  }
+
+  // 页面不许再同步等生成结果（这些调用在 15s 上限下必超时）
+  const forbid = [
+    ['pages/project/project.js', /api\.generateShot\s*\(/, '分镜出图'],
+    ['pages/project/project.js', /api\.regenerateShot\s*\(/, '分镜重出'],
+    ['pages/project/project.js', /api\.generateShotImages\s*\(/, '批量分镜图'],
+    ['pages/project/project.js', /api\.buildProjectPlan\s*\(/, '剧本与总谱'],
+  ];
+  for (const [file, re, label] of forbid) {
+    const f = path.join(ROOT, file);
+    if (!exists(f)) continue;
+    if (re.test(read(f))) bad(`${label}必须走异步任务`, '同步等待会被内网通道 15s 上限掐断，用户看到失败但点数已扣');
+  }
+
+  const projWxml = read(path.join(ROOT, 'pages/project/project.wxml'));
+  if (!/class="task-bar/.test(projWxml)) bad('项目页有任务进度条');
+  if (!/bindtap="dismissTask"/.test(projWxml)) bad('进度条能收起（成功/失败后要能关掉）');
+  if (!/bindtap="leaveTaskRunning"/.test(projWxml)) {
+    bad('长任务能「先去别处」', '把用户按在页面上等几分钟是错的，任务在服务端不会停');
+  }
+}
+ok('异步任务与云托管通道检查完成');
+
 // —— 结果 ——
 console.log(`\n小程序体检：${pass} 组通过${fail.length ? ` / ${fail.length} 项失败` : ''}`);
 if (warn.length) {

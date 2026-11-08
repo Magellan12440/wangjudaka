@@ -555,6 +555,67 @@ async function main() {
     const gdBad = await call('GET', '/api/distribute/desktop-guide?platform=PLT-NOT-EXIST');
     ok('未知平台返回 404，不硬编', gdBad.status === 404, String(gdBad.status));
 
+    // 16.5 异步任务（V4.19）：慢操作改成「提交 → 轮询」
+    //
+    // 内网通道 wx.cloud.callContainer 的 timeout 硬上限是 15s，同步等 AI 出图必超时。
+    // 这里验协议本身：提交立刻给 task_id、轮询能拿终态、成功带产物、失败带错误码。
+    const submitTask = await call('POST', `/api/task/projects/${projectId}/shots/${shotA}/generate`, { kind: 'image' }, true);
+    ok('异步任务提交立刻返回 task_id', submitTask.status === 200 && Boolean(data(submitTask).task_id), submitTask.text.slice(0, 120));
+    ok('提交返回轮询地址', String(data(submitTask).poll_url || '').includes('/api/task/'));
+
+    const waitTask = async (id, rounds = 80) => {
+      let view = null;
+      for (let i = 0; i < rounds; i += 1) {
+        const r = await call('GET', `/api/task/${id}`);
+        view = data(r);
+        if (view && view.done) break;
+        await new Promise((res) => setTimeout(res, 120));
+      }
+      return view;
+    };
+
+    const shotView = await waitTask(data(submitTask).task_id);
+    ok('轮询能拿到终态', Boolean(shotView && shotView.done), JSON.stringify(shotView || {}).slice(0, 160));
+    // 这一镜可能因一致性前置条件被拒（那是正确行为）：终态必须有明确说法，不能停在「生成中」
+    ok('终态二选一：有产物 或 有错误码',
+      Boolean(shotView) && (shotView.status === 'succeeded' ? Boolean(shotView.result && shotView.result.url) : Boolean(shotView.error_code)),
+      String(shotView && (shotView.error_code || shotView.error_message)));
+    // 成功才给 100；失败保留「停在哪一步」，不假装跑完
+    ok('进度口径正确（成功 100 / 失败留在现场）且耗时可用',
+      Boolean(shotView) && Number.isFinite(shotView.elapsed_sec)
+      && (shotView.status === 'succeeded' ? shotView.progress === 100 : shotView.progress <= 92),
+      `${shotView && shotView.status} p=${shotView && shotView.progress}`);
+    ok('阶段文案是中文中性描述', Boolean(shotView && /[\u4e00-\u9fa5]/.test(shotView.stage_text || '')));
+
+    // 必定成功的一条：给已有资产重绘（资产图不需要分镜一致性前置）
+    const assetList = await call('GET', `/api/projects/${projectId}/assets`, undefined, true);
+    const firstAsset = (data(assetList).items || data(assetList) || [])[0];
+    if (firstAsset && firstAsset.asset_code) {
+      const tAsset = await call('POST', `/api/task/projects/${projectId}/assets/${firstAsset.asset_code}/image`, { force: true }, true);
+      ok('资产出图也能走异步任务', tAsset.status === 200 && Boolean(data(tAsset).task_id), tAsset.text.slice(0, 120));
+      const assetView = await waitTask(data(tAsset).task_id);
+      ok('资产任务成功并带产物地址',
+        Boolean(assetView) && assetView.status === 'succeeded' && Boolean(assetView.result && (assetView.result.url || assetView.result.skipped)),
+        String(assetView && (assetView.error_message || '')));
+    }
+
+    const taskMiss = await call('GET', '/api/task/task_not_exists_xxx');
+    ok('不存在的任务号返回 404', taskMiss.status === 404, String(taskMiss.status));
+
+    const taskList = await call('GET', `/api/tasks?projectId=${projectId}`, undefined, true);
+    ok('任务列表可读且含并发实况', taskList.status === 200 && Array.isArray(data(taskList).items)
+      && Number.isFinite(data(taskList).stats.max_running), String(taskList.status));
+
+    // 同一 idemKey 重复提交不会重复执行（双击/网络重试不该扣两次点）
+    const idem = `smoke-${Date.now()}`;
+    const firstAssetCode = firstAsset && firstAsset.asset_code;
+    if (firstAssetCode) {
+      const t1 = await call('POST', `/api/task/projects/${projectId}/assets/${firstAssetCode}/image`, { force: true, idemKey: idem }, true);
+      const t2 = await call('POST', `/api/task/projects/${projectId}/assets/${firstAssetCode}/image`, { force: true, idemKey: idem }, true);
+      ok('同 idemKey 复用同一个任务号', Boolean(data(t1).task_id) && data(t1).task_id === data(t2).task_id,
+        `${data(t1).task_id} vs ${data(t2).task_id}`);
+    }
+
     // 17. 凭据零命中
     const joined = allText.join('\n');
     ok('响应不含 sk- 密钥', !/sk-[A-Za-z0-9]{8,}/.test(joined));
