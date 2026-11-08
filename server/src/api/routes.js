@@ -33,6 +33,8 @@ import consistencyChecker from '../qc/ConsistencyChecker.js';
 import consistencyGuard from '../qc/ConsistencyGuard.js';
 import directorAgent, { CORE_LIBS, CHAIN } from '../director/DirectorAgent.js';
 import compliancePack from '../compliance/CompliancePack.js';
+import * as specLib from '../prompts/SpecLibrary.js';
+import * as FRAME from '../core/frame.js';
 import { db } from '../store/db.js';
 import canvasService from '../canvas/CanvasService.js';
 import uploadHelper from '../distribution/UploadHelper.js';
@@ -667,12 +669,29 @@ export const routes = [
     }
     if (body.styleCode) spec.style_code = String(body.styleCode).slice(0, 40);
     if (body.directorCode !== undefined) spec.director_code = body.directorCode || null;
-    if (body.aspect) spec.aspect = ['9:16', '16:9', '4:3', '1:1'].includes(body.aspect) ? body.aspect : spec.aspect;
-    if (body.quality) spec.quality = ['720p', '1080p', '2k'].includes(body.quality) ? body.quality : spec.quality;
+    // 画幅/画质/片型：非法值直接报错，不静默退回旧值
+    // （静默退回的后果是用户以为改了、实际没改，成片出来才发现画幅不对）
+    if (body.aspect) {
+      if (!FRAME.aspectOf(body.aspect)) {
+        throw new AppError('SPEC_VIOLATION', `不支持的画幅：${body.aspect}（可选 ${Object.keys(FRAME.ASPECTS).join(' / ')}）`);
+      }
+      spec.aspect = body.aspect;
+    }
+    if (body.quality) {
+      if (!FRAME.qualityOf(body.quality)) {
+        throw new AppError('SPEC_VIOLATION', `不支持的画质：${body.quality}（可选 ${Object.keys(FRAME.QUALITIES).join(' / ')}）`);
+      }
+      spec.quality = body.quality;
+    }
     if (body.totalMinutes !== undefined) spec.total_minutes = num(body.totalMinutes, 1, 600, spec.total_minutes ?? 10);
     if (body.episodeSec !== undefined) spec.episode_sec = num(body.episodeSec, 15, 600, spec.episode_sec ?? 90);
     if (body.episodeCount !== undefined) spec.episode_count = num(body.episodeCount, 1, 200, null);
-    if (body.videoType) spec.video_type = ['dynamic', 'static', 'narration'].includes(body.videoType) ? body.videoType : spec.video_type;
+    if (body.videoType) {
+      if (!FRAME.VIDEO_TYPES[body.videoType]) {
+        throw new AppError('SPEC_VIOLATION', `不支持的片型：${body.videoType}（可选 ${Object.keys(FRAME.VIDEO_TYPES).join(' / ')}）`);
+      }
+      spec.video_type = body.videoType;
+    }
     if (body.prompt !== undefined) spec.prompt = String(body.prompt ?? '').slice(0, 4000) || null;
     if (body.models && typeof body.models === 'object') {
       const next = { ...(spec.models ?? {}) };
@@ -859,6 +878,18 @@ export const routes = [
           first: d.issues?.[0] ? { shot_no: d.issues[0].shot_no, text: d.issues[0].issues?.[0]?.text ?? '' } : null,
         })),
       } : null,
+      // 用户规格（V4.12）：概要 + 是否符合（完整报告走 /spec）
+      spec: (() => {
+        const s = specLib.normalize({ ...(p.spec ?? {}) });
+        const check = specLib.audit({ spec: s, plan: planRec?.plan ?? null });
+        return {
+          ...check.spec,
+          summary_text: specLib.summary(s),
+          ok: check.ok,
+          issues: check.issues.map((i) => i.text),
+          warnings: check.warnings,
+        };
+      })(),
       materials: materialService.stats(p.id),
       materials_used: (planRec?.materials_used ?? []).length,
     };
@@ -1384,6 +1415,19 @@ export const routes = [
     projectOf(req, params.id);
     return consistencyGuard.audit(params.id, { episode: query.episode || null });
   }],
+  // —— 用户规格（V4.12）：用户点选的画幅/画质/时长/集数/片型 是否真的落地 ——
+  ['GET', '/api/projects/:id/spec', async ({ params, req }) => {
+    const p = projectOf(req, params.id);
+    const r = compliancePack.specAudit(params.id);
+    if (!r) throw new AppError('NOT_FOUND', '项目不存在');
+    return { ...r, summary_text: specLib.summary(specLib.normalize({ ...(p.spec ?? {}) })) };
+  }],
+  // 可选清单：前端渲染选项时不用自己维护一份，避免与后端支持的范围漂移
+  ['GET', '/api/spec/options', async () => ({
+    aspects: Object.entries(FRAME.ASPECTS).map(([key, a]) => ({ key, name: a.name, platforms: a.platforms, orientation: a.orientation })),
+    qualities: Object.entries(FRAME.QUALITIES).map(([key, q]) => ({ key, name: q.name, use: q.use })),
+    video_types: Object.entries(FRAME.VIDEO_TYPES).map(([key, v]) => ({ key, name: v.name })),
+  })],
   ['GET', '/api/projects/:id/consistency/locks', async ({ params, req }) => {
     projectOf(req, params.id);
     return consistencyGuard.locksOf(params.id);

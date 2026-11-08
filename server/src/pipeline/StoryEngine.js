@@ -12,9 +12,10 @@ import { generateService } from './GenerateService.js';
 import { directorPlanEngine } from './DirectorPlan.js';
 import { directorAgent } from '../director/DirectorAgent.js';
 import { rhythmMaster } from '../rhythm/RhythmMaster.js';
+import * as specLib from '../prompts/SpecLibrary.js';
 import { config } from '../config/env.js';
 import { logger } from '../core/redact.js';
-import { seedFrom, weightedPick, clamp } from '../core/util.js';
+import { seedFrom, weightedPick, clamp, round } from '../core/util.js';
 import { fail, ERR } from '../core/errors.js';
 
 const LOCK_TEMPLATE_BY_TYPE = { character: 'CH', scene: 'SC', prop: 'PR', voice: 'VO' };
@@ -44,13 +45,20 @@ export class StoryEngine {
   async outline({ userId, projectId, prompt, spec, model = null, reference = '' }) {
     const style = seeds.style(spec.style_code) ?? seeds.style('STY-DUSHI');
     const director = seeds.director(spec.director_code) ?? seeds.director(style.director_profile_default);
+    // V4.12：用户规格（集数/单集时长/画幅/画质/片型）先归一，再同时喂给提示词与结构
+    const userSpec = specLib.normalize({ ...spec, palette: style.palette ?? [] });
+    const rules = specLib.textRules(userSpec, { stage: 'outline' });
 
     const system = [
-      '你是国产竖屏漫剧的总编剧。输出必须是严格 JSON，不要任何解释、不要 markdown 代码块。',
+      '你是国产漫剧的总编剧。输出必须是严格 JSON，不要任何解释、不要 markdown 代码块。',
       `风格：${style.name}（${style.art_prompt_zh}）`,
       `导演原型：${director.name}，平均镜长 ${director.avg_shot_len}s，节奏曲线 ${director.rhythm_curve}`,
+      // 画幅由用户选的，不再写死"竖屏"——16:9 的剧按竖屏短剧的写法写会全程别扭
+      `画幅：${userSpec.aspect_name}（${userSpec.resolution}），台词长度与场面调度按该画幅设计。`,
+      `片型：${userSpec.video_type_name}，${userSpec.video_type_zh}`,
       '硬性要求：第1集开场必须命中黄金三秒模板 HOOK-01..12 之一；每集至少 2 个不同编码的冲突且强度递增；',
       '全剧至少 3 次结构级反转，第 2 集必须有 REV-01 或 REV-09；每 3 集至少 1 个共情高点；每集结尾必须有集末钩子。',
+      rules.zh,
     ].join('\n');
 
     const user = [
@@ -58,7 +66,8 @@ export class StoryEngine {
       reference ? `以下是用户上传的参考素材，请优先沿用其中的人物关系、世界观与关键情节，不要另起炉灶：\n${reference}` : '',
       // 改编强度（V4.6）：素材改编路线下用户要能选「照原著拍」还是「按竖屏短剧重排」
       adaptInstruction(spec, Boolean(reference)),
-      `集数：${spec.episode_count || Math.max(1, Math.ceil(((Number(spec.total_minutes) || 10) * 60) / (Number(spec.episode_sec) || 90)))} 集，单集 ${spec.episode_sec} 秒（总时长约 ${Math.round(((Number(spec.episode_count) || 0) * (Number(spec.episode_sec) || 90)) / 60) || spec.total_minutes} 分钟）`,
+      `集数：${userSpec.episodes} 集，单集 ${userSpec.episode_sec} 秒（总时长约 ${userSpec.total_minutes} 分钟）`,
+      `episodes 数组必须恰好 ${userSpec.episodes} 个元素，编号 1..${userSpec.episodes}。`,
       '输出 JSON 结构：',
       '{"title":"","logline":"","characters":[{"code":"CH01","name":"","role":"","traits":"","locks":["","","",""]}],',
       '"locations":[{"code":"SC01","name":"","desc":""}],',
@@ -80,7 +89,17 @@ export class StoryEngine {
             { role: 'system', content: system },
             { role: 'user', content: user },
           ],
-          project: { style_code: style.code },
+          // 规格必须随请求走：编译器要用它算出 SPEC code 并做 strict 校验
+          project: {
+            style_code: style.code,
+            aspect: userSpec.aspect,
+            quality: userSpec.quality,
+            video_type: userSpec.video_type,
+            episode_count: userSpec.episodes,
+            episode_sec: userSpec.episode_sec,
+            total_minutes: userSpec.total_minutes,
+            palette: style.palette ?? [],
+          },
           model: model ?? undefined,
           max_tokens: 4000,
         },
@@ -91,8 +110,114 @@ export class StoryEngine {
       logger.warn('大纲生成失败，启用结构化兜底', { code: e.code, msg: e.message });
     }
 
-    const outline = parsed ?? this.#fallbackOutline({ prompt, spec, style, director });
-    return { outline, fromModel: !!parsed, usage };
+    let outline = parsed ?? this.#fallbackOutline({ prompt, spec, style, director });
+    // V4.12：模型给几集就是几集是旧账——用户选 6 集、模型写 4 集时，
+    // 下游总谱时长必然对不上（然后被自己的时长闸门拦下，用户只看到一句报错）。
+    // 这里按用户选择做一次结构对齐，把模型多写/少写的集数收进用户要的集数里。
+    const fitted = this.fitEpisodes(outline, userSpec);
+    outline = fitted.outline;
+    return { outline, fromModel: !!parsed, usage, spec: userSpec, spec_fit: fitted.adjustment };
+  }
+
+  /**
+   * 把大纲的集数对齐到用户选择（V4.12）。
+   *
+   * 三种情况：
+   *   1. 一样多 → 只把每集 duration_sec 按用户设定重算
+   *   2. 模型写多了 → 多出来的并入最后一集（保住它们的情节钩子与反转，不丢内容）
+   *   3. 模型写少了 → 用种子库补足合规的集（每集自带 2 个递增冲突 + 集末钩子），
+   *      共情点按"每 3 集一个"补齐，保证过得了节奏闸门
+   * 补出来的集不伪造"模型原创"：标 padded: true，前端与剧本环节都能看出来。
+   */
+  fitEpisodes(outline, userSpec) {
+    const eps = Array.isArray(outline?.episodes) ? outline.episodes.map((e) => ({ ...e })) : [];
+    if (!eps.length) return { outline, adjustment: null };
+    const want = userSpec.episodes;
+    const epSec = userSpec.episode_sec;
+    const adjustment = { want, got: eps.length, action: 'none', notes: [] };
+
+    if (eps.length > want) {
+      const keep = eps.slice(0, Math.max(1, want - 1));
+      const tail = eps.slice(Math.max(1, want - 1));
+      const merged = tail.reduce((acc, e) => {
+        acc.conflicts = dedupeCodes([...(acc.conflicts ?? []), ...(e.conflicts ?? [])]).slice(-3);
+        acc.reversals = dedupeCodes([...(acc.reversals ?? []), ...(e.reversals ?? [])]);
+        acc.empathy = dedupeCodes([...(acc.empathy ?? []), ...(e.empathy ?? [])]);
+        acc.ending_hook = e.ending_hook ?? acc.ending_hook;
+        acc.goal = acc.goal ?? e.goal;
+        return acc;
+      }, { ...(tail[0] ?? eps[eps.length - 1]) });
+      eps.length = 0;
+      eps.push(...keep, merged);
+      adjustment.action = 'merged';
+      adjustment.notes.push(`模型写了 ${tail.length + keep.length} 集，已把后 ${tail.length} 集并入第 ${want} 集`);
+    } else if (eps.length < want) {
+      const rnd = mulberry32(seedFrom(`pad|${outline?.title ?? ''}|${want}`));
+      while (eps.length < want) {
+        const no = eps.length + 1;
+        const seeded = this.#paddedEpisode({ no, total: want, rnd });
+        eps.push(seeded);
+      }
+      adjustment.action = 'padded';
+      adjustment.notes.push(`模型只写了 ${adjustment.got} 集，已按内置节奏模板补到 ${want} 集`);
+    }
+
+    // 时长按用户设定均分（末集吃掉取整误差），不让模型的自估时长漂移
+    const totalSec = round(userSpec.total_sec || want * epSec, 2);
+    const per = round(totalSec / want, 2);
+    eps.forEach((e, i) => {
+      e.no = i + 1;
+      e.duration_sec = i === want - 1 ? round(totalSec - per * (want - 1), 2) : per;
+    });
+
+    // 共情覆盖：节奏闸门要求 ≥1/3，补足时不能只补集不补共情
+    const needEmpathy = Math.ceil(want / 3);
+    const empathyEps = new Set(eps.filter((e) => (e.empathy ?? []).length).map((e) => e.no));
+    if (empathyEps.size < needEmpathy) {
+      const pool = seeds.rhythmByCat('empathy');
+      for (let i = 3; i <= want && empathyEps.size < needEmpathy; i += 3) {
+        if (empathyEps.has(i)) continue;
+        const cand = eps[i - 1];
+        if (!cand) continue;
+        cand.empathy = [{ code: pool[(i - 1) % Math.max(1, pool.length)]?.code ?? 'EMP-02' }];
+        empathyEps.add(i);
+        adjustment.notes.push(`第 ${i} 集补了共情高点`);
+      }
+    }
+
+    return { outline: { ...outline, episodes: eps }, adjustment };
+  }
+
+  /** 补出来的集：确保过得了节奏闸门（2 个不同编码且强度递增的冲突 + 集末钩子） */
+  #paddedEpisode({ no, total, rnd }) {
+    const hooks = seeds.rhythmByCat('hook');
+    const conflicts = seeds.rhythmByCat('conflict');
+    const reversals = seeds.rhythmByCat('reversal');
+    const escalating = (conflicts ?? [])
+      .map((c) => c)
+      .sort((a, b) => (a.escalation ?? 1) - (b.escalation ?? 1));
+    const low = escalating[Math.floor(rnd() * Math.max(1, Math.floor(escalating.length / 2)))] ?? escalating[0];
+    const high = escalating[escalating.length - 1] ?? low;
+    const isLast = no === total;
+    return {
+      no,
+      padded: true,
+      goal: isLast ? '终局清算' : '冲突升级',
+      hook: {
+        code: (hooks[Math.floor(rnd() * Math.max(1, hooks.length))] ?? { code: 'HOOK-05' }).code,
+        micro_hook: true,
+        shots: 3,
+      },
+      conflicts: [
+        ...(low ? [{ code: low.code, escalation: low.escalation ?? 2 }] : []),
+        ...(high ? [{ code: high.code, escalation: Math.max((low?.escalation ?? 2) + 1, high.escalation ?? 4) }] : []),
+      ],
+      reversals: no % 3 === 0 && reversals?.length
+        ? [{ code: reversals[Math.floor(rnd() * reversals.length)].code, foreshadow: 2 }]
+        : [],
+      empathy: [],
+      ending_hook: isLast ? '主线收束但留下续作钩子' : '悬念未解',
+    };
   }
 
   /**
@@ -149,14 +274,19 @@ export class StoryEngine {
       });
     }
     const constraints = directorPlanEngine.toScriptConstraints(activePlan);
+    // V4.12：剧本环节也带用户规格——集数/时长/画幅/片型同样是承诺，不只是装饰
+    const userSpec = specLib.normalize({ ...spec, aspect: activePlan.aspect, quality: activePlan.quality, palette: seeds.style(activePlan.style_code)?.palette ?? [] });
+    const rules = specLib.textRules(userSpec, { stage: 'script' });
     const system = [
-      '你是国产竖屏漫剧的编剧。输出必须是严格 JSON，不要任何解释、不要 markdown 代码块。',
+      `你是国产漫剧的编剧，本剧画幅为 ${userSpec.aspect_name}（${userSpec.resolution}），片型 ${userSpec.video_type_name}。`,
+      '输出必须是严格 JSON，不要任何解释、不要 markdown 代码块。',
       constraints,
+      rules.zh,
       '剧本 JSON 结构：{"episodes":[{"no":1,"scenes":[{"beat_no":"E01-B001","action":"","dialogue":[{"speaker":"CH01","line":""}]}]}]}',
       '每场戏的 beat_no 必须与原样一致，不得增删场次、不得改动任何视听标注。',
       '对白极短（每句不超过 15 个汉字），动作描写只写该镜别拍得到的东西。',
     ].join('\n');
-    const user = `剧名：${outline?.title ?? '未命名'}。创意：${outline?.logline ?? ''}。请按总谱写全部场次。`;
+    const user = `剧名：${outline?.title ?? '未命名'}。创意：${outline?.logline ?? ''}。请按总谱写全部 ${userSpec.episodes} 集场次（一集都不能少）。`;
 
     let parsed = null;
     let usage = null;
@@ -166,7 +296,16 @@ export class StoryEngine {
         meta: { shotNo: null },
         compileRequest: {
           messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-          project: { style_code: activePlan.style_code },
+          project: {
+            style_code: activePlan.style_code,
+            aspect: userSpec.aspect,
+            quality: userSpec.quality,
+            video_type: userSpec.video_type,
+            episode_count: userSpec.episodes,
+            episode_sec: userSpec.episode_sec,
+            total_minutes: userSpec.total_minutes,
+            palette: userSpec.palette,
+          },
           model: model ?? undefined,
           max_tokens: 6000,
         },
@@ -257,9 +396,30 @@ export class StoryEngine {
       plan_id: activePlan.plan_id,
       plan_validation: activePlan.validation,
       target_total_sec: (spec.total_minutes ?? 10) * 60,
+      // V4.12：分镜产出即刻核一次用户规格（集数/时长/画幅），不合规当场抛，不带病往下出图
+      spec_check: this.assertStoryboardSpec({ plan: activePlan, shots, spec }),
       shots,
       stats: { shots: shots.length, total_sec: round2(shots.reduce((a, s) => a + s.duration, 0)) },
     };
+  }
+
+  /** 分镜阶段的规格核对：集数、单镜时长、画幅与画质 */
+  assertStoryboardSpec({ plan, shots, spec }) {
+    const userSpec = specLib.normalize({
+      ...spec,
+      aspect: plan?.aspect ?? spec.aspect,
+      quality: plan?.quality ?? spec.quality,
+      episode_count: plan?.episode_count ?? spec.episode_count ?? null,
+    });
+    const check = specLib.audit({ spec: userSpec, plan, shots });
+    if (!check.ok) {
+      fail(
+        ERR.SPEC_VIOLATION,
+        `分镜不符合用户选择的规格：${check.issues.slice(0, 4).map((i) => i.text).join('；')}`,
+        { spec: check.spec, issues: check.issues, plan_id: plan?.plan_id ?? null },
+      );
+    }
+    return check;
   }
 
   /** 旧版分镜推导（保留作紧急降级与回归对比，正常链路不再使用） */
@@ -529,6 +689,19 @@ function pickMotionLighting(style, i) {
 
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+
+/** 节奏条目去重（按 code），顺带丢掉空项：合并集数时保住反转/共情点不重复堆叠 */
+function dedupeCodes(list = []) {
+  const seen = new Set();
+  const out = [];
+  for (const x of list) {
+    const code = typeof x === 'string' ? x : x?.code;
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push(typeof x === 'string' ? { code } : x);
+  }
+  return out;
 }
 
 function mulberry32(a) {

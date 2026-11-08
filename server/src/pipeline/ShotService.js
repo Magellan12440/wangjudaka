@@ -136,6 +136,11 @@ export class ShotService {
         director_code: project.spec?.director_code ?? null,
         aspect: project.spec?.aspect ?? '9:16',
         quality: project.spec?.quality ?? '1080p',
+        // V4.12：片型与集数时长也要带下去，否则静态漫剧/解说漫仍会按动态漫剧的提示词出图
+        video_type: project.spec?.video_type ?? 'dynamic',
+        episode_count: project.spec?.episode_count ?? null,
+        episode_sec: project.spec?.episode_sec ?? 90,
+        total_minutes: project.spec?.total_minutes ?? 10,
       },
       // 用户在本项目选的模型：不在可选目录里就回退默认，绝不把请求打到已下架上游
       model: modelCatalog.resolve(kind, project.spec?.models?.[kind] ?? null),

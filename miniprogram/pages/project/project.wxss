@@ -501,3 +501,15 @@
   font-size: 19rpx; color: #C4691A; margin-left: 8rpx;
   text-decoration: underline; text-underline-offset: 3rpx;
 }
+
+/* —— 出片规格条（V4.12）：用户点选的画幅/画质/集数/片型有没有真正生效 —— */
+.spec-lock { border-radius: 12rpx; padding: 14rpx 16rpx; }
+.spec-lock.ok { background: #F3F8F6; }
+.spec-lock.bad { background: #FDF3F1; }
+.spec-line { display: flex; align-items: center; flex-wrap: wrap; gap: 10rpx; }
+.spec-k { font-size: 20rpx; color: #8A8F99; }
+.spec-v { font-size: 22rpx; color: #2B2F36; flex: 1; }
+.spec-tag { font-size: 19rpx; border-radius: 8rpx; padding: 4rpx 10rpx; }
+.spec-lock.ok .spec-tag { background: #EAF8F2; color: #1E8F6A; }
+.spec-lock.bad .spec-tag { background: #FDECEA; color: #C0392B; }
+.spec-issue { color: #C0392B; line-height: 1.5; }

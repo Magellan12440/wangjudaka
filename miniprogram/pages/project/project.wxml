@@ -481,6 +481,14 @@
           <view wx:if="{{directorPinned.length}}" class="tiny mt12">
             你指定的技巧：<text wx:for="{{directorPinned}}" wx:key="kind">{{index ? ' · ' : ''}}{{item.name}} {{item.code}}</text>
           </view>
+          <view wx:if="{{specLock}}" class="mt12 spec-lock {{specLock.ok ? 'ok' : 'bad'}}">
+            <view class="spec-line">
+              <text class="spec-k">出片规格</text>
+              <text class="spec-v">{{specLock.summaryText}}</text>
+              <text class="spec-tag">{{specLock.ok ? '已生效' : '有偏差'}}</text>
+            </view>
+            <view wx:if="{{!specLock.ok}}" class="tiny mt8 spec-issue">· {{specLock.issuesText}}</view>
+          </view>
           <view class="btn btn-sm btn-ghost mt16 tap" hover-class="tap-on" bindtap="openDirector">看导演与一致性明细</view>
         </view>
 

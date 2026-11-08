@@ -22,6 +22,7 @@ import seeds from '../seeds/loader.js';
 import { rhythmMaster } from '../rhythm/RhythmMaster.js';
 import { fail, ERR } from '../core/errors.js';
 import { seedFrom, weightedPick, clamp } from '../core/util.js';
+import { aspectOf, qualityOf } from '../core/frame.js';
 
 /** 风格 shot_mix 的简称 → 镜头卡编码 */
 export const SHOT_CODE_MAP = {
@@ -229,8 +230,14 @@ export class DirectorPlan {
       director_code: director.code,
       aspect: spec.aspect ?? '9:16',
       quality: spec.quality ?? '1080p',
+      // V4.12：集数是用户点选的结构承诺，落进总谱才能在自检时核对
+      episode_count: spec.episode_count ?? outline.episodes.length,
+      video_type: spec.video_type ?? 'dynamic',
       total_minutes: spec.total_minutes ?? 10,
       episode_sec: spec.episode_sec ?? 90,
+      // 单集时长的实际目标值：总时长均分（用户填的单集秒数与总时长冲突时，以总时长为准）
+      episode_sec_target: spec.episode_sec_target
+        ?? round2(((spec.total_minutes ?? 10) * 60) / Math.max(1, outline.episodes.length)),
       global: {
         lighting_arc: this.#lightingArc(requiredLighting, planEpisodes),
         shot_mix: style.shot_mix ?? {},
@@ -341,6 +348,30 @@ export class DirectorPlan {
     const targetSec = (plan.total_minutes ?? 10) * 60;
     if (Math.abs((plan.stats?.total_sec ?? 0) - targetSec) > targetSec * 0.02) {
       problems.push({ item: 'duration', issue: '总谱时长与目标偏差超过 2%' });
+    }
+
+    // —— 用户规格（V4.12）：集数 / 单集时长 / 画幅 / 画质 必须与用户点选一致 ——
+    // 放在总谱自检而不是等出图后再查：集数错了，后面每一集的镜头数、对白量、配乐全要返工。
+    if (plan.episode_count && (plan.episodes ?? []).length !== Number(plan.episode_count)) {
+      problems.push({
+        item: 'episode_count',
+        issue: `集数与用户选择不符（用户 ${plan.episode_count} 集 / 总谱 ${(plan.episodes ?? []).length} 集）`,
+      });
+    }
+    if (plan.episode_sec) {
+      const wanted = Number(plan.episode_sec_target ?? plan.episode_sec);
+      for (const ep of plan.episodes ?? []) {
+        const d = Number(ep.duration_sec) || 0;
+        if (Math.abs(d - wanted) > wanted * 0.02) {
+          problems.push({ item: `EP${ep.no}`, issue: `单集时长 ${d}s 与目标 ${wanted}s 偏差超过 2%` });
+        }
+      }
+    }
+    if (plan.aspect && !aspectOf(plan.aspect)) {
+      problems.push({ item: 'aspect', issue: `画幅 ${plan.aspect} 不在支持列表里` });
+    }
+    if (plan.quality && !qualityOf(plan.quality)) {
+      problems.push({ item: 'quality', issue: `画质 ${plan.quality} 不在支持列表里` });
     }
 
     return {

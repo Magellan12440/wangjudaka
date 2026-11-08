@@ -537,6 +537,12 @@ Page({
       gate,
       consistency: d.consistency || null,
       directorPinned: (d.director && d.director.pinned) || [],
+      // 用户规格（V4.12）：让"我选的画幅/画质/集数到底生效没有"在页面上看得见
+      specLock: d.spec ? {
+        ok: d.spec.ok !== false,
+        summaryText: d.spec.summary_text || '',
+        issuesText: (d.spec.issues || []).join('；'),
+      } : null,
       shell,
       shellForm: {
         seriesTitle: shell.series_title || p.title || '',

@@ -18,21 +18,17 @@ import { renderer } from './Renderer.js';
 import { MEDIA_ROOT } from '../api/media.js';
 import { buildSubtitles, toAss, toPlainScript } from './Subtitle.js';
 import { buildSoundSheet } from './SoundDesign.js';
+import { RESOLUTION_MAP, resolutionOf } from '../core/frame.js';
 import { synthBed, synthSfx, saveWav } from './SynthBGM.js';
 
 export const RENDER_ROOT = path.join(config.server.dataDir, 'renders');
 
-/** 画幅 × 画质 → 像素尺寸（与 model_registry 里的能力校验保持一致） */
-export const RESOLUTION_MAP = {
-  '9:16': { '720p': '720x1280', '1080p': '1080x1920', '2k': '1440x2560' },
-  '16:9': { '720p': '1280x720', '1080p': '1920x1080', '2k': '2560x1440' },
-  '4:3': { '720p': '960x720', '1080p': '1440x1080', '2k': '1920x1440' },
-  '1:1': { '720p': '720x720', '1080p': '1080x1080', '2k': '1440x1440' },
-};
-
-export function resolutionOf(aspect = '9:16', quality = '1080p') {
-  return RESOLUTION_MAP[aspect]?.[quality] ?? RESOLUTION_MAP[aspect]?.['1080p'] ?? '1080x1920';
-}
+/**
+ * 画幅 × 画质 → 像素尺寸。
+ * V4.12 起真源搬到了 core/frame（编译器与剪辑单原本各有一份，且互相对不上：
+ * 剪辑单支持 4:3 / 1:1 / 2K，编译器只认 9:16 与 16:9）。这里只做转出，保留旧导入路径。
+ */
+export { RESOLUTION_MAP, resolutionOf };
 
 /** 曲库条目是否真的有可播音频（现在的 12 条全是占位，必须识别出来） */
 export function isPlayableTrack(track) {

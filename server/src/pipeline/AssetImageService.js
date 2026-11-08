@@ -44,8 +44,14 @@ export class AssetImageService {
         project: {
           style_code: project.spec?.style_code,
           director_code: project.spec?.director_code ?? null,
+          // 设定图本身用方图（当参考面板用），但画质必须沿用用户选择：
+          // 之前这里把 2K 硬降成 720P，用户选的画质在资产环节被悄悄打折。
           aspect: '1:1',
-          quality: project.spec?.quality === '1080p' ? '1080p' : '720p',
+          quality: project.spec?.quality ?? '1080p',
+          video_type: project.spec?.video_type ?? 'dynamic',
+          episode_count: project.spec?.episode_count ?? null,
+          episode_sec: project.spec?.episode_sec ?? 90,
+          total_minutes: project.spec?.total_minutes ?? 10,
         },
         model: modelCatalog.resolve('image', project.spec?.models?.image ?? null),
         shot_no: `${asset.asset_code}-SHEET`,

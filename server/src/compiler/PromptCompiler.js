@@ -27,6 +27,8 @@ import {
 } from './segments.js';
 import * as V from './validators.js';
 import * as prompts from '../prompts/PromptLibrary.js';
+import * as specLib from '../prompts/SpecLibrary.js';
+import { resolutionOf, qualityOf } from '../core/frame.js';
 import { guardCompile } from '../qc/ConsistencyGuard.js';
 
 export class PromptCompiler {
@@ -55,8 +57,19 @@ export class PromptCompiler {
       seeds.director(req.project?.director_code) ?? seeds.director(style.director_profile_default);
     if (!director) fail(ERR.BAD_REQUEST, '未指定导演原型且风格没有默认值');
 
-    const aspect = req.project?.aspect ?? '9:16';
-    const quality = req.project?.quality ?? '1080p';
+    // —— P0：用户规格（V4.12）——
+    // 画幅/画质/时长/片型/色板是用户在开机页点的，属于"不可谈判"的约束，
+    // 所以比风格段更靠前，并且由 SpecLibrary 统一翻译成指令，不再散落成一句 "9:16 framing"。
+    const spec = specLib.normalize(
+      { ...(req.project ?? {}), palette: req.project?.palette?.length ? req.project.palette : (style.palette ?? []) },
+      { strict: true },
+    );
+    for (const f of spec.defaulted ?? []) {
+      warnings.push({ code: 'SPEC_DEFAULTED', issue: `规格 ${f} 未指定，已按默认值 ${spec[f]} 执行` });
+    }
+
+    const aspect = spec.aspect;
+    const quality = spec.quality;
     const duration = req.shot?.duration ?? style.avg_shot_len;
 
     // —— P3：镜头卡 ——
@@ -155,6 +168,20 @@ export class PromptCompiler {
         required: true,
       });
     }
+    // —— 用户素材参考（V4.12）——
+    // 之前这批图只是被塞进 options 里，编译器根本没读，等于"上传了没生效"。
+    // 它们是**画风倾向**参考，不是一致性依据，所以 required=false：缺图不拦，有图就真的进请求。
+    const materialRefs = (req.options?.material_references ?? []).filter((m) => m?.url);
+    for (const m of materialRefs.slice(0, 3)) {
+      references.push({
+        url: m.url,
+        role: 'style_reference',
+        asset_code: m.name ?? `material-${order}`,
+        order: order++,
+        controls: '画风与配色倾向',
+        required: false,
+      });
+    }
 
     // —— 模型 ——
     const modelCode =
@@ -225,7 +252,8 @@ export class PromptCompiler {
     // 只在显式传入 grammar 时生效：既有调用零影响；传了就必须每张卡都真实存在。
     const grammarCards = this.#resolveGrammar(req.grammar, warnings);
 
-    // —— 拼装六段 ——
+    // —— 拼装六段（前面加 P0 用户规格段）——
+    const s0 = specLib.segments(spec, { kind, shotDuration: duration });
     const s1 = segmentGlobal({ style, director, aspect, duration, quality, emotion: req.shot?.emotion });
     const s2 = segmentContinuity({ characterAssets, sceneAsset, propAssets, locks: [] });
     const s25 = segmentEmotion({
@@ -270,13 +298,15 @@ export class PromptCompiler {
       transition: req.libraries?.transition ?? trn.code ?? null,
       lighting: req.libraries?.lighting ?? (Array.isArray(lightingCodes) ? lightingCodes[0] : lightingCodes) ?? null,
       emotion: req.libraries?.emotion ?? null,
+      // 第十个库：用户规格契约（缺了就是 PROMPT_LIBRARY_MISSING，任何环节都别想漏带用户的要求）
+      __spec: { code: s0.code, text: s0.zh },
     });
     if (lib.missing.length) {
       fail('PROMPT_LIBRARY_MISSING', `提示词库不完整，缺少：${lib.missing.map((m) => m.name).join('、')}`, { missing: lib.missing });
     }
     const libText = prompts.toPromptText(lib);
-    const enParts = [s1.en, s2.en, s25.en, s3.en, s35.en, s4.en, s5.en, s6.en].filter(Boolean);
-    const zhParts = [s1.zh, s2.zh, s25.zh, s3.zh, s35.zh, s4.zh, s5.zh, s6.zh].filter(Boolean);
+    const enParts = [s0.en, s1.en, s2.en, s25.en, s3.en, s35.en, s4.en, s5.en, s6.en].filter(Boolean);
+    const zhParts = [s0.zh, s1.zh, s2.zh, s25.zh, s3.zh, s35.zh, s4.zh, s5.zh, s6.zh].filter(Boolean);
     const neg = buildNegative({
       style,
       director,
@@ -285,7 +315,7 @@ export class PromptCompiler {
     });
 
     const a = aspectRules(aspect);
-    const resolution = resolutionOf(aspect, quality);
+    const resolution = spec.resolution;
     const seed = req.options?.seed ?? seedFrom(`${req.shot_no}|${modelCode}|${enParts.join('')}|${req.shot?.take ?? 0}`);
 
     const payload = {
@@ -318,6 +348,7 @@ export class PromptCompiler {
         lens: grammarCards.lens?.code ?? null,
         color: grammarCards.color?.code ?? null,
         atmosphere: grammarCards.atmosphere?.code ?? null,
+        spec: s0.code,
         emotion: Object.fromEntries(
           Object.entries(emo.resolved).map(([k, v]) => [k, v?.card?.code ?? null])
         ),
@@ -332,6 +363,15 @@ export class PromptCompiler {
         quality,
         purpose: req.options?.purpose ?? 'preview',
         bgm: bgm?.track_id ?? null,
+        // 规格快照：事后核对「这张图是不是按用户点选做的」不需要再去翻项目
+        spec: {
+          code: s0.code,
+          aspect: spec.aspect,
+          resolution: spec.resolution,
+          quality: spec.quality,
+          video_type: spec.video_type,
+          shot_sec: Number(duration) || null,
+        },
       },
       prompt_libraries: {
         stage: libStage,
@@ -418,8 +458,16 @@ export class PromptCompiler {
     const director =
       seeds.director(req.project?.director_code) ?? seeds.director(style.director_profile_default);
 
-    const aspect = req.project?.aspect ?? '9:16';
-    const quality = req.project?.quality ?? '1080p';
+    // 设定图是方图（要能当参考面板用），但画质/片型/色板必须沿用用户设定，
+    // 之前这里把 2K 硬降成 720P 出图，等于用户选的画质在资产环节被悄悄打折。
+    const spec = specLib.normalize(
+      { ...(req.project ?? {}), palette: req.project?.palette?.length ? req.project.palette : (style.palette ?? []) },
+      { strict: true },
+    );
+    const sheetSpec = { ...spec, aspect: '1:1', resolution: resolutionOf('1:1', spec.quality) };
+    const s0 = specLib.segments(sheetSpec, { kind: 'image' });
+    const aspect = sheetSpec.aspect;
+    const quality = sheetSpec.quality;
     const typeCn = { character: '角色定妆图', scene: '场景概念图', prop: '道具设定图' }[assetType] ?? '资产设定图';
     const desc = [
       asset.lock_values?.traits, asset.lock_values?.role, asset.lock_values?.desc,
@@ -467,13 +515,13 @@ export class PromptCompiler {
       asset_code: asset.asset_code ?? null,
       asset_type: assetType,
       target_model: modelCode,
-      prompt_en: `${en}. ${neg.en}.`,
-      prompt_zh: `${zh}。负面排除：${neg.zh}。`,
+      prompt_en: `${s0.en} ${en}. ${neg.en}.`,
+      prompt_zh: `${s0.zh}${zh}。负面排除：${neg.zh}。`,
       negative: neg.en,
       reference_images: [],
       pending_reference_plan: [{ role: assetType, asset_code: asset.asset_code ?? null }],
       params: {
-        resolution: resolutionOf(aspect, quality),
+        resolution: sheetSpec.resolution,
         aspect,
         seed: req.options?.seed ?? seedFrom(`${asset.asset_code}|${modelCode}|${en}`),
         cfg: style.model_params?.image?.cfg ?? 3.5,
@@ -485,14 +533,28 @@ export class PromptCompiler {
         transition: null,
         style: style.code,
         director: director?.code ?? null,
+        spec: s0.code,
       },
       continuity_locks: locks,
       dialogue_check: { units: 0, max: 0 },
       estimated_credits: estimatedCredits,
       compile_warnings: [],
       compiled_at: new Date().toISOString(),
-      meta: { vertical: aspectRules(aspect).vertical, quality, purpose: req.options?.purpose ?? 'preview', asset_sheet: true },
-      prompt_libraries: { stage: 'asset', blocks: [], missing: [], digest: null },
+      meta: {
+        vertical: aspectRules(aspect).vertical,
+        quality,
+        purpose: req.options?.purpose ?? 'preview',
+        asset_sheet: true,
+        spec: { code: s0.code, aspect, resolution: sheetSpec.resolution, quality, video_type: spec.video_type },
+      },
+      // 设定图也必须挂上规格库，否则 RelayAdapter 的库闸门会拦（这是有意的）
+      prompt_libraries: (() => {
+        const lib = prompts.compose('character', {
+          ...(req.libraries ?? {}),
+          __spec: { code: s0.code, text: s0.zh },
+        });
+        return { stage: 'character', blocks: lib.blocks, missing: lib.missing, digest: digestOf(lib) };
+      })(),
     };
     payload._stamp = issueStamp(payload);
     return payload;
@@ -501,7 +563,14 @@ export class PromptCompiler {
   #compileText(req) {
     // V4.4：剧本/角色环节必须带上内置提示词库（情绪 + 节奏 / 情绪 + 光影）
     const stage = req.stage === 'character' ? 'character' : 'script';
-    const lib = prompts.compose(stage, req.libraries ?? {});
+    // V4.12：文本环节同样受用户规格约束——集数、单集时长、画幅、片型都是结构承诺，
+    // 不能只写在 user 的一句话里靠模型自觉（模型想写几集就几集，下游总谱必然对不上）。
+    const spec = specLib.normalize(req.project ?? {}, { strict: true });
+    const rules = specLib.textRules(spec, { stage: 'outline' });
+    const lib = prompts.compose(stage, {
+      ...(req.libraries ?? {}),
+      __spec: { code: rules.code, text: rules.zh },
+    });
     if (lib.missing.length) {
       fail('PROMPT_LIBRARY_MISSING', `提示词库不完整，缺少：${lib.missing.map((m) => m.name).join('、')}`, { missing: lib.missing });
     }
@@ -532,12 +601,18 @@ export class PromptCompiler {
       reference_images: [],
       pending_reference_plan: [],
       params: { temperature: req.temperature ?? 0.8, max_tokens: req.max_tokens ?? 2000 },
-      cards: { style: req.project?.style_code ?? null },
+      cards: { style: req.project?.style_code ?? null, spec: rules.code },
       continuity_locks: [],
       estimated_credits: estimatedCredits,
       compile_warnings: [],
       compiled_at: new Date().toISOString(),
-      meta: { purpose: req.options?.purpose ?? 'preview' },
+      meta: {
+        purpose: req.options?.purpose ?? 'preview',
+        spec: {
+          code: rules.code, aspect: spec.aspect, resolution: spec.resolution, quality: spec.quality,
+          episodes: spec.episodes, episode_sec: spec.episode_sec, video_type: spec.video_type,
+        },
+      },
       prompt_libraries: { stage, blocks: lib.blocks, missing: lib.missing, digest: digestOf(lib) },
     };
     payload._stamp = issueStamp(payload);
@@ -547,19 +622,22 @@ export class PromptCompiler {
   /**
    * 成本估算（点数）。上游报价 × 用量系数 × 画质系数。
    * 与 ModelRegistry.quotePoints 保持同一换算口径。
+   * 画质系数从 core/frame 取（V4.12 之前 2K 落到 0.6 倍，比 1080P 还便宜，
+   * 等于"选最高画质最省钱"，用户完全无法理解）。
    */
   estimate({ kind, model, duration = 5, quality = '1080p', tokens = 2000 }) {
     const base = modelRegistry.quotePoints(model);
+    const q = qualityOf(quality) ?? qualityOf('1080p');
     if (kind === 'video') {
       const units = Math.max(1, Math.ceil(duration / 5));
-      const q = quality === '1080p' ? 1.6 : quality === '720p' ? 1.0 : 0.6;
-      return Math.max(1, Math.ceil(base * units * q));
+      return Math.max(1, Math.ceil(base * units * q.factor));
     }
     if (kind === 'chat' || kind === 'text') {
       return Math.max(1, Math.ceil((base * tokens) / 1000));
     }
     if (kind === 'audio') return Math.max(1, base);
-    return Math.max(1, base);
+    // 出图：1080P 保持原价（不因这次改动涨价），720P 略便宜，2K 比 1080P 贵
+    return Math.max(1, Math.ceil(base * q.img_factor));
   }
 
   /** 只做校验不产出请求（用于分镜表批量体检） */
@@ -581,13 +659,6 @@ function digestOf(lib) {
   let h = 0;
   for (let i = 0; i < raw.length; i += 1) h = (h * 31 + raw.charCodeAt(i)) >>> 0;
   return h.toString(16).padStart(8, '0');
-}
-
-function resolutionOf(aspect, quality) {
-  const vertical = aspect === '9:16';
-  if (quality === '1080p') return vertical ? '1080x1920' : '1920x1080';
-  if (quality === '720p') return vertical ? '720x1280' : '1280x720';
-  return vertical ? '576x1024' : '1024x576';
 }
 
 export const compiler = new PromptCompiler();

@@ -636,10 +636,10 @@ async function main() {
     ok('成片页逐集状态可渲染', Array.isArray(autoProject.data.jobStates));
     autoProject.stopJobPolling();
 
-    // —— 10.5 账号体系 + 收益看板 + 九大提示词库（V4.4） ——
+    // —— 10.5 账号体系 + 收益看板 + 提示词库（V4.4 九库 + V4.12 规格库） ——
     const promptRes = await fetch(`${BASE}/api/prompts`).then((r) => r.json()).catch(() => null);
     const pSummary = (promptRes && promptRes.data && promptRes.data.summary) || [];
-    ok('九大提示词库全部可用', pSummary.length === 9 && pSummary.every((x) => x.usable), pSummary.map((x) => x.kind).join(','));
+    ok('九大提示词库 + 用户规格库全部可用', pSummary.length === 10 && pSummary.every((x) => x.usable), pSummary.map((x) => x.kind).join(','));
 
     const smsRes = await fetch(`${BASE}/api/auth/sms`, {
       method: 'POST', headers: { 'content-type': 'application/json' },

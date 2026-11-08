@@ -20,6 +20,7 @@ import { fail, ERR } from '../core/errors.js';
 import { nowIso, round } from '../core/util.js';
 import consistencyChecker from '../qc/ConsistencyChecker.js';
 import consistencyGuard from '../qc/ConsistencyGuard.js';
+import * as specLib from '../prompts/SpecLibrary.js';
 
 /** 证据页固定 7 类，缺一不可（与 §13.2 checklist 对齐） */
 export const EVIDENCE_PAGES = [
@@ -183,6 +184,23 @@ export class CompliancePack {
    * 交付闸门（M4/M5 之间）：一致性 + 证据链 + AI 标识，任一不过即阻断。
    * 这是「一句话成片 → 上传分发」之前最后一道自动关卡。
    */
+  /**
+   * 用户规格体检（V4.12）：交付前核对"做出来的东西"是否还是用户点选的那个规格。
+   * 数据源只用项目与总谱，不去比对已成片段——片段分辨率由上游决定，
+   * 那是 QC 的事；这里管的是集数/时长/画幅/画质这些**我们承诺过**的项。
+   */
+  specAudit(projectId) {
+    const project = db.findOne('projects', (p) => p.id === projectId);
+    // 没有项目本体就不做规格核对（不假装通过，也不冤枉拦下——QC 与五维会先拦）
+    if (!project) return null;
+    const spec = specLib.normalize({ ...(project.spec ?? {}) });
+    const planRec = db.findOne('director_plans', (x) => x.project_id === projectId);
+    const plan = planRec?.plan ?? null;
+    const shots = planRec?.storyboard?.shots ?? null;
+    const report = specLib.audit({ spec, plan, shots });
+    return { ...report, summary_text: specLib.summary(spec) };
+  }
+
   deliveryGate({ projectId, episodeNo = 'E01', threshold = 0.82 }) {
     const qc = consistencyChecker.report(projectId, { threshold, episode: episodeNo });
     // V4.11：五维一致性（角色/道具/场景/内容/声音字幕）是底层强制规则，
@@ -224,14 +242,26 @@ export class CompliancePack {
       });
     }
     for (const p of evidence.problems ?? []) blockers.push({ code: p.code, issue: p.issue });
+    // V4.12：用户规格闸门 —— 用户点了 6 集/90 秒/2K/16:9，交付前必须核对确实是这样。
+    // 与五维一致性分开：一致性管"前后一样吗"，规格管"是用户要的那个东西吗"。
+    let specCheck = null;
+    try {
+      specCheck = this.specAudit(projectId);
+      for (const i of specCheck.issues ?? []) {
+        blockers.push({ code: `SPEC_${String(i.code).toUpperCase()}`, issue: i.text });
+      }
+    } catch {
+      specCheck = null;
+    }
     return {
       ready: blockers.length === 0,
       project_id: projectId,
       episode: episodeNo,
       blockers,
-      warnings,
+      warnings: [...warnings, ...(specCheck?.warnings ?? [])],
       consistency: qc,
       consistency_guard: fiveDim,
+      spec_lock: specCheck,
       evidence,
       next_actions: blockers.length
         ? ['按 drift_shots 的建议重生成或补接比对服务', '重新生成合规包', '再次调用本闸门']

@@ -3,16 +3,16 @@
  * 所有措辞都来自种子库，不在代码里发明提示词。
  */
 import seeds from '../seeds/loader.js';
+import { aspectRules as frameAspectRules } from '../core/frame.js';
 
-/** 画幅 → 英文描述 + 竖屏规则 */
+/**
+ * 画幅 → 英文描述 + 竖屏规则。
+ * V4.12 起统一走 core/frame：之前这里只认 9:16 与 16:9，4:3 与 1:1 会退化成
+ * 一句 "${aspect} framing"，模型收到这种描述基本等于没收到。
+ */
 export function aspectRules(aspect) {
-  const vertical = aspect === '9:16';
-  return {
-    aspect,
-    vertical,
-    en: vertical ? '9:16 vertical framing' : aspect === '16:9' ? '16:9 horizontal framing' : `${aspect} framing`,
-    zh: vertical ? '竖屏 9:16 构图' : aspect === '16:9' ? '横屏 16:9 构图' : `${aspect} 构图`,
-  };
+  const r = frameAspectRules(aspect);
+  return { aspect: r.aspect, vertical: r.vertical, orientation: r.orientation, en: r.en, zh: r.zh, safe_en: r.safe_en, safe_zh: r.safe_zh };
 }
 
 /** P1 总设定 */

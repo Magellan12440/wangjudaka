@@ -1,8 +1,8 @@
 /**
- * 九大提示词库（V4.4）：库必须齐全，且必须真正进入生成请求。
+ * 提示词库（V4.4 九库 + V4.12 第十库「用户规格」）：库必须齐全，且必须真正进入生成请求。
  *
  * 这些用例守住三件事：
- *  1. 九个库都有内容（缺一个就该发版失败，而不是让模型自由发挥）；
+ *  1. 每个库都有内容（缺一个就该发版失败，而不是让模型自由发挥）；
  *  2. 编译器把库内容写进提示词，并在产物上留下可审计的指纹；
  *  3. RelayAdapter 的最后一道闸门会拦住「没有库内容」的请求。
  */
@@ -14,15 +14,18 @@ import { buildSubtitles } from '../src/media/Subtitle.js';
 import seeds from '../src/seeds/loader.js';
 
 const REQUIRED = ['emotion', 'transition', 'movement', 'lighting', 'rhythm', 'bgm', 'fx', 'edit', 'sync'];
+/** 第十个库：内容由用户点选现算，没有条目列表，但同样必须出现在每次生成里 */
+const SPEC = 'spec';
 
-test('九大提示词库全部就位，且每个库都有可用条目', () => {
+test('九大提示词库 + 用户规格库全部就位，且每个库都有可用条目', () => {
   const sum = lib.summary();
   const kinds = sum.map((s) => s.kind).sort();
-  assert.deepEqual(kinds, [...REQUIRED].sort());
+  assert.deepEqual(kinds, [...REQUIRED, SPEC].sort());
   for (const s of sum) {
     assert.ok(s.count > 0, `${s.name} 为空`);
     assert.equal(s.usable, true, `${s.name} 不可用`);
   }
+  assert.equal(sum.find((s) => s.kind === SPEC).derived, true, '规格库应标记为按项目现算');
 });
 
 test('每个库的条目结构完整：code + 名称 + 中文提示', () => {
@@ -37,20 +40,30 @@ test('每个库的条目结构完整：code + 名称 + 中文提示', () => {
   }
 });
 
-test('环节要求：剧本只要情绪+节奏，分镜要四库，剪辑要配方+同步', () => {
-  assert.deepEqual(lib.STAGE_REQUIREMENTS.script, ['emotion', 'rhythm']);
-  assert.deepEqual(lib.STAGE_REQUIREMENTS.storyboard, ['movement', 'lighting', 'transition', 'fx']);
-  assert.deepEqual(lib.STAGE_REQUIREMENTS.edit, ['edit', 'sync', 'transition', 'bgm']);
+test('环节要求：所有环节都必须带用户规格，剧本还要情绪+节奏', () => {
+  for (const [stage, need] of Object.entries(lib.STAGE_REQUIREMENTS)) {
+    assert.ok(need.includes(SPEC), `${stage} 环节漏了用户规格库`);
+  }
+  assert.deepEqual(lib.STAGE_REQUIREMENTS.script, [SPEC, 'emotion', 'rhythm']);
+  assert.deepEqual(lib.STAGE_REQUIREMENTS.storyboard, [SPEC, 'movement', 'lighting', 'transition', 'fx']);
+  assert.deepEqual(lib.STAGE_REQUIREMENTS.edit, [SPEC, 'edit', 'sync', 'transition', 'bgm']);
 });
 
 test('compose：不传 code 时自动取默认，不会出现「空库」', () => {
-  const r = lib.compose('storyboard');
+  const r = lib.compose('storyboard', { __spec: { code: 'SPEC-9x16-1080P-E6-90S-DYN', text: '规格契约' } });
   assert.equal(r.missing.length, 0);
-  assert.equal(r.blocks.length, 4);
+  assert.equal(r.blocks.length, 5);
   for (const b of r.blocks) {
     assert.ok(b.code, `${b.kind} 无默认 code`);
     assert.ok(String(b.text).length > 0, `${b.kind} 默认条目没提示词`);
   }
+});
+
+test('compose：漏传用户规格时报缺（不允许"忘了带用户的选择"）', () => {
+  const r = lib.compose('storyboard');
+  assert.equal(r.missing.length, 1);
+  assert.equal(r.missing[0].kind, SPEC);
+  assert.equal(r.blocks.length, 4);
 });
 
 test('compose：显式指定 code 时按指定来', () => {
@@ -103,7 +116,7 @@ test('编译器：指定 stage=character 会换成情绪+光影', () => {
   });
   assert.equal(p.prompt_libraries.stage, 'character');
   const kinds = p.prompt_libraries.blocks.map((b) => b.kind).sort();
-  assert.deepEqual(kinds, ['emotion', 'lighting']);
+  assert.deepEqual(kinds, ['emotion', 'lighting', SPEC]);
 });
 
 test('字幕同步库真的改变排法：短句库比标准库字更少', () => {

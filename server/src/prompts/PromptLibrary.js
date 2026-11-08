@@ -87,20 +87,35 @@ export const KINDS = {
     codeOf: (x) => x?.code,
     textOf: (x) => [x?.name, x?.prompt_zh, x?.max_chars_per_line && `每行≤${x.max_chars_per_line}字`].filter(Boolean).join('｜'),
   },
+  /**
+   * 第十个库（V4.12）：用户规格。
+   * 与其余九个不同的地方：内容不是从种子文件里选的，而是由用户在开机页点选后
+   * 由 SpecLibrary 现算出来的一段契约文字（画幅/画质/时长/集数/片型/色板）。
+   * 之所以也做成"库"，是为了让它享受同一条强制链——少传就 PROMPT_LIBRARY_MISSING，
+   * 不允许任何一个环节"忘了带用户的要求"。
+   */
+  spec: {
+    name: '用户规格提示词库',
+    hint: '画幅、画质、单集时长、集数、片型、风格色板',
+    list: () => [],
+    byCode: () => null,
+    codeOf: (x) => x?.code,
+    textOf: (x) => x?.text ?? '',
+  },
 };
 
 /** 各环节必须带齐哪些库（少一个就不许生成） */
 export const STAGE_REQUIREMENTS = {
-  /** 剧本创作：情绪走向 + 节奏分配 */
-  script: ['emotion', 'rhythm'],
-  /** 角色生成：情绪底色 + 光影塑形 */
-  character: ['emotion', 'lighting'],
-  /** 分镜图：运镜 + 光影 + 转场 + 特效 */
-  storyboard: ['movement', 'lighting', 'transition', 'fx'],
-  /** 音视频：运镜 + 光影 + 特效 + 配乐 + 情绪 */
-  media: ['movement', 'lighting', 'fx', 'bgm', 'emotion'],
-  /** 剪辑成片：剪辑配方 + 字幕同步 + 转场 + 配乐 */
-  edit: ['edit', 'sync', 'transition', 'bgm'],
+  /** 剧本创作：用户规格 + 情绪走向 + 节奏分配 */
+  script: ['spec', 'emotion', 'rhythm'],
+  /** 角色生成：用户规格 + 情绪底色 + 光影塑形 */
+  character: ['spec', 'emotion', 'lighting'],
+  /** 分镜图：用户规格 + 运镜 + 光影 + 转场 + 特效 */
+  storyboard: ['spec', 'movement', 'lighting', 'transition', 'fx'],
+  /** 音视频：用户规格 + 运镜 + 光影 + 特效 + 配乐 + 情绪 */
+  media: ['spec', 'movement', 'lighting', 'fx', 'bgm', 'emotion'],
+  /** 剪辑成片：用户规格 + 剪辑配方 + 字幕同步 + 转场 + 配乐 */
+  edit: ['spec', 'edit', 'sync', 'transition', 'bgm'],
 };
 
 const DEFAULTS = {
@@ -143,22 +158,28 @@ export function listKind(kind) {
 }
 
 export function summary() {
-  return Object.entries(KINDS).map(([kind, conf]) => ({
-    kind,
-    name: conf.name,
-    hint: conf.hint,
-    count: (conf.list() ?? []).length,
-    usable: (conf.list() ?? []).length > 0,
-    stages: Object.entries(STAGE_REQUIREMENTS)
-      .filter(([, req]) => req.includes(kind))
-      .map(([s]) => s),
-  }));
+  return Object.entries(KINDS).map(([kind, conf]) => {
+    // 规格库是"按项目现算"的，没有条目列表；但它永远可用（只要项目有 spec）
+    const derived = kind === 'spec';
+    return {
+      kind,
+      name: conf.name,
+      hint: conf.hint,
+      count: derived ? 1 : (conf.list() ?? []).length,
+      usable: derived ? true : (conf.list() ?? []).length > 0,
+      derived,
+      stages: Object.entries(STAGE_REQUIREMENTS)
+        .filter(([, req]) => req.includes(kind))
+        .map(([s]) => s),
+    };
+  });
 }
 
 /**
  * 组装某环节的库内容。
  * @param {'script'|'character'|'storyboard'|'media'|'edit'} stage
  * @param {object} codes  { emotion: 'EMO-..', lighting: 'LIG-..' } 传 null 用默认
+ * @param {object} [codes.__spec] { code, text } 用户规格契约（第十个库，由 SpecLibrary 现算）
  */
 export function compose(stage, codes = {}) {
   const need = STAGE_REQUIREMENTS[stage];
@@ -168,6 +189,16 @@ export function compose(stage, codes = {}) {
   const missing = [];
   for (const kind of need) {
     const conf = KINDS[kind];
+    // 规格库不是从种子文件里挑的，而是调用方把用户点选算好传进来
+    if (kind === 'spec') {
+      const given = codes?.__spec;
+      if (!given?.text) {
+        missing.push({ kind, name: conf.name, reason: '未传用户规格（画幅/画质/时长/集数/片型）' });
+        continue;
+      }
+      blocks.push({ kind, name: conf.name, code: given.code ?? 'SPEC', text: given.text });
+      continue;
+    }
     let item = null;
     const asked = codes?.[kind];
     if (asked) item = conf.byCode(asked) ?? null;
